@@ -1,0 +1,161 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+enum Role {
+  USER
+  ADMIN
+  MODERATOR
+}
+
+model User {
+  id            String     @id @default(cuid())
+  name          String?
+  email         String?    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  role          Role       @default(USER)
+  phone         String?
+  title         String?
+  manager       String?
+  department    String?
+  accounts      Account[]
+  sessions      Session[]
+  balances      Balances[]
+}
+
+model LeaveType {
+  id          String   @id @default(cuid())
+  title       String
+  values      String[] @default(["Credit", "Used", "Available"])
+  category    String   // Should be a lower case of the title
+  description String?
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  INMODERATION
+  REJECTED
+}
+
+model Leave {
+  id        String      @id @default(cuid())
+  type      String
+  year      String      @default("")
+  startDate DateTime
+  endDate   DateTime
+  days      Int
+  hours     Float?      @default(0)
+  userName  String
+  userNote  String?
+  tasksLink String?
+  userEmail String
+  status    LeaveStatus @default(PENDING)
+
+  // Head Department (1st approval)
+  headDepartment         String?
+  headDepartmentNote     String?
+  headDepartmentApproved Boolean?  @default(false)
+  headDepartmentAt       DateTime?
+
+  // Manager (2nd / final approval)
+  manager         String?
+  managerNote     String?
+  managerApproved Boolean?  @default(false)
+  managerAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+}
+
+model Balances {
+  id   String @id @default(cuid())
+  year String
+  name  String
+  email String
+
+  // Annual — Float so short leave fractions (e.g. 0.25 days) are stored correctly
+  annualCredit        Float? @default(0)
+  annualUsed          Float? @default(0)
+  annualAvailable     Float? @default(0)
+
+  // Sick
+  sickCredit          Float? @default(0)
+  sickUsed            Float? @default(0)
+  sickAvailable       Float? @default(0)
+
+  // Personal
+  personalCredit      Float? @default(0)
+  personalUsed        Float? @default(0)
+  personalAvailable   Float? @default(0)
+
+  // Maternity
+  maternityCredit     Float? @default(0)
+  maternityUsed       Float? @default(0)
+  maternityAvailable  Float? @default(0)
+
+  // Special
+  specialCredit       Float? @default(0)
+  specialUsed         Float? @default(0)
+  specialAvailable    Float? @default(0)
+
+  // Short leave — hours only, no credit/available cap (deducted from annual above)
+  shortUsed           Float? @default(0)
+
+  user User @relation(fields: [email], references: [email], onDelete: Cascade)
+
+  @@unique([email, year])
+}
+
+model Events {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  startDate   DateTime
+  endDate     DateTime?
+}

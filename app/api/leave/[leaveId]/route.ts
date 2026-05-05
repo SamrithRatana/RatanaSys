@@ -1,0 +1,162 @@
+import calculateAndUpdateBalances from "@/lib/calculateBalances";
+import { getCurrentUser } from "@/lib/session";
+import { LeaveStatus } from "@prisma/client";
+import { NextResponse } from "next/server";
+
+type EditBody = {
+  notes: string;
+  status: LeaveStatus;
+  id: string;
+  days: number;
+  hours?: number;
+  type: string;
+  year: string;
+  email: string;
+  user: string;
+  startDate: string;
+};
+
+function getLeaveLabel(type: string): string {
+  const labels: Record<string, string> = {
+    ANNUAL:    "Annual Leave",
+    SICK:      "Sick Leave",
+    PERSONAL:  "Personal Leave",
+    MATERNITY: "Maternity Leave",
+    SPECIAL:   "Special Leave",
+    SHORT:     "Short Leave",
+  };
+  return labels[type.toUpperCase()] ?? `${type} Leave`;
+}
+
+export async function PATCH(req: Request) {
+  const loggedInUser = await getCurrentUser();
+
+  // Only ADMIN and MODERATOR can act
+  if (loggedInUser?.role !== "ADMIN" && loggedInUser?.role !== "MODERATOR") {
+    return NextResponse.json(
+      { error: "You are not permitted to perform this action" },
+      { status: 403 }
+    );
+  }
+
+  try {
+    const body: EditBody = await req.json();
+    const { notes, status, id, days, type, year, email, user, startDate } = body;
+
+    const isShortLeave = type === "SHORT";
+    const updatedAt    = new Date().toISOString();
+    const actorName    = loggedInUser.name ?? loggedInUser.email ?? "Unknown";
+    const actorRole    = loggedInUser.role; // "ADMIN" | "MODERATOR"
+
+    // Fetch current leave
+    const leave = await prisma.leave.findUnique({ where: { id } });
+    if (!leave) {
+      return NextResponse.json({ error: "Leave not found" }, { status: 404 });
+    }
+
+    // ── REJECTED — both roles can reject at any stage ──────────────────────
+    if (status === LeaveStatus.REJECTED) {
+      await prisma.leave.update({
+        where: { id },
+        data: {
+          status:             LeaveStatus.REJECTED,
+          headDepartment:     leave.headDepartment ?? actorName,
+          headDepartmentNote: notes,
+          updatedAt,
+        },
+      });
+      return NextResponse.json({ message: "Leave rejected" }, { status: 200 });
+    }
+
+    // ── STEP 1 — MODERATOR is Head Department (1st approval) ───────────────
+    if (status === LeaveStatus.APPROVED) {
+
+      if (actorRole === "MODERATOR") {
+        // Moderator can only do step 1
+        if (leave.headDepartmentApproved) {
+          return NextResponse.json(
+            { error: "Head Department has already approved this leave. Awaiting Manager." },
+            { status: 400 }
+          );
+        }
+
+        await prisma.leave.update({
+          where: { id },
+          data: {
+            status:                 LeaveStatus.INMODERATION,
+            headDepartment:         actorName,
+            headDepartmentNote:     notes,
+            headDepartmentApproved: true,
+            headDepartmentAt:       new Date(),
+            updatedAt,
+          },
+        });
+
+        return NextResponse.json(
+          { message: "Head Department approved. Awaiting Manager final approval." },
+          { status: 200 }
+        );
+      }
+
+      // ── STEP 2 — ADMIN is Manager (final approval) ──────────────────────
+      if (actorRole === "ADMIN") {
+        // Admin can only do step 2 — head dept must approve first
+        if (!leave.headDepartmentApproved) {
+          return NextResponse.json(
+            { error: "Head Department must approve first before Manager can approve." },
+            { status: 400 }
+          );
+        }
+
+        if (leave.managerApproved) {
+          return NextResponse.json(
+            { error: "This leave has already been fully approved." },
+            { status: 400 }
+          );
+        }
+
+        const hoursFromDb = Number(leave.hours ?? 0);
+
+        await calculateAndUpdateBalances(
+          email,
+          year,
+          type,
+          isShortLeave ? hoursFromDb : days
+        );
+
+        await prisma.events.create({
+          data: {
+            startDate,
+            title:       `${user} on ${getLeaveLabel(type)}`,
+            description: isShortLeave
+              ? `For ${hoursFromDb} hour${hoursFromDb !== 1 ? "s" : ""}`
+              : `For ${days} day${days !== 1 ? "s" : ""}`,
+          },
+        });
+
+        await prisma.leave.update({
+          where: { id },
+          data: {
+            status:          LeaveStatus.APPROVED,
+            manager:         actorName,
+            managerNote:     notes,
+            managerApproved: true,
+            managerAt:       new Date(),
+            updatedAt,
+          },
+        });
+
+        return NextResponse.json(
+          { message: "Manager approved. Leave fully approved!" },
+          { status: 200 }
+        );
+      }
+    }
+
+    return NextResponse.json({ error: "Invalid approval state" }, { status: 400 });
+
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}

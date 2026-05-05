@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "Balances" ADD COLUMN     "shortUsed" DOUBLE PRECISION DEFAULT 0;
+
+-- AlterTable
+ALTER TABLE "Leave" ADD COLUMN     "hours" DOUBLE PRECISION DEFAULT 0;
