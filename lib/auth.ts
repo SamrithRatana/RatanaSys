@@ -8,71 +8,21 @@ import bcrypt from "bcryptjs";
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as Adapter,
-
-  // ✅ Remove useSecureCookies: true — your container runs HTTP internally
-  // ✅ Use plain cookie names WITHOUT __Secure- prefix
-  cookies: {
-    state: {
-      name: "next-auth.state",
-      options: {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        secure: false, // ← false because Node.js receives HTTP from proxy
-        maxAge: 900,
-      },
-    },
-    pkceCodeVerifier: {
-      name: "next-auth.pkce.code_verifier",
-      options: {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        secure: false, // ← same reason
-        maxAge: 900,
-      },
-    },
-    callbackUrl: {
-      name: "next-auth.callback-url",
-      options: {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        secure: false,
-      },
-    },
-    sessionToken: {
-      name: "next-auth.session-token",
-      options: {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        secure: false,
-      },
-    },
-  },
-
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID as string,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
-      authorization: {
-        params: {
-          prompt: "select_account",
-          access_type: "offline",
-          response_type: "code",
-        },
-      },
     }),
     CredentialsProvider({
       name: "Credentials",
       credentials: {
-        identifier: { label: "Email or Username", type: "text" },
+        identifier: { label: "Email or Username", type: "text" },  // ← changed
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
         if (!credentials?.identifier || !credentials?.password) return null;
 
+        // Find by email OR name
         const user = await prisma.user.findFirst({
           where: {
             OR: [
@@ -97,21 +47,16 @@ export const authOptions: NextAuthOptions = {
       },
     }),
   ],
-
   secret: process.env.NEXTAUTH_SECRET as string,
-
   pages: {
     signIn: "/login",
   },
-
   session: {
     strategy: "jwt",
   },
-
   jwt: {
     secret: process.env.NEXTAUTH_JWT_SECRET as string,
   },
-
   callbacks: {
     async signIn({ user, account }) {
       if (account?.provider === "google") {
