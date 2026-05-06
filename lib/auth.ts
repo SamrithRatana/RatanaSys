@@ -9,45 +9,45 @@ import bcrypt from "bcryptjs";
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as Adapter,
 
-  // ✅ Fix: explicitly configure cookies for proxy/HTTPS environment
-  useSecureCookies: true,
+  // ✅ Remove useSecureCookies: true — your container runs HTTP internally
+  // ✅ Use plain cookie names WITHOUT __Secure- prefix
   cookies: {
     state: {
-      name: "__Secure-next-auth.state",
+      name: "next-auth.state",
       options: {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
-        secure: true,
+        secure: false, // ← false because Node.js receives HTTP from proxy
         maxAge: 900,
       },
     },
     pkceCodeVerifier: {
-      name: "__Secure-next-auth.pkce.code_verifier",
+      name: "next-auth.pkce.code_verifier",
       options: {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
-        secure: true,
+        secure: false, // ← same reason
         maxAge: 900,
       },
     },
-    sessionToken: {
-      name: "__Secure-next-auth.session-token",
+    callbackUrl: {
+      name: "next-auth.callback-url",
       options: {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
-        secure: true,
+        secure: false,
       },
     },
-    callbackUrl: {
-      name: "__Secure-next-auth.callback-url",
+    sessionToken: {
+      name: "next-auth.session-token",
       options: {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
-        secure: true,
+        secure: false,
       },
     },
   },
