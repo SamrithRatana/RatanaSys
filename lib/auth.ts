@@ -9,9 +9,6 @@ import bcrypt from "bcryptjs";
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as Adapter,
 
-  // ✅ ADD THESE
-  trustHost: true,
-  useSecureCookies: true,
   cookies: {
     pkceCodeVerifier: {
       name: "next-auth.pkce.code_verifier",
