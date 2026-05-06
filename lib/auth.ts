@@ -9,21 +9,32 @@ import bcrypt from "bcryptjs";
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as Adapter,
 
+  // ✅ UPDATED COOKIE CONFIG
+  useSecureCookies: true,
   cookies: {
-    state: {
-      name: "next-auth.state",
+    sessionToken: {
+      name: `__Secure-next-auth.session-token`,
       options: {
         httpOnly: true,
-        sameSite: "none",
+        sameSite: "lax",
+        path: "/",
+        secure: true,
+      },
+    },
+    state: {
+      name: `__Secure-next-auth.state`,
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
         path: "/",
         secure: true,
       },
     },
     pkceCodeVerifier: {
-      name: "next-auth.pkce.code_verifier",
+      name: `__Secure-next-auth.pkce.code_verifier`,
       options: {
         httpOnly: true,
-        sameSite: "none",
+        sameSite: "lax",
         path: "/",
         secure: true,
       },
