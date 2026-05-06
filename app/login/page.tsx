@@ -1,5 +1,6 @@
-import AuthComponent from '@/components/Other/AuthComponent'
+export const dynamic = "force-dynamic";
 
+import AuthComponent from '@/components/Other/AuthComponent'
 
 const LoginPage = () => {
   return (
