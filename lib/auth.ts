@@ -6,37 +6,68 @@ import { Adapter } from "next-auth/adapters";
 import prisma from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 
+const useSecure = process.env.NEXTAUTH_URL?.startsWith("https://") ?? false;
+
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as Adapter,
 
-  // ✅ UPDATED COOKIE CONFIG
-  useSecureCookies: true,
+  useSecureCookies: useSecure,
+
   cookies: {
     sessionToken: {
-      name: `__Secure-next-auth.session-token`,
+      name: useSecure
+        ? "__Secure-next-auth.session-token"
+        : "next-auth.session-token",
       options: {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
-        secure: true,
+        secure: useSecure,
+      },
+    },
+    callbackUrl: {
+      name: useSecure
+        ? "__Secure-next-auth.callback-url"
+        : "next-auth.callback-url",
+      options: {
+        sameSite: "lax",
+        path: "/",
+        secure: useSecure,
+      },
+    },
+    csrfToken: {
+      name: useSecure
+        ? "__Host-next-auth.csrf-token"
+        : "next-auth.csrf-token",
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: useSecure,
       },
     },
     state: {
-      name: `__Secure-next-auth.state`,
+      name: useSecure
+        ? "__Secure-next-auth.state"
+        : "next-auth.state",
       options: {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
-        secure: true,
+        secure: useSecure,
+        maxAge: 900,
       },
     },
     pkceCodeVerifier: {
-      name: `__Secure-next-auth.pkce.code_verifier`,
+      name: useSecure
+        ? "__Secure-next-auth.pkce.code_verifier"
+        : "next-auth.pkce.code_verifier",
       options: {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
-        secure: true,
+        secure: useSecure,
+        maxAge: 900,
       },
     },
   },
@@ -45,6 +76,13 @@ export const authOptions: NextAuthOptions = {
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID as string,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+      authorization: {
+        params: {
+          prompt: "consent",
+          access_type: "offline",
+          response_type: "code",
+        },
+      },
     }),
     CredentialsProvider({
       name: "Credentials",
