@@ -1,4 +1,5 @@
 import { getCurrentUser } from "@/lib/session";
+import prisma from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import { startOfMonth, subMonths, endOfMonth } from "date-fns";
 
@@ -44,8 +45,8 @@ export async function GET() {
     ]);
 
     // ── Balances Added — no createdAt on Balances, filter by year ───────────
-    const currentYear   = now.getFullYear().toString();
-    const lastYear      = (now.getFullYear() - 1).toString();
+    const currentYear = now.getFullYear().toString();
+    const lastYear    = (now.getFullYear() - 1).toString();
 
     const [balancesAdded, lastYearBalances] = await Promise.all([
       prisma.balances.count({ where: { year: currentYear } }),
@@ -54,7 +55,7 @@ export async function GET() {
 
     return NextResponse.json({
       totalLeaves:    { value: totalLeaves,    change: totalLeaves - lastMonthLeaves },
-      totalUsers:     { value: totalUsers,     change: 0 }, // no createdAt to diff
+      totalUsers:     { value: totalUsers,     change: 0 },
       upcomingEvents: { value: upcomingEvents, change: upcomingEvents - lastMonthEvents },
       balancesAdded:  { value: balancesAdded,  change: balancesAdded - lastYearBalances },
     });

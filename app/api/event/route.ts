@@ -1,4 +1,5 @@
 import { getCurrentUser } from "@/lib/session";
+import prisma from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
 
 type SubmittedEvent = {
@@ -10,13 +11,13 @@ type SubmittedEvent = {
 export async function POST(req: NextRequest) {
   const loggedInUser = await getCurrentUser();
   if (loggedInUser?.role !== "ADMIN") {
-    throw new Error("You are not permitted to perfom this action");
+    throw new Error("You are not permitted to perform this action");
   }
 
   try {
     const body: SubmittedEvent = await req.json();
-
     const { title, description, startDate } = body;
+
     await prisma.events.create({
       data: {
         startDate,

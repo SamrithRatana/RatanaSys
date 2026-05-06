@@ -1,4 +1,5 @@
 import { getCurrentUser } from "@/lib/session";
+import prisma from "@/lib/prisma";
 import { Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 
@@ -13,12 +14,11 @@ type EditUserBody = {
 export async function PATCH(req: Request) {
   const loggedInUser = await getCurrentUser();
   if (loggedInUser?.role !== "ADMIN") {
-    throw new Error("You are not permitted to perfom this action");
+    throw new Error("You are not permitted to perform this action");
   }
 
   try {
     const body: EditUserBody = await req.json();
-
     const { phone, department, id, role, title } = body;
 
     await prisma.user.update({

@@ -1,5 +1,6 @@
 import calculateAndUpdateBalances from "@/lib/calculateBalances";
 import { getCurrentUser } from "@/lib/session";
+import prisma from "@/lib/prisma";
 import { LeaveStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 
@@ -31,7 +32,6 @@ function getLeaveLabel(type: string): string {
 export async function PATCH(req: Request) {
   const loggedInUser = await getCurrentUser();
 
-  // Only ADMIN and MODERATOR can act
   if (loggedInUser?.role !== "ADMIN" && loggedInUser?.role !== "MODERATOR") {
     return NextResponse.json(
       { error: "You are not permitted to perform this action" },
@@ -46,15 +46,14 @@ export async function PATCH(req: Request) {
     const isShortLeave = type === "SHORT";
     const updatedAt    = new Date().toISOString();
     const actorName    = loggedInUser.name ?? loggedInUser.email ?? "Unknown";
-    const actorRole    = loggedInUser.role; // "ADMIN" | "MODERATOR"
+    const actorRole    = loggedInUser.role;
 
-    // Fetch current leave
     const leave = await prisma.leave.findUnique({ where: { id } });
     if (!leave) {
       return NextResponse.json({ error: "Leave not found" }, { status: 404 });
     }
 
-    // ── REJECTED — both roles can reject at any stage ──────────────────────
+    // ── REJECTED ────────────────────────────────────────────────────────────
     if (status === LeaveStatus.REJECTED) {
       await prisma.leave.update({
         where: { id },
@@ -68,11 +67,10 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ message: "Leave rejected" }, { status: 200 });
     }
 
-    // ── STEP 1 — MODERATOR is Head Department (1st approval) ───────────────
+    // ── STEP 1 — MODERATOR (Head Department) ────────────────────────────────
     if (status === LeaveStatus.APPROVED) {
 
       if (actorRole === "MODERATOR") {
-        // Moderator can only do step 1
         if (leave.headDepartmentApproved) {
           return NextResponse.json(
             { error: "Head Department has already approved this leave. Awaiting Manager." },
@@ -98,9 +96,8 @@ export async function PATCH(req: Request) {
         );
       }
 
-      // ── STEP 2 — ADMIN is Manager (final approval) ──────────────────────
+      // ── STEP 2 — ADMIN (Manager final approval) ──────────────────────────
       if (actorRole === "ADMIN") {
-        // Admin can only do step 2 — head dept must approve first
         if (!leave.headDepartmentApproved) {
           return NextResponse.json(
             { error: "Head Department must approve first before Manager can approve." },

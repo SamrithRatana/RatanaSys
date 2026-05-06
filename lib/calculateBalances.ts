@@ -1,4 +1,5 @@
 import { Balances } from "@prisma/client";
+import prisma from "@/lib/prisma";
 
 export default async function calculateAndUpdateBalances(
   email: string,
