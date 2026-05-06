@@ -12,30 +12,15 @@ export const authOptions: NextAuthOptions = {
   cookies: {
     pkceCodeVerifier: {
       name: "next-auth.pkce.code_verifier",
-      options: {
-        httpOnly: true,
-        sameSite: "none",
-        path: "/",
-        secure: true,
-      },
+      options: { httpOnly: true, sameSite: "none", path: "/", secure: true },
     },
     state: {
       name: "next-auth.state",
-      options: {
-        httpOnly: true,
-        sameSite: "none",
-        path: "/",
-        secure: true,
-      },
+      options: { httpOnly: true, sameSite: "none", path: "/", secure: true },
     },
     sessionToken: {
       name: "next-auth.session-token",
-      options: {
-        httpOnly: true,
-        sameSite: "none",
-        path: "/",
-        secure: true,
-      },
+      options: { httpOnly: true, sameSite: "none", path: "/", secure: true },
     },
   },
 
@@ -43,6 +28,7 @@ export const authOptions: NextAuthOptions = {
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID as string,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+      allowDangerousEmailAccountLinking: true, // ← prevents duplicate account error
     }),
     CredentialsProvider({
       name: "Credentials",
@@ -82,10 +68,12 @@ export const authOptions: NextAuthOptions = {
 
   pages: {
     signIn: "/login",
+    error: "/login", // ← redirect errors back to login page
   },
 
   session: {
     strategy: "jwt",
+    maxAge: 30 * 24 * 60 * 60,
   },
 
   jwt: {
@@ -95,18 +83,25 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async signIn({ user, account }) {
       if (account?.provider === "google") {
-        if (!user.email?.endsWith(process.env.ALLOWED_DOMAIN as string)) {
-          throw new Error("You are not allowed to access this platform");
+        const allowed = process.env.ALLOWED_DOMAIN as string;
+        // ← return false instead of throw, prevents bad redirect
+        if (!user.email?.endsWith(allowed)) {
+          return false;
         }
       }
       return true;
     },
 
-    jwt: async ({ token, user }) => {
+    jwt: async ({ token, user, account }) => {
       if (user) {
-        token.role = (user as any).role;
+        // ← fetch role from DB since Google users won't have role in token
+        const dbUser = await prisma.user.findUnique({
+          where: { email: user.email as string },
+        });
+        token.role = dbUser?.role ?? (user as any).role;
         token.image = user.image;
         token.name = user.name;
+        token.id = user.id;
       }
       return token;
     },
@@ -118,6 +113,13 @@ export const authOptions: NextAuthOptions = {
         session.user.name = token.name as string;
       }
       return session;
+    },
+
+    async redirect({ url, baseUrl }) {
+      // ← ensure callbackUrl is always respected
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      if (url.startsWith(baseUrl)) return url;
+      return `${baseUrl}/portal`;
     },
   },
 };
