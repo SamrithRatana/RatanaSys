@@ -107,8 +107,6 @@ const RequestForm = ({ user }: Props) => {
       const isShort = values.leave === "ANNUAL" && values.annualSubType === "SHORT";
       const resolvedType = isShort ? "SHORT" : values.leave;
 
-      // ✅ Mirror the same fallback chain as /api/balance
-      // so the lookup key always matches what was stored when credits were added
       const effectiveEmail =
         user.email ??
         ((user as any).telegramId
@@ -128,7 +126,7 @@ const RequestForm = ({ user }: Props) => {
         hours: isShort ? Number(values.hours) : undefined,
         user: {
           ...user,
-          email: effectiveEmail, // ✅ always a non-null string
+          email: effectiveEmail,
         },
       };
 
@@ -143,15 +141,8 @@ const RequestForm = ({ user }: Props) => {
         form.reset();
       } else {
         const data = await res.json();
-
-        if (data.error === "INSUFFICIENT_BALANCE") {
-          toast.error(
-            "Insufficient balance. Please contact Admin or HR.",
-            { duration: 6000 }
-          );
-          return;
-        }
-
+        // ✅ INSUFFICIENT_BALANCE check removed — users can now submit
+        // even when balance is 0 or negative (will show as deficit in balances table)
         toast.error(`An error occurred: ${JSON.stringify(data)}`, { duration: 6000 });
       }
     } catch (error) {
