@@ -1,21 +1,8 @@
 "use client";
 
-/**
- * SystemIntegration.tsx
- *
- * Drop this component into the sidebar near the dark-mode toggle and logout button.
- *
- * Props:
- *   user          – the current NextAuth session user (with accounts & telegramId)
- *   onGoogleLink  – async callback to trigger Google OAuth linking
- *   onTelegramLink– async callback to open Telegram linking flow
- *
- * Usage in sidebar:
- *   <SystemIntegration user={sessionUser} onGoogleLink={handleGoogleLink} onTelegramLink={handleTelegramLink} />
- */
-
-import { useState } from "react";
-import { ShieldCheck, Link2, Globe, X, ExternalLink, CheckCircle2, AlertCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { signIn } from "next-auth/react";
+import { ShieldCheck, Link2, Globe, X, CheckCircle2, AlertCircle } from "lucide-react";
 import { FaTelegram } from "react-icons/fa";
 import { cn } from "@/lib/utils";
 
@@ -28,9 +15,15 @@ type IntegrationUser = {
 
 type SystemIntegrationProps = {
   user: IntegrationUser;
-  onGoogleLink?: () => Promise<void>;
-  onTelegramLink?: () => Promise<void>;
 };
+
+// ─── Telegram global callback type ───────────────────────────────────────────
+
+declare global {
+  interface Window {
+    onTelegramAuth: (user: any) => void;
+  }
+}
 
 // ─── Google SVG ───────────────────────────────────────────────────────────────
 
@@ -45,103 +38,88 @@ function GoogleIcon({ className }: { className?: string }) {
   );
 }
 
-// ─── Integration Row ──────────────────────────────────────────────────────────
-
-type IntegrationRowProps = {
-  icon: React.ReactNode;
-  label: string;
-  description: string;
-  connected: boolean;
-  alwaysConnected?: boolean;
-  onConnect?: () => Promise<void>;
-};
-
-function IntegrationRow({
-  icon,
-  label,
-  description,
-  connected,
-  alwaysConnected = false,
-  onConnect,
-}: IntegrationRowProps) {
-  const [loading, setLoading] = useState(false);
-
-  async function handleConnect() {
-    if (!onConnect) return;
-    setLoading(true);
-    try {
-      await onConnect();
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-3 rounded-xl border px-4 py-3 transition-all",
-        connected
-          ? "border-emerald-200 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-950/30"
-          : "border-dashed border-muted-foreground/30 bg-muted/30 dark:bg-muted/10"
-      )}
-    >
-      {/* Icon */}
-      <div
-        className={cn(
-          "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
-          connected ? "bg-white shadow-sm dark:bg-muted" : "bg-muted/60 grayscale opacity-60"
-        )}
-      >
-        {icon}
-      </div>
-
-      {/* Label + description */}
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold leading-none text-foreground mb-0.5">{label}</p>
-        <p className="text-[11px] text-muted-foreground truncate">{description}</p>
-      </div>
-
-      {/* Status / Action */}
-      {alwaysConnected || connected ? (
-        <span className="flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2.5 py-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400 shrink-0">
-          <CheckCircle2 className="h-3 w-3" />
-          Connected
-        </span>
-      ) : (
-        <button
-          onClick={handleConnect}
-          disabled={loading || !onConnect}
-          className={cn(
-            "flex items-center gap-1 rounded-full border border-[#0EA5E9]/50 px-2.5 py-1 text-[11px] font-medium text-[#0EA5E9] transition-all shrink-0",
-            "hover:bg-[#0EA5E9]/10 hover:border-[#0EA5E9] active:scale-95",
-            (loading || !onConnect) && "opacity-50 cursor-not-allowed"
-          )}
-        >
-          {loading ? (
-            <span className="h-3 w-3 rounded-full border-2 border-[#0EA5E9] border-t-transparent animate-spin" />
-          ) : (
-            <Link2 className="h-3 w-3" />
-          )}
-          {loading ? "Linking…" : "Connect"}
-        </button>
-      )}
-    </div>
-  );
-}
-
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function SystemIntegration({
-  user,
-  onGoogleLink,
-  onTelegramLink,
-}: SystemIntegrationProps) {
-  const [open, setOpen] = useState(false);
+export default function SystemIntegration({ user }: SystemIntegrationProps) {
+  const [open, setOpen]                         = useState(false);
+  const [googleLoading, setGoogleLoading]       = useState(false);
+  const [telegramLoading, setTelegramLoading]   = useState(false);
+  const [telegramError, setTelegramError]       = useState("");
+  const [showTelegramWidget, setShowTelegramWidget] = useState(false);
+  const telegramRef = useRef<HTMLDivElement>(null);
 
   const hasGoogle   = user.accounts?.some((a) => a.provider === "google") ?? false;
   const hasTelegram = !!user.telegramId;
+  const connectedCount = [true, hasGoogle, hasTelegram].filter(Boolean).length;
 
-  const connectedCount = [hasGoogle, hasTelegram, true].filter(Boolean).length; // domain always connected
+  // ── Inject Telegram widget when Connect is clicked ────────────────────────
+  useEffect(() => {
+    if (!showTelegramWidget || !telegramRef.current) return;
+
+    telegramRef.current.innerHTML = "";
+
+    // Same global callback as AuthForm
+    window.onTelegramAuth = async (tgUser: any) => {
+      setTelegramLoading(true);
+      setTelegramError("");
+      try {
+        const res = await fetch("/api/telegram/callback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(tgUser),
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.tempToken) {
+          setTelegramError(data.error || "Telegram linking failed");
+          setTelegramLoading(false);
+          return;
+        }
+
+        const result = await signIn("telegram-phone", {
+          tempToken: data.tempToken,
+          callbackUrl: window.location.href,
+          redirect: false,
+        });
+
+        if (result?.error) {
+          setTelegramError("Authentication failed. Please try again.");
+        } else if (result?.url) {
+          window.location.href = result.url;
+        }
+      } catch {
+        setTelegramError("Network error. Please try again.");
+      } finally {
+        setTelegramLoading(false);
+      }
+    };
+
+    const script = document.createElement("script");
+    script.src = "https://telegram.org/js/telegram-widget.js?22";
+    script.setAttribute("data-telegram-login", "camprotec_auth_bot");
+    script.setAttribute("data-size", "large");
+    script.setAttribute("data-onauth", "onTelegramAuth(user)");
+    script.setAttribute("data-request-access", "write");
+    script.async = true;
+    telegramRef.current.appendChild(script);
+  }, [showTelegramWidget]);
+
+  // ── Reset state when panel closes ─────────────────────────────────────────
+  useEffect(() => {
+    if (!open) {
+      setShowTelegramWidget(false);
+      setTelegramError("");
+      setTelegramLoading(false);
+      setGoogleLoading(false);
+    }
+  }, [open]);
+
+  // ── Google link ───────────────────────────────────────────────────────────
+  async function handleGoogleLink() {
+    setGoogleLoading(true);
+    await signIn("google", { callbackUrl: window.location.href });
+    setGoogleLoading(false);
+  }
 
   return (
     <>
@@ -151,19 +129,14 @@ export default function SystemIntegration({
         title="System Integration"
         className={cn(
           "group relative flex h-9 w-9 items-center justify-center rounded-lg transition-all",
-          "hover:bg-[#0EA5E9]/10 hover:text-[#0EA5E9]",
-          "text-muted-foreground",
+          "hover:bg-[#0EA5E9]/10 hover:text-[#0EA5E9] text-muted-foreground",
           open && "bg-[#0EA5E9]/10 text-[#0EA5E9]"
         )}
       >
         <ShieldCheck className="h-5 w-5" />
-
-        {/* Small badge showing connected count */}
         <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-[9px] font-bold text-white shadow">
           {connectedCount}
         </span>
-
-        {/* Tooltip */}
         <span className="pointer-events-none absolute left-11 z-50 whitespace-nowrap rounded-md bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md opacity-0 transition-opacity group-hover:opacity-100 border border-border">
           System Integration
         </span>
@@ -175,10 +148,8 @@ export default function SystemIntegration({
           className="fixed inset-0 z-50 flex items-end justify-start"
           onClick={() => setOpen(false)}
         >
-          {/* Backdrop */}
           <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" />
 
-          {/* Panel — positioned above the sidebar icons */}
           <div
             className="relative z-10 ml-3 mb-20 w-80 rounded-2xl border border-border bg-background shadow-2xl"
             onClick={(e) => e.stopPropagation()}
@@ -205,38 +176,127 @@ export default function SystemIntegration({
 
             <div className="h-px bg-border mx-5 mb-4" />
 
-            {/* Integration Rows */}
             <div className="flex flex-col gap-2.5 px-5 pb-5">
 
-              {/* Domain — always connected */}
-              <IntegrationRow
-                icon={<Globe className="h-4 w-4 text-[#0EA5E9]" />}
-                label="system.camprotec.com.kh"
-                description="Primary domain — always active"
-                connected={true}
-                alwaysConnected={true}
-              />
+              {/* ── Domain — always connected ── */}
+              <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-950/30 px-4 py-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm dark:bg-muted">
+                  <Globe className="h-4 w-4 text-[#0EA5E9]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold leading-none text-foreground mb-0.5">
+                    system.camprotec.com.kh
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">Primary domain — always active</p>
+                </div>
+                <span className="flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2.5 py-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400 shrink-0">
+                  <CheckCircle2 className="h-3 w-3" />
+                  Connected
+                </span>
+              </div>
 
-              {/* Google */}
-              <IntegrationRow
-                icon={<GoogleIcon className="h-5 w-5" />}
-                label="Google"
-                description={hasGoogle ? "Signed in with Google OAuth" : "Link your Google account"}
-                connected={hasGoogle}
-                onConnect={onGoogleLink}
-              />
+              {/* ── Google ── */}
+              <div className={cn(
+                "flex flex-col gap-2 rounded-xl border px-4 py-3 transition-all",
+                hasGoogle
+                  ? "border-emerald-200 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-950/30"
+                  : "border-dashed border-muted-foreground/30 bg-muted/30 dark:bg-muted/10"
+              )}>
+                <div className="flex items-center gap-3">
+                  <div className={cn(
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                    hasGoogle ? "bg-white shadow-sm dark:bg-muted" : "bg-muted/60 grayscale opacity-60"
+                  )}>
+                    <GoogleIcon className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold leading-none text-foreground mb-0.5">Google</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {hasGoogle ? "Signed in with Google OAuth" : "Link your Google account"}
+                    </p>
+                  </div>
+                  {hasGoogle ? (
+                    <span className="flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2.5 py-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400 shrink-0">
+                      <CheckCircle2 className="h-3 w-3" />
+                      Connected
+                    </span>
+                  ) : (
+                    <button
+                      onClick={handleGoogleLink}
+                      disabled={googleLoading}
+                      className={cn(
+                        "flex items-center gap-1 rounded-full border border-[#0EA5E9]/50 px-2.5 py-1 text-[11px] font-medium text-[#0EA5E9] transition-all shrink-0",
+                        "hover:bg-[#0EA5E9]/10 hover:border-[#0EA5E9] active:scale-95",
+                        googleLoading && "opacity-50 cursor-not-allowed"
+                      )}
+                    >
+                      {googleLoading
+                        ? <span className="h-3 w-3 rounded-full border-2 border-[#0EA5E9] border-t-transparent animate-spin" />
+                        : <Link2 className="h-3 w-3" />
+                      }
+                      {googleLoading ? "Linking…" : "Connect"}
+                    </button>
+                  )}
+                </div>
+              </div>
 
-              {/* Telegram */}
-              <IntegrationRow
-                icon={<FaTelegram className="h-5 w-5 text-[#26A5E4]" />}
-                label="Telegram"
-                description={hasTelegram ? "Telegram account linked" : "Link via Telegram bot"}
-                connected={hasTelegram}
-                onConnect={onTelegramLink}
-              />
+              {/* ── Telegram ── */}
+              <div className={cn(
+                "flex flex-col gap-2 rounded-xl border px-4 py-3 transition-all",
+                hasTelegram
+                  ? "border-emerald-200 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-950/30"
+                  : "border-dashed border-muted-foreground/30 bg-muted/30 dark:bg-muted/10"
+              )}>
+                <div className="flex items-center gap-3">
+                  <div className={cn(
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                    hasTelegram ? "bg-white shadow-sm dark:bg-muted" : "bg-muted/60 grayscale opacity-60"
+                  )}>
+                    <FaTelegram className={cn("h-5 w-5", hasTelegram ? "text-[#26A5E4]" : "text-muted-foreground")} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold leading-none text-foreground mb-0.5">Telegram</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {hasTelegram ? "Telegram account linked" : "Link via Telegram bot"}
+                    </p>
+                  </div>
+                  {hasTelegram ? (
+                    <span className="flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2.5 py-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400 shrink-0">
+                      <CheckCircle2 className="h-3 w-3" />
+                      Connected
+                    </span>
+                  ) : !showTelegramWidget ? (
+                    <button
+                      onClick={() => setShowTelegramWidget(true)}
+                      className="flex items-center gap-1 rounded-full border border-[#26A5E4]/50 px-2.5 py-1 text-[11px] font-medium text-[#26A5E4] transition-all shrink-0 hover:bg-[#26A5E4]/10 hover:border-[#26A5E4] active:scale-95"
+                    >
+                      <Link2 className="h-3 w-3" />
+                      Connect
+                    </button>
+                  ) : null}
+                </div>
+
+                {/* Telegram widget renders inline after Connect is clicked */}
+                {!hasTelegram && showTelegramWidget && (
+                  <div className="pt-1">
+                    {telegramError && (
+                      <p className="text-[11px] text-destructive mb-2">{telegramError}</p>
+                    )}
+                    {telegramLoading ? (
+                      <p className="text-[11px] text-muted-foreground text-center py-2">Signing in…</p>
+                    ) : (
+                      <div ref={telegramRef} className="flex justify-center" />
+                    )}
+                    <p className="text-[10px] text-muted-foreground text-center mt-1">
+                      Your Telegram profile will be used to link your account
+                    </p>
+                  </div>
+                )}
+              </div>
+
             </div>
 
-            {/* Footer hint */}
+            {/* Footer */}
             <div className="mx-5 mb-5 flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2.5">
               <AlertCircle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
               <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">

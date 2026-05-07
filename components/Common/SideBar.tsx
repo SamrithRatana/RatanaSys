@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 import Image from "next/image";
 import { AdminRoutes, ModeratorRoutes, UserRoutes } from "./Routes";
@@ -7,11 +5,9 @@ import { RenderIconsRoutes } from "./RenderRoutes";
 import ToggleDarkLight from "./ToggleDarkLight";
 import LogoutBtn from "./LogoutBtn";
 import { User } from "@prisma/client";
-import { signIn } from "next-auth/react";
-import SystemIntegration from "../SystemIntegration";
 
 type SideBarProps = {
-  user: User & { accounts?: { provider: string }[] };
+  user: User;
 };
 
 const SideBar = ({ user }: SideBarProps) => {
@@ -28,38 +24,25 @@ const SideBar = ({ user }: SideBarProps) => {
   };
 
   return (
-    <div className="hidden fixed inset-y-0 left-0 sm:block w-[5rem] bg-white rounded-lg overflow-hidden dark:bg-black dark:border-r">
+    <div className="hidden fixed  inset-y-0 left-0 sm:block w-[5rem] bg-white rounded-lg overflow-hidden dark:bg-black dark:border-r">
       <div className="flex flex-col items-center justify-between h-full">
-
-        {/* TOP PART */}
+        {/* TOP PART  */}
         <div>
           <div className="my-8">
             <Image src="/spana-b.png" width={50} height={50} alt="logo" />
           </div>
 
           <nav className="flex flex-col items-center px-3 overflow-y-auto">
-            {user?.role === "ADMIN"     && adminIconsRouter()}
-            {user?.role === "USER"      && userIconsRouter()}
+            {user?.role === "ADMIN" && adminIconsRouter()}
+            {user?.role === "USER" && userIconsRouter()}
             {user?.role === "MODERATOR" && moderatorIconsRouter()}
           </nav>
         </div>
-
-        {/* BOTTOM PART */}
+        {/* BOTTOM PART  */}
         <div className="flex flex-col items-center space-y-6 my-8">
-          <SystemIntegration
-            user={user}
-            onGoogleLink={async () => {
-              await signIn("google");
-            }}
-            onTelegramLink={async () => {
-              // Replace with your actual Telegram bot link
-              window.open("https://t.me/YourBotName?start=link", "_blank");
-            }}
-          />
           <LogoutBtn />
           <ToggleDarkLight />
         </div>
-
       </div>
     </div>
   );
