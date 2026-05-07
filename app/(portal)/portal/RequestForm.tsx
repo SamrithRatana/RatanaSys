@@ -85,6 +85,8 @@ const formSchema = z
 
 const RequestForm = ({ user }: Props) => {
   const [open, setOpen] = useState(false);
+  const [openStartDate, setOpenStartDate] = useState(false); // ✅ new
+  const [openEndDate, setOpenEndDate] = useState(false);     // ✅ new
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -155,7 +157,7 @@ const RequestForm = ({ user }: Props) => {
             render={({ field }) => (
               <FormItem className="flex flex-col">
                 <FormLabel>Leave Type</FormLabel>
-                <Popover modal={true}>  {/* ✅ FIX 1 */}
+                <Popover modal={true}>
                   <PopoverTrigger asChild>
                     <FormControl>
                       <Button
@@ -286,7 +288,7 @@ const RequestForm = ({ user }: Props) => {
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
                     <FormLabel>{isShortLeave ? "Date" : "Start Date"}</FormLabel>
-                    <Popover modal={true}>  {/* ✅ FIX 2 */}
+                    <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}> {/* ✅ */}
                       <PopoverTrigger asChild>
                         <FormControl>
                           <Button
@@ -302,7 +304,10 @@ const RequestForm = ({ user }: Props) => {
                         <Calendar
                           mode="single"
                           selected={field.value}
-                          onSelect={field.onChange}
+                          onSelect={(date) => {
+                            field.onChange(date);
+                            setOpenStartDate(false); // ✅ close on select
+                          }}
                           disabled={(date: Date) => {
                             const today = new Date();
                             const currentYear = today.getFullYear();
@@ -353,7 +358,7 @@ const RequestForm = ({ user }: Props) => {
                   render={({ field }) => (
                     <FormItem className="flex flex-col">
                       <FormLabel>End Date</FormLabel>
-                      <Popover modal={true}>  {/* ✅ FIX 3 */}
+                      <Popover modal={true} open={openEndDate} onOpenChange={setOpenEndDate}> {/* ✅ */}
                         <PopoverTrigger asChild>
                           <FormControl>
                             <Button
@@ -369,7 +374,10 @@ const RequestForm = ({ user }: Props) => {
                           <Calendar
                             mode="single"
                             selected={field.value}
-                            onSelect={field.onChange}
+                            onSelect={(date) => {
+                              field.onChange(date);
+                              setOpenEndDate(false); // ✅ close on select
+                            }}
                             disabled={(date: Date) => date < new Date()}
                             initialFocus
                           />
