@@ -85,8 +85,8 @@ const formSchema = z
 
 const RequestForm = ({ user }: Props) => {
   const [open, setOpen] = useState(false);
-  const [openStartDate, setOpenStartDate] = useState(false); // ✅ new
-  const [openEndDate, setOpenEndDate] = useState(false);     // ✅ new
+  const [openStartDate, setOpenStartDate] = useState(false);
+  const [openEndDate, setOpenEndDate] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -129,8 +129,18 @@ const RequestForm = ({ user }: Props) => {
         setOpen(false);
         form.reset();
       } else {
-        const errorMessage = await res.text();
-        toast.error(`An error occurred: ${errorMessage}`, { duration: 6000 });
+        const data = await res.json();
+
+        // ✅ Friendly insufficient balance message
+        if (data.error === "INSUFFICIENT_BALANCE") {
+          toast.error(
+            "Insufficient balance. Please contact Admin or HR.",
+            { duration: 6000 }
+          );
+          return;
+        }
+
+        toast.error(`An error occurred: ${JSON.stringify(data)}`, { duration: 6000 });
       }
     } catch (error) {
       console.error("An error occurred:", error);
@@ -288,7 +298,7 @@ const RequestForm = ({ user }: Props) => {
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
                     <FormLabel>{isShortLeave ? "Date" : "Start Date"}</FormLabel>
-                    <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}> {/* ✅ */}
+                    <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}>
                       <PopoverTrigger asChild>
                         <FormControl>
                           <Button
@@ -306,7 +316,7 @@ const RequestForm = ({ user }: Props) => {
                           selected={field.value}
                           onSelect={(date) => {
                             field.onChange(date);
-                            setOpenStartDate(false); // ✅ close on select
+                            setOpenStartDate(false);
                           }}
                           disabled={(date: Date) => {
                             const today = new Date();
@@ -358,7 +368,7 @@ const RequestForm = ({ user }: Props) => {
                   render={({ field }) => (
                     <FormItem className="flex flex-col">
                       <FormLabel>End Date</FormLabel>
-                      <Popover modal={true} open={openEndDate} onOpenChange={setOpenEndDate}> {/* ✅ */}
+                      <Popover modal={true} open={openEndDate} onOpenChange={setOpenEndDate}>
                         <PopoverTrigger asChild>
                           <FormControl>
                             <Button
@@ -376,7 +386,7 @@ const RequestForm = ({ user }: Props) => {
                             selected={field.value}
                             onSelect={(date) => {
                               field.onChange(date);
-                              setOpenEndDate(false); // ✅ close on select
+                              setOpenEndDate(false);
                             }}
                             disabled={(date: Date) => date < new Date()}
                             initialFocus
