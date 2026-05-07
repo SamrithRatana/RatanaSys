@@ -50,7 +50,6 @@ enum Role {
   ADMIN
   MODERATOR
 }
-
 model User {
   id            String     @id @default(cuid())
   name          String?
@@ -63,6 +62,7 @@ model User {
   title         String?
   manager       String?
   department    String?
+  telegramId    String?    @unique   // ← ADD THIS
   accounts      Account[]
   sessions      Session[]
   balances      Balances[]
