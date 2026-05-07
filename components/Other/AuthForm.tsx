@@ -5,10 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ClientSafeProvider, getProviders, signIn } from "next-auth/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import Script from "next/script";
 
 type Tab = "credentials" | "google" | "telegram";
 
@@ -38,7 +37,7 @@ export function AuthForm() {
     );
   }, []);
 
-  // ── Telegram callback (called by Telegram widget) ────────
+  // ── Telegram global callback ──────────────────────────────
   useEffect(() => {
     window.onTelegramAuth = async (tgUser: any) => {
       setLoading(true);
@@ -76,6 +75,27 @@ export function AuthForm() {
     };
   }, []);
 
+  // ── Inject Telegram widget when tab is active ─────────────
+  useEffect(() => {
+    if (tab !== "telegram") return;
+
+    const container = document.getElementById("telegram-widget-container");
+    if (!container) return;
+
+    // Clear previous widget
+    container.innerHTML = "";
+
+    const script = document.createElement("script");
+    script.src = "https://telegram.org/js/telegram-widget.js?22";
+    script.setAttribute("data-telegram-login", "camprotec_auth_bot");
+    script.setAttribute("data-size", "large");
+    script.setAttribute("data-onauth", "onTelegramAuth(user)");
+    script.setAttribute("data-request-access", "write");
+    script.async = true;
+
+    container.appendChild(script);
+  }, [tab]);
+
   // ── Credentials Login ─────────────────────────────────────
   async function handleCredentials(e: React.FormEvent) {
     e.preventDefault();
@@ -103,9 +123,6 @@ export function AuthForm() {
 
   return (
     <div className="grid gap-6">
-      {/* Load Telegram widget script once */}
-      <Script src="https://telegram.org/js/telegram-widget.js?22" strategy="lazyOnload" />
-
       {registered && (
         <p className="text-sm text-center text-green-600 bg-green-50 border border-green-200 rounded-md py-2 px-3">
           Account created! You can now sign in.
@@ -192,19 +209,14 @@ export function AuthForm() {
         <div className="grid gap-4">
           {error && <p className="text-sm text-destructive">{error}</p>}
           {loading ? (
-            <p className="text-sm text-center text-muted-foreground">Signing in…</p>
+            <p className="text-sm text-center text-muted-foreground">
+              Signing in…
+            </p>
           ) : (
-            <div className="flex justify-center">
-              {/* Official Telegram Login Widget */}
-              <script
-                async
-                src="https://telegram.org/js/telegram-widget.js?22"
-                data-telegram-login="camprotec_auth_bot"
-                data-size="large"
-                data-onauth="onTelegramAuth(user)"
-                data-request-access="write"
-              />
-            </div>
+            <div
+              id="telegram-widget-container"
+              className="flex justify-center"
+            />
           )}
           <p className="text-xs text-center text-muted-foreground">
             Your Telegram profile will be used to sign in
