@@ -12,6 +12,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing hash" }, { status: 400 });
     }
 
+    // ── Verify Telegram hash ──────────────────────────────────────────────────
     const botToken = process.env.TELEGRAM_BOT_TOKEN as string;
     const secret = new Uint8Array(
       crypto.createHash("sha256").update(botToken).digest()
@@ -31,6 +32,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid hash" }, { status: 401 });
     }
 
+    // ── Check auth_date not expired ───────────────────────────────────────────
     const authDate = parseInt(data.auth_date);
     if (Date.now() / 1000 - authDate > 600) {
       return NextResponse.json({ error: "Auth data expired" }, { status: 401 });
@@ -38,31 +40,53 @@ export async function POST(req: NextRequest) {
 
     const telegramId = data.id.toString();
     const name = [data.first_name, data.last_name].filter(Boolean).join(" ");
+    const photo = data.photo_url ?? null;
 
-    // Find user by telegramId instead of fake email
+    // ── Find existing user ────────────────────────────────────────────────────
+    // 1. Already linked by telegramId
     let user = await prisma.user.findFirst({ where: { telegramId } });
 
     if (!user) {
-      // New Telegram user — email is null (they can set real email later)
-      user = await prisma.user.create({
-        data: {
-          name,
-          email: null,         // ← no fake email anymore
-          image: data.photo_url ?? null,
-          telegramId,          // ← store real telegram ID
-        },
+      // 2. Match by Telegram username (covers username-only registered accounts)
+      if (data.username) {
+        user = await prisma.user.findFirst({
+          where: { name: data.username },
+        });
+      }
+    }
+
+    if (!user) {
+      // 3. Match by full name (first_name + last_name)
+      user = await prisma.user.findFirst({
+        where: { name },
       });
-    } else {
-      // Update name/photo if changed
+    }
+
+    if (user) {
+      // ── Link telegramId + update photo on existing user ───────────────────
       user = await prisma.user.update({
         where: { id: user.id },
         data: {
+          telegramId,
+          // Only overwrite image if it's still the ui-avatars placeholder
+          ...((!user.image || user.image.includes("ui-avatars"))
+            ? { image: photo }
+            : {}),
+        },
+      });
+    } else {
+      // ── No match — create brand new user ──────────────────────────────────
+      user = await prisma.user.create({
+        data: {
           name,
-          image: data.photo_url ?? null,
+          email:      null,
+          image:      photo,
+          telegramId,
         },
       });
     }
 
+    // ── Issue short-lived JWT for NextAuth ────────────────────────────────────
     const tempToken = jwt.sign(
       { userId: user.id },
       process.env.NEXTAUTH_SECRET as string,

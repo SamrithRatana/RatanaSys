@@ -15,7 +15,7 @@ export const authOptions: NextAuthOptions = {
       clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
     }),
 
-    // ── Telegram Phone Provider ───────────────────────────────
+    // ── Telegram Phone Provider ───────────────────────────────────────────────
     CredentialsProvider({
       id: "telegram-phone",
       name: "Telegram Phone",
@@ -36,24 +36,25 @@ export const authOptions: NextAuthOptions = {
           if (!user) return null;
 
           return {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            image: user.image,
-            role: user.role,
+            id:         user.id,
+            name:       user.name,
+            email:      user.email,
+            image:      user.image,
+            role:       user.role,
+            telegramId: user.telegramId, // ← NEW
           };
         } catch {
           return null;
         }
       },
     }),
-    // ─────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
 
     CredentialsProvider({
       name: "Credentials",
       credentials: {
         identifier: { label: "Email or Username", type: "text" },
-        password: { label: "Password", type: "password" },
+        password:   { label: "Password", type: "password" },
       },
       async authorize(credentials) {
         if (!credentials?.identifier || !credentials?.password) return null;
@@ -62,7 +63,7 @@ export const authOptions: NextAuthOptions = {
           where: {
             OR: [
               { email: credentials.identifier },
-              { name: credentials.identifier },
+              { name:  credentials.identifier },
             ],
           },
         });
@@ -73,11 +74,12 @@ export const authOptions: NextAuthOptions = {
         if (!valid) return null;
 
         return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          image: user.image,
-          role: user.role,
+          id:         user.id,
+          name:       user.name,
+          email:      user.email,
+          image:      user.image,
+          role:       user.role,
+          telegramId: user.telegramId, // ← NEW
         };
       },
     }),
@@ -109,18 +111,34 @@ export const authOptions: NextAuthOptions = {
 
     jwt: async ({ token, user }) => {
       if (user) {
-        token.role = (user as any).role;
-        token.image = user.image;
-        token.name = user.name;
+        token.role       = (user as any).role;
+        token.image      = user.image;
+        token.name       = user.name;
+        token.telegramId = (user as any).telegramId ?? null; // ← NEW
       }
+
+      // Re-fetch telegramId from DB on every JWT refresh so the
+      // System Integration badge turns green immediately after linking
+      // without the user needing to sign out and back in.
+      if (token.sub && !token.telegramId) {
+        const dbUser = await prisma.user.findUnique({
+          where:  { id: token.sub },
+          select: { telegramId: true },
+        });
+        if (dbUser?.telegramId) {
+          token.telegramId = dbUser.telegramId;
+        }
+      }
+
       return token;
     },
 
     async session({ session, token }) {
       if (session.user) {
-        session.user.role = token.role;
-        session.user.image = token.image as string;
-        session.user.name = token.name as string;
+        session.user.role       = token.role;
+        session.user.image      = token.image as string;
+        session.user.name       = token.name as string;
+        session.user.telegramId = (token.telegramId as string) ?? null; // ← NEW
       }
       return session;
     },
