@@ -173,319 +173,333 @@ const EditUser = ({ user }: EditUserProps) => {
   }
 
   return (
-    <DialogWrapper
-      title="Edit User"
-      icon={IoPencil}
-      isBtn={false}
-      open={open}
-      setOpen={() => setOpen(!open)}
-    >
-      {/* ✅ Scrollable wrapper */}
-      <div className="max-h-[70vh] overflow-y-auto pr-1">
+    <>
+      {/* ✅ Clickable trigger button */}
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+      >
+        <IoPencil className="h-4 w-4" />
+      </button>
 
-        {/* ── Integration Status ── */}
-        <div className="mb-4 flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Integrations:</span>
-          <IntegrationBadge
-            connected={hasGoogle}
-            icon={<GoogleIcon className="h-4 w-4" />}
-            label="Google"
-          />
-          <IntegrationBadge
-            connected={hasTelegram}
-            icon={<FaTelegram className="h-4 w-4 text-[#26A5E4]" />}
-            label="Telegram"
-          />
-        </div>
+      <DialogWrapper
+        title="Edit User"
+        icon={IoPencil}
+        isBtn={false}
+        open={open}
+        setOpen={() => setOpen(!open)}
+      >
+        {/* ✅ Scrollable wrapper */}
+        <div className="max-h-[70vh] overflow-y-auto pr-1">
 
-        <Separator className="mb-6" />
-
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
-
-            {/* ── Name ── */}
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Full Name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Full name" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+          {/* ── Integration Status ── */}
+          <div className="mb-4 flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Integrations:</span>
+            <IntegrationBadge
+              connected={hasGoogle}
+              icon={<GoogleIcon className="h-4 w-4" />}
+              label="Google"
             />
-
-            {/* ── Email ── */}
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input type="email" placeholder="email@company.com" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+            <IntegrationBadge
+              connected={hasTelegram}
+              icon={<FaTelegram className="h-4 w-4 text-[#26A5E4]" />}
+              label="Telegram"
             />
+          </div>
 
-            {/* ── Phone ── */}
-            <FormField
-              control={form.control}
-              name="phone"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Phone</FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g. 016285116" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          <Separator className="mb-6" />
 
-            {/* ── Manager ── */}
-            <FormField
-              control={form.control}
-              name="manager"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Manager</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Manager name or email" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
 
-            {/* ── Department ── */}
-            <FormField
-              control={form.control}
-              name="department"
-              render={({ field }) => (
-                <FormItem className="flex flex-col">
-                  <FormLabel>Department</FormLabel>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <FormControl>
-                        <Button
-                          variant="outline"
-                          role="combobox"
-                          className={cn("justify-between", !field.value && "text-muted-foreground")}
-                        >
-                          {field.value
-                            ? orgDepartments.find((d) => d.label === field.value)?.label
-                            : "Select a department"}
-                          <PiCaretUpDownBold className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </FormControl>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[220px] p-0">
-                      <Command>
-                        <CommandInput placeholder="Search department…" />
-                        <CommandEmpty>No department found.</CommandEmpty>
-                        <CommandGroup>
-                          {orgDepartments.map((dpt) => (
-                            <CommandItem
-                              value={dpt.label}
-                              key={dpt.id}
-                              onSelect={() => form.setValue("department", dpt.label)}
-                            >
-                              <BsCheckLg className={cn("mr-2 h-4 w-4", dpt.label === field.value ? "opacity-100" : "opacity-0")} />
-                              {dpt.label}
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-                </FormItem>
-              )}
-            />
+              {/* ── Name ── */}
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Full Name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Full name" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            {/* ── Title ── */}
-            <FormField
-              control={form.control}
-              name="title"
-              render={({ field }) => (
-                <FormItem className="flex flex-col">
-                  <FormLabel>Job Title</FormLabel>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <FormControl>
-                        <Button
-                          variant="outline"
-                          role="combobox"
-                          className={cn("justify-between", !field.value && "text-muted-foreground")}
-                        >
-                          {field.value
-                            ? orgTitles.find((t) => t.label === field.value)?.label
-                            : "Select a title"}
-                          <PiCaretUpDownBold className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </FormControl>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[220px] p-0">
-                      <Command>
-                        <CommandInput placeholder="Search title…" />
-                        <CommandEmpty>No title found.</CommandEmpty>
-                        <CommandGroup>
-                          {orgTitles.map((title) => (
-                            <CommandItem
-                              value={title.label}
-                              key={title.id}
-                              onSelect={() => form.setValue("title", title.label)}
-                            >
-                              <BsCheckLg className={cn("mr-2 h-4 w-4", title.label === field.value ? "opacity-100" : "opacity-0")} />
-                              {title.label}
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-                </FormItem>
-              )}
-            />
+              {/* ── Email ── */}
+              <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl>
+                      <Input type="email" placeholder="email@company.com" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            {/* ── Role ── */}
-            <FormField
-              control={form.control}
-              name="role"
-              render={({ field }) => (
-                <FormItem className="flex flex-col">
-                  <FormLabel>Role</FormLabel>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <FormControl>
-                        <Button
-                          variant="outline"
-                          role="combobox"
-                          className={cn("justify-between", !field.value && "text-muted-foreground")}
-                        >
-                          {field.value ?? "Select a role"}
-                          <PiCaretUpDownBold className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </FormControl>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[220px] p-0">
-                      <Command>
-                        <CommandInput placeholder="Search role…" />
-                        <CommandEmpty>No role found.</CommandEmpty>
-                        <CommandGroup>
-                          {(UserRoles as unknown as string[]).map((role, i) => (
-                            <CommandItem
-                              value={role}
-                              key={i}
-                              onSelect={() => form.setValue("role", role as FormValues["role"])}
-                            >
-                              <BsCheckLg className={cn("mr-2 h-4 w-4", role === field.value ? "opacity-100" : "opacity-0")} />
-                              {role}
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+              {/* ── Phone ── */}
+              <FormField
+                control={form.control}
+                name="phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Phone</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g. 016285116" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            {/* ── Password Section ── */}
-            <div className="rounded-lg border border-dashed border-muted-foreground/40 bg-muted/30 p-4 space-y-4">
-              <div className="flex items-center gap-2">
-                <KeyRound className="h-4 w-4 text-muted-foreground" />
-                <p className="text-sm font-medium">
-                  {hasPassword ? "Change Password" : "Set Password"}
+              {/* ── Manager ── */}
+              <FormField
+                control={form.control}
+                name="manager"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Manager</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Manager name or email" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* ── Department ── */}
+              <FormField
+                control={form.control}
+                name="department"
+                render={({ field }) => (
+                  <FormItem className="flex flex-col">
+                    <FormLabel>Department</FormLabel>
+                    {/* ✅ modal={true} fixes typing closing the popover */}
+                    <Popover modal={true}>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            className={cn("justify-between", !field.value && "text-muted-foreground")}
+                          >
+                            {field.value
+                              ? orgDepartments.find((d) => d.label === field.value)?.label
+                              : "Select a department"}
+                            <PiCaretUpDownBold className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[220px] p-0">
+                        <Command>
+                          <CommandInput placeholder="Search department…" />
+                          <CommandEmpty>No department found.</CommandEmpty>
+                          <CommandGroup>
+                            {orgDepartments.map((dpt) => (
+                              <CommandItem
+                                value={dpt.label}
+                                key={dpt.id}
+                                onSelect={() => form.setValue("department", dpt.label)}
+                              >
+                                <BsCheckLg className={cn("mr-2 h-4 w-4", dpt.label === field.value ? "opacity-100" : "opacity-0")} />
+                                {dpt.label}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </FormItem>
+                )}
+              />
+
+              {/* ── Title ── */}
+              <FormField
+                control={form.control}
+                name="title"
+                render={({ field }) => (
+                  <FormItem className="flex flex-col">
+                    <FormLabel>Job Title</FormLabel>
+                    {/* ✅ modal={true} fixes typing closing the popover */}
+                    <Popover modal={true}>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            className={cn("justify-between", !field.value && "text-muted-foreground")}
+                          >
+                            {field.value
+                              ? orgTitles.find((t) => t.label === field.value)?.label
+                              : "Select a title"}
+                            <PiCaretUpDownBold className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[220px] p-0">
+                        <Command>
+                          <CommandInput placeholder="Search title…" />
+                          <CommandEmpty>No title found.</CommandEmpty>
+                          <CommandGroup>
+                            {orgTitles.map((title) => (
+                              <CommandItem
+                                value={title.label}
+                                key={title.id}
+                                onSelect={() => form.setValue("title", title.label)}
+                              >
+                                <BsCheckLg className={cn("mr-2 h-4 w-4", title.label === field.value ? "opacity-100" : "opacity-0")} />
+                                {title.label}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </FormItem>
+                )}
+              />
+
+              {/* ── Role ── */}
+              <FormField
+                control={form.control}
+                name="role"
+                render={({ field }) => (
+                  <FormItem className="flex flex-col">
+                    <FormLabel>Role</FormLabel>
+                    {/* ✅ modal={true} fixes typing closing the popover */}
+                    <Popover modal={true}>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            className={cn("justify-between", !field.value && "text-muted-foreground")}
+                          >
+                            {field.value ?? "Select a role"}
+                            <PiCaretUpDownBold className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[220px] p-0">
+                        <Command>
+                          <CommandInput placeholder="Search role…" />
+                          <CommandEmpty>No role found.</CommandEmpty>
+                          <CommandGroup>
+                            {(UserRoles as unknown as string[]).map((role, i) => (
+                              <CommandItem
+                                value={role}
+                                key={i}
+                                onSelect={() => form.setValue("role", role as FormValues["role"])}
+                              >
+                                <BsCheckLg className={cn("mr-2 h-4 w-4", role === field.value ? "opacity-100" : "opacity-0")} />
+                                {role}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* ── Password Section ── */}
+              <div className="rounded-lg border border-dashed border-muted-foreground/40 bg-muted/30 p-4 space-y-4">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="h-4 w-4 text-muted-foreground" />
+                  <p className="text-sm font-medium">
+                    {hasPassword ? "Change Password" : "Set Password"}
+                  </p>
+                  {!hasPassword && (
+                    <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-300 bg-amber-50">
+                      No password set
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground -mt-2">
+                  {hasPassword
+                    ? "Leave blank to keep the existing password."
+                    : "This user signed in via Google or Telegram. Set a password to allow credentials login too."}
                 </p>
-                {!hasPassword && (
-                  <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-300 bg-amber-50">
-                    No password set
-                  </Badge>
-                )}
+
+                {/* New Password */}
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs">New Password</FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <Input
+                            type={showPassword ? "text" : "password"}
+                            placeholder="Min. 6 characters"
+                            {...field}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword((v) => !v)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            tabIndex={-1}
+                          >
+                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {/* Confirm Password */}
+                <FormField
+                  control={form.control}
+                  name="confirmPassword"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs">Confirm Password</FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <Input
+                            type={showConfirm ? "text" : "password"}
+                            placeholder="Repeat password"
+                            {...field}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowConfirm((v) => !v)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            tabIndex={-1}
+                          >
+                            {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
-              <p className="text-xs text-muted-foreground -mt-2">
-                {hasPassword
-                  ? "Leave blank to keep the existing password."
-                  : "This user signed in via Google or Telegram. Set a password to allow credentials login too."}
-              </p>
 
-              {/* New Password */}
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs">New Password</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <Input
-                          type={showPassword ? "text" : "password"}
-                          placeholder="Min. 6 characters"
-                          {...field}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword((v) => !v)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                          tabIndex={-1}
-                        >
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <Button type="submit" className="w-full">
+                Save Changes
+              </Button>
 
-              {/* Confirm Password */}
-              <FormField
-                control={form.control}
-                name="confirmPassword"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs">Confirm Password</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <Input
-                          type={showConfirm ? "text" : "password"}
-                          placeholder="Repeat password"
-                          {...field}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowConfirm((v) => !v)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                          tabIndex={-1}
-                        >
-                          {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+            </form>
+          </Form>
 
-            <Button type="submit" className="w-full">
-              Save Changes
-            </Button>
+        </div>
+        {/* ✅ End scrollable wrapper */}
 
-          </form>
-        </Form>
-
-      </div>
-      {/* ✅ End scrollable wrapper */}
-
-    </DialogWrapper>
+      </DialogWrapper>
+    </>
   );
 };
 
