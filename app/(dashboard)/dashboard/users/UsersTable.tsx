@@ -61,7 +61,12 @@ const UsersTable = ({ users }: UserProps) => {
               <EditUser user={user} />
             </TableCell>
             <TableCell className="text-right">
-              <AddCredits email={user.email as string} name={user.name as string} />
+              <AddCredits
+  email={user.email}
+  name={user.name ?? "Unknown"}
+  userId={user.id}
+  telegramId={(user as any).telegramId?.toString() ?? null}
+/>
             </TableCell>
             <TableCell>
         <DeleteUser userId={user.id} userName={user.name ?? "User"} />
