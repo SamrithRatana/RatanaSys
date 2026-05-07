@@ -187,7 +187,7 @@ export default function SystemIntegration({ user }: SystemIntegrationProps) {
                   <p className="text-sm font-semibold leading-none text-foreground mb-0.5">
                     system.camprotec.com.kh
                   </p>
-                  <p className="text-[11px] text-muted-foreground">Primary domain — always active</p>
+                  <p className="text-[11px] text-muted-foreground">Sub domain — active</p>
                 </div>
                 <span className="flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2.5 py-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400 shrink-0">
                   <CheckCircle2 className="h-3 w-3" />
