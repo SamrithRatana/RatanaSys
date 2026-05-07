@@ -1,12 +1,10 @@
 import { getCurrentUser } from "../session";
 import prisma from "@/lib/prisma";
-
+// lib/data/getLeaveDays.ts
 export async function getAllLeaveDays() {
   const loggedInUser = await getCurrentUser();
   if (!loggedInUser) return [];
-
-  const canAccess =
-    loggedInUser.role === "ADMIN" || loggedInUser.role === "MODERATOR";
+  const canAccess = loggedInUser.role === "ADMIN" || loggedInUser.role === "MODERATOR";
   if (!canAccess) return [];
 
   try {
@@ -14,20 +12,17 @@ export async function getAllLeaveDays() {
       orderBy: [{ createdAt: "desc" }],
     });
     return [...leaves];
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error fetching all leave days:", error);
-    throw new Error("Error fetching all leave days");
+    return []; // ✅
   }
 }
 
 export async function getUserLeaveDays() {
   const loggedInUser = await getCurrentUser();
-  if (!loggedInUser) return [];
+  if (!loggedInUser || !loggedInUser.email) return [];
 
   try {
-    // Telegram users have no email — return empty leave history
-    if (!loggedInUser.email) return [];
-
     const leaves = await prisma.leave.findMany({
       where: { userEmail: loggedInUser.email },
       orderBy: [{ createdAt: "desc" }],
@@ -35,6 +30,6 @@ export async function getUserLeaveDays() {
     return [...leaves];
   } catch (error) {
     console.error("Error fetching user leave days:", error);
-    throw new Error("Error fetching user leave days");
+    return []; // ✅
   }
 }

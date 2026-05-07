@@ -1,41 +1,32 @@
 import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
-
+// lib/data/getBalanceData.ts
 export async function getUserBalances() {
   const loggedInUser = await getCurrentUser();
-  if (!loggedInUser) return null;
-
-  // Telegram users have no email — no balances
-  if (!loggedInUser.email) return null;
+  if (!loggedInUser || !loggedInUser.email) return null;
 
   try {
     const year = new Date().getFullYear().toString();
-    const balances = await prisma.balances.findFirst({
-      where: {
-        email: loggedInUser.email,
-        year,
-      },
+    return await prisma.balances.findFirst({
+      where: { email: loggedInUser.email, year },
     });
-    return balances;
   } catch (error) {
     console.error("Error fetching user balances:", error);
-    throw new Error("Error fetching user balances");
+    return null; // ✅
   }
 }
 
 export async function getAllBalances() {
   const loggedInUser = await getCurrentUser();
-  if (!loggedInUser) return [];
-
-  if (loggedInUser.role !== "ADMIN") return [];
+  if (!loggedInUser || loggedInUser.role !== "ADMIN") return [];
 
   try {
     const balances = await prisma.balances.findMany({
       orderBy: [{ year: "desc" }],
     });
     return [...balances];
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error fetching all balances:", error);
-    throw new Error("Error fetching all balances");
+    return []; // ✅
   }
 }
