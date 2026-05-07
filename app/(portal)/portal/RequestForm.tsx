@@ -41,7 +41,6 @@ import { useState } from "react";
 
 type Props = { user: User };
 
-// ─── Schema ──────────────────────────────────────────────────────────────────
 const formSchema = z
   .object({
     notes:         z.string().min(1, "Notes are required.").max(500),
@@ -56,7 +55,6 @@ const formSchema = z
                      .optional(),
   })
   .superRefine((data, ctx) => {
-    // Annual must choose a sub-type
     if (data.leave === "ANNUAL" && !data.annualSubType) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -66,9 +64,8 @@ const formSchema = z
     }
 
     const isShort = data.leave === "ANNUAL" && data.annualSubType === "SHORT";
-
-    // End date required for full-day annual or any non-annual leave
     const needsEndDate = data.leave !== "ANNUAL" || data.annualSubType === "FULL";
+
     if (needsEndDate && !data.endDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -77,7 +74,6 @@ const formSchema = z
       });
     }
 
-    // Hours required for short leave
     if (isShort && (!data.hours || data.hours <= 0)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -87,7 +83,6 @@ const formSchema = z
     }
   });
 
-// ─── Component ───────────────────────────────────────────────────────────────
 const RequestForm = ({ user }: Props) => {
   const [open, setOpen] = useState(false);
 
@@ -103,25 +98,20 @@ const RequestForm = ({ user }: Props) => {
   const isFullDay     = isAnnual && annualSubType === "FULL";
   const showEndDate   = !isAnnual || isFullDay;
   const showHours     = isShortLeave;
-  // Only show date fields once a sub-type is chosen (for annual),
-  // or immediately for non-annual leaves
   const showDateFields = !isAnnual || !!annualSubType;
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
       const isShort = values.leave === "ANNUAL" && values.annualSubType === "SHORT";
-
-      // Resolve the actual leave type to send to API
-      // SHORT annual → type "SHORT"; anything else → the selected leave value
       const resolvedType = isShort ? "SHORT" : values.leave;
 
       const formattedValues = {
         notes:     values.notes,
-        leave:     resolvedType,          // ← correct type, no ambiguity
-        type:      resolvedType,          // ← send both keys so API catches either
+        leave:     resolvedType,
+        type:      resolvedType,
         startDate: values.startDate.toISOString(),
         endDate:   isShort
-          ? values.startDate.toISOString()   // same day for short leave
+          ? values.startDate.toISOString()
           : values.endDate!.toISOString(),
         hours:     isShort ? Number(values.hours) : undefined,
         user,
@@ -165,7 +155,7 @@ const RequestForm = ({ user }: Props) => {
             render={({ field }) => (
               <FormItem className="flex flex-col">
                 <FormLabel>Leave Type</FormLabel>
-                <Popover>
+                <Popover modal={true}>  {/* ✅ FIX 1 */}
                   <PopoverTrigger asChild>
                     <FormControl>
                       <Button
@@ -214,7 +204,7 @@ const RequestForm = ({ user }: Props) => {
             )}
           />
 
-          {/* ── Annual sub-type: Full Day / Short Leave cards ── */}
+          {/* ── Annual sub-type ── */}
           {isAnnual && (
             <FormField
               control={form.control}
@@ -223,8 +213,6 @@ const RequestForm = ({ user }: Props) => {
                 <FormItem>
                   <FormLabel>Annual Leave Type</FormLabel>
                   <div className="grid grid-cols-2 gap-3 mt-1">
-
-                    {/* Full Day card */}
                     <button
                       type="button"
                       onClick={() => {
@@ -239,14 +227,9 @@ const RequestForm = ({ user }: Props) => {
                       )}
                     >
                       <svg
-                        width="26"
-                        height="26"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+                        width="26" height="26" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" strokeWidth="1.8"
+                        strokeLinecap="round" strokeLinejoin="round"
                       >
                         <circle cx="12" cy="12" r="4" />
                         <line x1="12" y1="2"      x2="12" y2="5"      />
@@ -262,7 +245,6 @@ const RequestForm = ({ user }: Props) => {
                       <span className="text-xs font-normal opacity-60">All day leave</span>
                     </button>
 
-                    {/* Short Leave card */}
                     <button
                       type="button"
                       onClick={() => {
@@ -277,14 +259,9 @@ const RequestForm = ({ user }: Props) => {
                       )}
                     >
                       <svg
-                        width="26"
-                        height="26"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+                        width="26" height="26" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" strokeWidth="1.8"
+                        strokeLinecap="round" strokeLinejoin="round"
                       >
                         <circle cx="12" cy="12" r="9" />
                         <polyline points="12 7 12 12 15 15" />
@@ -292,7 +269,6 @@ const RequestForm = ({ user }: Props) => {
                       Short Leave
                       <span className="text-xs font-normal opacity-60">Hourly · cuts annual</span>
                     </button>
-
                   </div>
                   <FormMessage />
                 </FormItem>
@@ -300,7 +276,7 @@ const RequestForm = ({ user }: Props) => {
             />
           )}
 
-          {/* ── Date + hour fields — show only once sub-type chosen (or non-annual) ── */}
+          {/* ── Date fields ── */}
           {showDateFields && (
             <>
               {/* Start Date */}
@@ -310,7 +286,7 @@ const RequestForm = ({ user }: Props) => {
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
                     <FormLabel>{isShortLeave ? "Date" : "Start Date"}</FormLabel>
-                    <Popover>
+                    <Popover modal={true}>  {/* ✅ FIX 2 */}
                       <PopoverTrigger asChild>
                         <FormControl>
                           <Button
@@ -341,7 +317,7 @@ const RequestForm = ({ user }: Props) => {
                 )}
               />
 
-              {/* Hours — Short Leave only */}
+              {/* Hours */}
               {showHours && (
                 <FormField
                   control={form.control}
@@ -369,7 +345,7 @@ const RequestForm = ({ user }: Props) => {
                 />
               )}
 
-              {/* End Date — Full Day or non-annual only */}
+              {/* End Date */}
               {showEndDate && (
                 <FormField
                   control={form.control}
@@ -377,7 +353,7 @@ const RequestForm = ({ user }: Props) => {
                   render={({ field }) => (
                     <FormItem className="flex flex-col">
                       <FormLabel>End Date</FormLabel>
-                      <Popover>
+                      <Popover modal={true}>  {/* ✅ FIX 3 */}
                         <PopoverTrigger asChild>
                           <FormControl>
                             <Button
