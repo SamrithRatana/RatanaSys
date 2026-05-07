@@ -28,17 +28,21 @@ const balanceCategories = [
   { title: "PERSONAL",  key: "personal"  },
   { title: "MATERNITY", key: "maternity" },
   { title: "SPECIAL",   key: "special"   },
-  // SHORT removed — short leave now deducts from annual
 ];
 
 const BalancesTable = ({ balances }: BalanceProps) => {
   const [isHours, setIsHours] = useState(false);
 
-  const convert = (key: string, sub: string, val: number | undefined | null): React.ReactNode => {
+  // Returns the display value and whether it's negative
+  const convert = (val: number | undefined | null): { display: string; negative: boolean } => {
     if (val === undefined || val === null) val = 0;
-    const result = isHours ? val * HOURS_PER_DAY : val;
-    const unit   = isHours ? " hrs" : "";
-    return `${result}${unit}`;
+    const result   = isHours ? val * HOURS_PER_DAY : val;
+    const unit     = isHours ? " hrs" : "";
+    const negative = result < 0;
+    return {
+      display:  `${result}${unit}`,
+      negative,
+    };
   };
 
   return (
@@ -88,11 +92,36 @@ const BalancesTable = ({ balances }: BalanceProps) => {
               <TableCell>{bal.name}</TableCell>
               <TableCell><Badge>{bal.year}</Badge></TableCell>
               {balanceCategories.map((cat) =>
-                ["Credit", "Used", "Available"].map((sub) => (
-                  <TableCell key={`${cat.key}-${sub}`}>
-                    {convert(cat.key, sub, (bal as any)[`${cat.key}${sub}`])}
-                  </TableCell>
-                ))
+                ["Credit", "Used", "Available"].map((sub) => {
+                  const raw = (bal as any)[`${cat.key}${sub}`];
+                  const { display, negative } = convert(raw);
+                  const isAvailable = sub === "Available";
+                  return (
+                    <TableCell
+                      key={`${cat.key}-${sub}`}
+                      className={
+                        isAvailable && negative
+                          ? "text-red-500 font-semibold"
+                          : ""
+                      }
+                    >
+                      {/* Show deficit badge for negative available */}
+                      {isAvailable && negative ? (
+                        <span className="inline-flex items-center gap-1">
+                          {display}
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] text-red-600 border-red-300 bg-red-50 px-1 py-0"
+                          >
+                            over
+                          </Badge>
+                        </span>
+                      ) : (
+                        display
+                      )}
+                    </TableCell>
+                  );
+                })
               )}
             </TableRow>
           ))}

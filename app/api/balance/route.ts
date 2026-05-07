@@ -1,80 +1,78 @@
 import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
-import { Role } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
+import { differenceInDays, parseISO } from "date-fns";
 
-type SubmittedCredits = {
-  ANNUAL:      number;
-  SICK:        number;
-  PERSONAL:    number;
-  MATERNITY:   number;
-  SPECIAL:     number;
-  email?:      string | null;
-  year:        string;
-  name:        string;
-  userId?:     string | null;
-  telegramId?: string | null;
+type SubmittedLeave = {
+  notes:     string;
+  leave?:    string;
+  type?:     string;
+  startDate: string;
+  endDate:   string;
+  hours?:    number;
+  user: {
+    email: string;
+    image: string;
+    name:  string;
+    role:  string;
+    id?:   string;
+  };
 };
-
-const allowedRoles = ["ADMIN", "MODERATOR"];
 
 export async function POST(req: NextRequest) {
   const loggedInUser = await getCurrentUser();
-  if (!allowedRoles.includes(loggedInUser?.role as Role)) {
-    return NextResponse.json(
-      { error: "You are not permitted to perform this action" },
-      { status: 403 }
-    );
+  if (!loggedInUser) {
+    return NextResponse.error();
   }
 
   try {
-    const body: SubmittedCredits = await req.json();
-    const { ANNUAL, SICK, PERSONAL, MATERNITY, SPECIAL, year, name } = body;
+    const body: SubmittedLeave = await req.json();
+    const { startDate, endDate, notes, hours, user } = body;
 
-    // ✅ Priority: email → telegramId → userId → name
-    const email =
-      body.email ??
-      (body.telegramId ? `telegram-${body.telegramId}` : null) ??
-      (body.userId     ? `userid-${body.userId}`        : null) ??
-      `name-${name.replace(/\s+/g, "-").toLowerCase()}`;
+    const leaveType    = (body.type ?? body.leave ?? "").toUpperCase();
+    const isShortLeave = leaveType === "SHORT";
 
-    await prisma.balances.upsert({
-      where: {
-        email_year: { email, year },
-      },
-      create: {
-        name,
-        email,
+    const startDateObj = parseISO(startDate);
+    const endDateObj   = parseISO(endDate);
+    const year         = startDateObj.getFullYear().toString();
+
+    const calcDays  = isShortLeave ? 0 : differenceInDays(endDateObj, startDateObj) + 1;
+    const calcHours = isShortLeave ? Number(hours ?? 0) : 0;
+
+    // ✅ No longer blocking on insufficient balance —
+    // allow the request to be created even if balance is 0 or negative.
+    // Balance will go negative and show as deficit after admin approval.
+
+    // Duplicate check — only for non-short leaves
+    if (!isShortLeave) {
+      const existingLeave = await prisma.leave.findFirst({
+        where: {
+          startDate:  startDateObj,
+          endDate:    endDateObj,
+          type:       leaveType,
+          userEmail:  user.email,
+        },
+      });
+
+      if (existingLeave) {
+        return NextResponse.json(
+          { error: "Leave entry already exists for these dates" },
+          { status: 400 }
+        );
+      }
+    }
+
+    await prisma.leave.create({
+      data: {
+        startDate:  startDateObj,
+        endDate:    endDateObj,
+        userEmail:  user.email,
+        type:       leaveType,
+        userNote:   notes,
+        userName:   user.name,
+        days:       calcDays,
+        hours:      calcHours,
         year,
-        annualCredit:       ANNUAL    ?? 0,
-        annualUsed:         0,
-        annualAvailable:    ANNUAL    ?? 0,
-        sickCredit:         SICK      ?? 0,
-        sickUsed:           0,
-        sickAvailable:      SICK      ?? 0,
-        personalCredit:     PERSONAL  ?? 0,
-        personalUsed:       0,
-        personalAvailable:  PERSONAL  ?? 0,
-        maternityCredit:    MATERNITY ?? 0,
-        maternityUsed:      0,
-        maternityAvailable: MATERNITY ?? 0,
-        specialCredit:      SPECIAL   ?? 0,
-        specialUsed:        0,
-        specialAvailable:   SPECIAL   ?? 0,
-        shortUsed:          0,
-      },
-      update: {
-        name,
-        annualCredit:       ANNUAL    ?? 0,
-        annualAvailable:    ANNUAL    ?? 0,
-        sickCredit:         SICK      ?? 0,
-        sickAvailable:      SICK      ?? 0,
-        personalCredit:     PERSONAL  ?? 0,
-        personalAvailable:  PERSONAL  ?? 0,
-        maternityCredit:    MATERNITY ?? 0,
-        maternityAvailable: MATERNITY ?? 0,
-        specialCredit:      SPECIAL   ?? 0,
-        specialAvailable:   SPECIAL   ?? 0,
       },
     });
 
