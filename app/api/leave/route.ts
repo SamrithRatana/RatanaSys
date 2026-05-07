@@ -11,7 +11,7 @@ type SubmittedLeave = {
   endDate:   string;
   hours?:    number;
   user: {
-    email: string; // ✅ always non-null — resolved client-side in RequestForm
+    email: string;
     image: string;
     name:  string;
     role:  string;
@@ -20,9 +20,10 @@ type SubmittedLeave = {
 };
 
 export async function POST(req: NextRequest) {
+  // ✅ All roles allowed (USER, MODERATOR, ADMIN)
   const loggedInUser = await getCurrentUser();
   if (!loggedInUser) {
-    return NextResponse.error();
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
@@ -39,60 +40,17 @@ export async function POST(req: NextRequest) {
     const calcDays  = isShortLeave ? 0 : differenceInDays(endDateObj, startDateObj) + 1;
     const calcHours = isShortLeave ? Number(hours ?? 0) : 0;
 
-    // ✅ user.email is guaranteed non-null (resolved in RequestForm before POST)
-    const balance = await prisma.balances.findUnique({
-      where: { email_year: { email: user.email, year } },
-    });
-
-    if (!balance) {
-      return NextResponse.json(
-        { error: "INSUFFICIENT_BALANCE" },
-        { status: 400 }
-      );
-    }
-
-    const availableMap: Record<string, number> = {
-      ANNUAL:    balance.annualAvailable    ?? 0,
-      SICK:      balance.sickAvailable      ?? 0,
-      PERSONAL:  balance.personalAvailable  ?? 0,
-      MATERNITY: balance.maternityAvailable ?? 0,
-      SPECIAL:   balance.specialAvailable   ?? 0,
-      SHORT:     balance.annualAvailable    ?? 0,
-    };
-
-    const available = availableMap[leaveType] ?? 0;
-
-    if (available <= 0) {
-      return NextResponse.json(
-        { error: "INSUFFICIENT_BALANCE" },
-        { status: 400 }
-      );
-    }
-
-    // For non-short leaves, check if requested days exceed available
-    if (!isShortLeave && calcDays > available) {
-      return NextResponse.json(
-        { error: "INSUFFICIENT_BALANCE" },
-        { status: 400 }
-      );
-    }
-
-    // For short leaves, check if requested hours exceed available annual hours
-    if (isShortLeave && calcHours > available * 8) {
-      return NextResponse.json(
-        { error: "INSUFFICIENT_BALANCE" },
-        { status: 400 }
-      );
-    }
+    // ✅ NO balance check — users can submit leave even if balance is 0 or negative.
+    // Deficit will be visible in the Balances table after admin approval.
 
     // Duplicate check — only for non-short leaves
     if (!isShortLeave) {
       const existingLeave = await prisma.leave.findFirst({
         where: {
-          startDate:  startDateObj,
-          endDate:    endDateObj,
-          type:       leaveType,
-          userEmail:  user.email,
+          startDate: startDateObj,
+          endDate:   endDateObj,
+          type:      leaveType,
+          userEmail: user.email,
         },
       });
 
@@ -106,14 +64,14 @@ export async function POST(req: NextRequest) {
 
     await prisma.leave.create({
       data: {
-        startDate:  startDateObj,
-        endDate:    endDateObj,
-        userEmail:  user.email,
-        type:       leaveType,
-        userNote:   notes,
-        userName:   user.name,
-        days:       calcDays,
-        hours:      calcHours,
+        startDate: startDateObj,
+        endDate:   endDateObj,
+        userEmail: user.email,
+        type:      leaveType,
+        userNote:  notes,
+        userName:  user.name,
+        days:      calcDays,
+        hours:     calcHours,
         year,
       },
     });
