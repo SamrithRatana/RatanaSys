@@ -12,7 +12,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing hash" }, { status: 400 });
     }
 
-    // Verify Telegram hash
     const botToken = process.env.TELEGRAM_BOT_TOKEN as string;
     const secret = new Uint8Array(
       crypto.createHash("sha256").update(botToken).digest()
@@ -32,32 +31,38 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid hash" }, { status: 401 });
     }
 
-    // Check auth_date is not older than 10 minutes
     const authDate = parseInt(data.auth_date);
     if (Date.now() / 1000 - authDate > 600) {
       return NextResponse.json({ error: "Auth data expired" }, { status: 401 });
     }
 
-    // Build user info from Telegram
     const telegramId = data.id.toString();
     const name = [data.first_name, data.last_name].filter(Boolean).join(" ");
-    const email = `tg_${telegramId}@telegram.local`;
 
-    // Find or create user in DB
-    let user = await prisma.user.findFirst({ where: { email } });
+    // Find user by telegramId instead of fake email
+    let user = await prisma.user.findFirst({ where: { telegramId } });
 
     if (!user) {
+      // New Telegram user — email is null (they can set real email later)
       user = await prisma.user.create({
-        data: { name, email, image: data.photo_url ?? null },
+        data: {
+          name,
+          email: null,         // ← no fake email anymore
+          image: data.photo_url ?? null,
+          telegramId,          // ← store real telegram ID
+        },
       });
-    } else if (user.name !== name) {
+    } else {
+      // Update name/photo if changed
       user = await prisma.user.update({
         where: { id: user.id },
-        data: { name },
+        data: {
+          name,
+          image: data.photo_url ?? null,
+        },
       });
     }
 
-    // Issue short-lived temp token for NextAuth
     const tempToken = jwt.sign(
       { userId: user.id },
       process.env.NEXTAUTH_SECRET as string,
