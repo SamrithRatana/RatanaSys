@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Account, User } from "@prisma/client";
 import AddCredits from "./AddCredits";
+import DeleteUser from "./DeleteUser"; 
 import EditUser, { UserWithAccounts } from "./EditUser";
 
 type UserProps = {
@@ -31,6 +32,8 @@ const UsersTable = ({ users }: UserProps) => {
           <TableHead>Role</TableHead>
           <TableHead>Edit</TableHead>
           <TableHead>Add Leave Credits</TableHead>
+          <TableHead>Delete</TableHead>
+
         </TableRow>
       </TableHeader>
       <TableBody className="whitespace-nowrap">
@@ -60,6 +63,9 @@ const UsersTable = ({ users }: UserProps) => {
             <TableCell className="text-right">
               <AddCredits email={user.email as string} name={user.name as string} />
             </TableCell>
+            <TableCell>
+        <DeleteUser userId={user.id} userName={user.name ?? "User"} />
+        </TableCell>
           </TableRow>
         ))}
       </TableBody>

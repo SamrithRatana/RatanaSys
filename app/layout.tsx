@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Providers from "./Provider";
+import { Toaster } from "sonner"; // ← add this import
 
 export const metadata: Metadata = {
   title: "Spana",
@@ -22,6 +23,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           {children}
+          <Toaster richColors position="top-right" /> {/* ← add this */}
         </Providers>
       </body>
     </html>

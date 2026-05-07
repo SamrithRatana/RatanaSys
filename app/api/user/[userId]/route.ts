@@ -50,3 +50,29 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+export async function DELETE(req: Request) {
+  const loggedInUser = await getCurrentUser();
+  if (loggedInUser?.role !== "ADMIN") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  try {
+    const { id } = await req.json();
+
+    if (!id) {
+      return NextResponse.json({ error: "User ID required" }, { status: 400 });
+    }
+
+    // Prevent admin from deleting themselves
+    if (id === loggedInUser.id) {
+      return NextResponse.json({ error: "Cannot delete yourself" }, { status: 400 });
+    }
+
+    await prisma.user.delete({ where: { id } });
+
+    return NextResponse.json({ message: "User deleted" }, { status: 200 });
+  } catch (error) {
+    console.error("[DELETE /api/user/userId]", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
