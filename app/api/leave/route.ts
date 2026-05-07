@@ -11,10 +11,11 @@ type SubmittedLeave = {
   endDate:   string;
   hours?:    number;
   user: {
-    email: string;
+    email: string; // ✅ always non-null — resolved client-side in RequestForm
     image: string;
     name:  string;
     role:  string;
+    id?:   string;
   };
 };
 
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest) {
     const calcDays  = isShortLeave ? 0 : differenceInDays(endDateObj, startDateObj) + 1;
     const calcHours = isShortLeave ? Number(hours ?? 0) : 0;
 
-    // ✅ Check balance before anything else
+    // ✅ user.email is guaranteed non-null (resolved in RequestForm before POST)
     const balance = await prisma.balances.findUnique({
       where: { email_year: { email: user.email, year } },
     });
@@ -49,14 +50,15 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-const availableMap: Record<string, number> = {
-  ANNUAL:    balance.annualAvailable    ?? 0,
-  SICK:      balance.sickAvailable      ?? 0,
-  PERSONAL:  balance.personalAvailable  ?? 0,
-  MATERNITY: balance.maternityAvailable ?? 0,
-  SPECIAL:   balance.specialAvailable   ?? 0,
-  SHORT:     balance.annualAvailable    ?? 0,
-};
+
+    const availableMap: Record<string, number> = {
+      ANNUAL:    balance.annualAvailable    ?? 0,
+      SICK:      balance.sickAvailable      ?? 0,
+      PERSONAL:  balance.personalAvailable  ?? 0,
+      MATERNITY: balance.maternityAvailable ?? 0,
+      SPECIAL:   balance.specialAvailable   ?? 0,
+      SHORT:     balance.annualAvailable    ?? 0,
+    };
 
     const available = availableMap[leaveType] ?? 0;
 
@@ -67,7 +69,7 @@ const availableMap: Record<string, number> = {
       );
     }
 
-    // ✅ For non-short leaves, also check if requested days exceed available
+    // For non-short leaves, check if requested days exceed available
     if (!isShortLeave && calcDays > available) {
       return NextResponse.json(
         { error: "INSUFFICIENT_BALANCE" },
@@ -75,7 +77,7 @@ const availableMap: Record<string, number> = {
       );
     }
 
-    // ✅ For short leaves, check if requested hours exceed available annual hours
+    // For short leaves, check if requested hours exceed available annual hours
     if (isShortLeave && calcHours > available * 8) {
       return NextResponse.json(
         { error: "INSUFFICIENT_BALANCE" },

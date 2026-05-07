@@ -107,6 +107,16 @@ const RequestForm = ({ user }: Props) => {
       const isShort = values.leave === "ANNUAL" && values.annualSubType === "SHORT";
       const resolvedType = isShort ? "SHORT" : values.leave;
 
+      // ✅ Mirror the same fallback chain as /api/balance
+      // so the lookup key always matches what was stored when credits were added
+      const effectiveEmail =
+        user.email ??
+        ((user as any).telegramId
+          ? `telegram-${(user as any).telegramId}`
+          : null) ??
+        (user.id ? `userid-${user.id}` : null) ??
+        `name-${user.name?.replace(/\s+/g, "-").toLowerCase()}`;
+
       const formattedValues = {
         notes:     values.notes,
         leave:     resolvedType,
@@ -115,8 +125,11 @@ const RequestForm = ({ user }: Props) => {
         endDate:   isShort
           ? values.startDate.toISOString()
           : values.endDate!.toISOString(),
-        hours:     isShort ? Number(values.hours) : undefined,
-        user,
+        hours: isShort ? Number(values.hours) : undefined,
+        user: {
+          ...user,
+          email: effectiveEmail, // ✅ always a non-null string
+        },
       };
 
       const res = await fetch("/api/leave", {
@@ -131,7 +144,6 @@ const RequestForm = ({ user }: Props) => {
       } else {
         const data = await res.json();
 
-        // ✅ Friendly insufficient balance message
         if (data.error === "INSUFFICIENT_BALANCE") {
           toast.error(
             "Insufficient balance. Please contact Admin or HR.",
