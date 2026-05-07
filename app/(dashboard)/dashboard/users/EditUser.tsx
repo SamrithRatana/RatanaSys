@@ -175,13 +175,15 @@ const EditUser = ({ user }: EditUserProps) => {
   return (
     <>
       {/* ✅ Clickable trigger button */}
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        className="h-8 w-8 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
       >
-        <IoPencil className="h-4 w-4" />
-      </button>
+        <IoPencil size={16} />
+      </Button>
 
       <DialogWrapper
         title="Edit User"

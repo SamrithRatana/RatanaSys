@@ -149,7 +149,8 @@ const EditLeave = ({
             render={({ field }) => (
               <FormItem className="flex flex-col">
                 <FormLabel>Make a Decision</FormLabel>
-                <Popover>
+                {/* ✅ modal={true} fixes typing/clicking closing the popover inside a Dialog */}
+                <Popover modal={true}>
                   <PopoverTrigger asChild>
                     <FormControl>
                       <Button
