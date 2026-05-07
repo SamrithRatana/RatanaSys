@@ -4,14 +4,16 @@ import { Role } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
 type SubmittedCredits = {
-  ANNUAL:    number;
-  SICK:      number;
-  PERSONAL:  number;
-  MATERNITY: number;
-  SPECIAL:   number;
-  email: string;
-  year:  string;
-  name:  string;
+  ANNUAL:      number;
+  SICK:        number;
+  PERSONAL:    number;
+  MATERNITY:   number;
+  SPECIAL:     number;
+  email?:      string | null;
+  year:        string;
+  name:        string;
+  userId?:     string | null;
+  telegramId?: string | null;
 };
 
 const allowedRoles = ["ADMIN", "MODERATOR"];
@@ -19,12 +21,22 @@ const allowedRoles = ["ADMIN", "MODERATOR"];
 export async function POST(req: NextRequest) {
   const loggedInUser = await getCurrentUser();
   if (!allowedRoles.includes(loggedInUser?.role as Role)) {
-    throw new Error("You are not permitted to perform this action");
+    return NextResponse.json(
+      { error: "You are not permitted to perform this action" },
+      { status: 403 }
+    );
   }
 
   try {
     const body: SubmittedCredits = await req.json();
-    const { ANNUAL, SICK, PERSONAL, MATERNITY, SPECIAL, year, email, name } = body;
+    const { ANNUAL, SICK, PERSONAL, MATERNITY, SPECIAL, year, name } = body;
+
+    // ✅ Priority: email → telegramId → userId → name
+    const email =
+      body.email ??
+      (body.telegramId ? `telegram-${body.telegramId}` : null) ??
+      (body.userId     ? `userid-${body.userId}`        : null) ??
+      `name-${name.replace(/\s+/g, "-").toLowerCase()}`;
 
     await prisma.balances.upsert({
       where: {
@@ -52,7 +64,7 @@ export async function POST(req: NextRequest) {
         shortUsed:          0,
       },
       update: {
-        // Only update credits — preserve used values already tracked
+        name,
         annualCredit:       ANNUAL    ?? 0,
         annualAvailable:    ANNUAL    ?? 0,
         sickCredit:         SICK      ?? 0,
