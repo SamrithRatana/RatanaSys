@@ -1,7 +1,8 @@
 import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
-import { differenceInDays, parseISO } from "date-fns";
+import { differenceInDays, parseISO, format } from "date-fns";
+import { sendTelegramMessage } from "@/lib/sendTelegramMessage";
 
 type SubmittedLeave = {
   notes:     string;
@@ -19,8 +20,19 @@ type SubmittedLeave = {
   };
 };
 
+function getLeaveLabel(type: string): string {
+  const labels: Record<string, string> = {
+    ANNUAL:    "Annual Leave",
+    SICK:      "Sick Leave",
+    PERSONAL:  "Personal Leave",
+    MATERNITY: "Maternity Leave",
+    SPECIAL:   "Special Leave",
+    SHORT:     "Short Leave",
+  };
+  return labels[type.toUpperCase()] ?? `${type} Leave`;
+}
+
 export async function POST(req: NextRequest) {
-  // ✅ All roles allowed (USER, MODERATOR, ADMIN)
   const loggedInUser = await getCurrentUser();
   if (!loggedInUser) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -40,10 +52,7 @@ export async function POST(req: NextRequest) {
     const calcDays  = isShortLeave ? 0 : differenceInDays(endDateObj, startDateObj) + 1;
     const calcHours = isShortLeave ? Number(hours ?? 0) : 0;
 
-    // ✅ NO balance check — users can submit leave even if balance is 0 or negative.
-    // Deficit will be visible in the Balances table after admin approval.
-
-    // Duplicate check — only for non-short leaves
+    // Duplicate check
     if (!isShortLeave) {
       const existingLeave = await prisma.leave.findFirst({
         where: {
@@ -53,7 +62,6 @@ export async function POST(req: NextRequest) {
           userEmail: user.email,
         },
       });
-
       if (existingLeave) {
         return NextResponse.json(
           { error: "Leave entry already exists for these dates" },
@@ -75,6 +83,26 @@ export async function POST(req: NextRequest) {
         year,
       },
     });
+
+    // ── Telegram notification on new leave request ──────────────────────────
+    const leaveLabel = getLeaveLabel(leaveType);
+    const dateRange  = isShortLeave
+      ? `${format(startDateObj, "dd MMM yyyy")} (${calcHours} hr${calcHours !== 1 ? "s" : ""})`
+      : calcDays === 1
+        ? format(startDateObj, "dd MMM yyyy")
+        : `${format(startDateObj, "dd MMM yyyy")} → ${format(endDateObj, "dd MMM yyyy")} (${calcDays} days)`;
+
+    await sendTelegramMessage([
+      `🏖️ <b>New Leave Request</b>`,
+      ``,
+      `👤 <b>Name:</b> ${user.name}`,
+      `📋 <b>Type:</b> ${leaveLabel}`,
+      `📅 <b>Date:</b> ${dateRange}`,
+      `📝 <b>Reason:</b> ${notes || "—"}`,
+      ``,
+      `⏳ <i>Awaiting approval</i>`,
+    ].join("\n"));
+    // ───────────────────────────────────────────────────────────────────────
 
     return NextResponse.json({ message: "Success" }, { status: 200 });
   } catch (error) {

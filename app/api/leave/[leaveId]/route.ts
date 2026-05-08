@@ -3,17 +3,18 @@ import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
 import { LeaveStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
+import { sendTelegramMessage } from "@/lib/sendTelegramMessage";
 
 type EditBody = {
-  notes: string;
-  status: LeaveStatus;
-  id: string;
-  days: number;
-  hours?: number;
-  type: string;
-  year: string;
-  email: string;
-  user: string;
+  notes:     string;
+  status:    LeaveStatus;
+  id:        string;
+  days:      number;
+  hours?:    number;
+  type:      string;
+  year:      string;
+  email:     string;
+  user:      string;
   startDate: string;
 };
 
@@ -47,6 +48,7 @@ export async function PATCH(req: Request) {
     const updatedAt    = new Date().toISOString();
     const actorName    = loggedInUser.name ?? loggedInUser.email ?? "Unknown";
     const actorRole    = loggedInUser.role;
+    const leaveLabel   = getLeaveLabel(type);
 
     const leave = await prisma.leave.findUnique({ where: { id } });
     if (!leave) {
@@ -64,6 +66,17 @@ export async function PATCH(req: Request) {
           updatedAt,
         },
       });
+
+      // ── Notify group ──────────────────────────────────────────────────────
+      await sendTelegramMessage([
+        `❌ <b>Leave Rejected</b>`,
+        ``,
+        `👤 <b>Name:</b> ${user}`,
+        `📋 <b>Type:</b> ${leaveLabel}`,
+        `🙅 <b>Rejected by:</b> ${actorName}`,
+        `📝 <b>Note:</b> ${notes || "—"}`,
+      ].join("\n"));
+
       return NextResponse.json({ message: "Leave rejected" }, { status: 200 });
     }
 
@@ -89,6 +102,17 @@ export async function PATCH(req: Request) {
             updatedAt,
           },
         });
+
+        // ── Notify group ────────────────────────────────────────────────────
+        await sendTelegramMessage([
+          `✅ <b>Leave — Head Dept Approved</b>`,
+          ``,
+          `👤 <b>Name:</b> ${user}`,
+          `📋 <b>Type:</b> ${leaveLabel}`,
+          `👍 <b>Approved by:</b> ${actorName} (Head Dept)`,
+          ``,
+          `⏳ <i>Awaiting Manager final approval</i>`,
+        ].join("\n"));
 
         return NextResponse.json(
           { message: "Head Department approved. Awaiting Manager final approval." },
@@ -142,6 +166,17 @@ export async function PATCH(req: Request) {
             updatedAt,
           },
         });
+
+        // ── Notify group ────────────────────────────────────────────────────
+        await sendTelegramMessage([
+          `🎉 <b>Leave Fully Approved!</b>`,
+          ``,
+          `👤 <b>Name:</b> ${user}`,
+          `📋 <b>Type:</b> ${leaveLabel}`,
+          `📅 <b>Duration:</b> ${isShortLeave ? `${hoursFromDb} hr${hoursFromDb !== 1 ? "s" : ""}` : `${days} day${days !== 1 ? "s" : ""}`}`,
+          `✅ <b>Approved by:</b> ${actorName} (Manager)`,
+          `📝 <b>Note:</b> ${notes || "—"}`,
+        ].join("\n"));
 
         return NextResponse.json(
           { message: "Manager approved. Leave fully approved!" },
