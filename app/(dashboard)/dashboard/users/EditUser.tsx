@@ -150,14 +150,12 @@ const EditUser = ({ user }: EditUserProps) => {
   async function onSubmit(values: FormValues) {
     const id = user.id;
     const { confirmPassword, ...payload } = values;
-
     try {
       const res = await fetch("/api/user/userId", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...payload, id }),
       });
-
       if (res.ok) {
         toast.success("User updated successfully", { duration: 4000 });
         setOpen(false);
@@ -174,7 +172,7 @@ const EditUser = ({ user }: EditUserProps) => {
 
   return (
     <>
-      {/* ✅ Clickable trigger button */}
+      {/* ✅ ONE trigger button only — icon prop removed from DialogWrapper */}
       <Button
         type="button"
         variant="ghost"
@@ -187,12 +185,11 @@ const EditUser = ({ user }: EditUserProps) => {
 
       <DialogWrapper
         title="Edit User"
-        icon={IoPencil}
         isBtn={false}
+        // ❌ icon={IoPencil} removed — was causing the second pencil icon
         open={open}
         setOpen={() => setOpen(!open)}
       >
-        {/* ✅ Scrollable wrapper */}
         <div className="max-h-[70vh] overflow-y-auto pr-1">
 
           {/* ── Integration Status ── */}
@@ -282,7 +279,6 @@ const EditUser = ({ user }: EditUserProps) => {
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
                     <FormLabel>Department</FormLabel>
-                    {/* ✅ modal={true} fixes typing closing the popover */}
                     <Popover modal={true}>
                       <PopoverTrigger asChild>
                         <FormControl>
@@ -328,7 +324,6 @@ const EditUser = ({ user }: EditUserProps) => {
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
                     <FormLabel>Job Title</FormLabel>
-                    {/* ✅ modal={true} fixes typing closing the popover */}
                     <Popover modal={true}>
                       <PopoverTrigger asChild>
                         <FormControl>
@@ -374,7 +369,6 @@ const EditUser = ({ user }: EditUserProps) => {
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
                     <FormLabel>Role</FormLabel>
-                    {/* ✅ modal={true} fixes typing closing the popover */}
                     <Popover modal={true}>
                       <PopoverTrigger asChild>
                         <FormControl>
@@ -498,8 +492,6 @@ const EditUser = ({ user }: EditUserProps) => {
           </Form>
 
         </div>
-        {/* ✅ End scrollable wrapper */}
-
       </DialogWrapper>
     </>
   );

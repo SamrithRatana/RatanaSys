@@ -131,13 +131,13 @@ const AddCredits = ({ email, name, userId, telegramId }: Props) => {
                 <div className="px-6 pt-6 pb-4 border-b">
                   <div className="flex items-center gap-2 mb-1">
                     <Image
-                      src="/Nssf.jpg"
+                      src="/MLVT.png"
                       alt="NSSF Logo"
                       width={80}
                       height={80}
                       className="object-contain rounded"
                     />
-                    <span className="text-lg font-bold text-[#0EA5E9]">NSSF Cambodia</span>
+                    <span className="text-lg font-bold text-[#0EA5E9]">MLVT Cambodia</span>
                     <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
                       Leave Legal
                     </span>
