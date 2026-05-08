@@ -28,10 +28,16 @@ const SideBarDrawer = ({ user }: SideBarDrawerProps) => {
 
       <SheetContent
         side="left"
-        className="flex flex-col justify-between w-52 touch-manipulation"
-        // ↓ Fix for iOS Safari — prevents Radix from locking pointer events
+        className="flex flex-col justify-between w-52 touch-manipulation [&>button]:hidden"
         onOpenAutoFocus={(e) => e.preventDefault()}
-        onPointerDownOutside={(e) => e.preventDefault()}
+        onPointerDownOutside={(e) => {
+          // iOS Safari fires pointerdown on the overlay — allow it to close
+          e.stopPropagation();
+        }}
+        onInteractOutside={(e) => {
+          // Fallback for iOS Safari touch events that bypass pointerdown
+          e.stopPropagation();
+        }}
       >
         <div>
           <div className="flex mt-3 justify-center">
@@ -46,7 +52,6 @@ const SideBarDrawer = ({ user }: SideBarDrawerProps) => {
 
           <nav
             className="flex flex-col items-center px-3 overflow-y-auto"
-            // ↓ iOS Safari smooth scroll fix
             style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}
           >
             {user?.role === "ADMIN"     && <>{RenderRoutes({ routes: AdminRoutes })}</>}
