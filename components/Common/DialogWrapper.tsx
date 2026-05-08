@@ -18,7 +18,7 @@ type DialogProps = {
   isBtn: boolean;
   icon?: IconType;
   open?: boolean;
-  setOpen?: () => void
+  setOpen?: () => void;
 };
 
 const DialogWrapper = ({
@@ -29,19 +29,29 @@ const DialogWrapper = ({
   icon: Icon,
   isBtn,
   open,
-  setOpen
+  setOpen,
 }: DialogProps) => {
   return (
-    <Dialog open={open} onOpenChange={setOpen} >
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        {isBtn ? <Button className="text-white">{btnTitle}</Button> : Icon && <Icon className="text-blue-600  cursor-pointer" size={24}/>}
+        {isBtn ? (
+          <Button className="text-white">{btnTitle}</Button>
+        ) : (
+          Icon && <Icon className="text-blue-600 cursor-pointer" size={24} />
+        )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[425px]">
-        <DialogHeader>
-          <DialogTitle> {title}</DialogTitle>
+
+      {/* ✅ max-h + overflow so keyboard doesn't hide content on mobile */}
+      <DialogContent className="sm:max-w-[425px] max-h-[90vh] flex flex-col p-0">
+        <DialogHeader className="px-6 pt-6 pb-2 shrink-0">
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{descr}</DialogDescription>
         </DialogHeader>
-        {children}
+
+        {/* ✅ Scrollable body */}
+        <div className="overflow-y-auto flex-1 px-6 pb-6">
+          {children}
+        </div>
       </DialogContent>
     </Dialog>
   );

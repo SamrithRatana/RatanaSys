@@ -85,7 +85,7 @@ const formSchema = z
 
 const RequestForm = ({ user }: Props) => {
   const [open,          setOpen]          = useState(false);
-  const [openLeaveType, setOpenLeaveType] = useState(false); // ✅ added
+  const [openLeaveType, setOpenLeaveType] = useState(false);
   const [openStartDate, setOpenStartDate] = useState(false);
   const [openEndDate,   setOpenEndDate]   = useState(false);
 
@@ -105,7 +105,7 @@ const RequestForm = ({ user }: Props) => {
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
-      const isShort = values.leave === "ANNUAL" && values.annualSubType === "SHORT";
+      const isShort      = values.leave === "ANNUAL" && values.annualSubType === "SHORT";
       const resolvedType = isShort ? "SHORT" : values.leave;
 
       const effectiveEmail =
@@ -177,7 +177,7 @@ const RequestForm = ({ user }: Props) => {
                   modal={true}
                   open={openLeaveType}
                   onOpenChange={setOpenLeaveType}
-                > {/* ✅ wired up */}
+                >
                   <PopoverTrigger asChild>
                     <FormControl>
                       <Button
@@ -206,7 +206,7 @@ const RequestForm = ({ user }: Props) => {
                               form.resetField("annualSubType");
                               form.resetField("endDate");
                               form.resetField("hours");
-                              setOpenLeaveType(false); // ✅ closes on select
+                              setOpenLeaveType(false);
                             }}
                           >
                             <BsCheckLg
