@@ -26,10 +26,10 @@ type Props = {
 
 function StatusBadge({ status }: { status: LeaveStatus }) {
   const map: Record<LeaveStatus, { label: string; className: string }> = {
-    APPROVED:     { label: "Approved",      className: "bg-green-500 text-white" },
-    PENDING:      { label: "Pending",       className: "bg-amber-500 text-white" },
-    REJECTED:     { label: "Rejected",      className: "bg-red-500 text-white" },
-    INMODERATION: { label: "In Moderation", className: "bg-indigo-500 text-white" },
+    APPROVED:     { label: "បានអនុម័ត",       className: "bg-green-500 text-white" },
+    PENDING:      { label: "កំពុងរង់ចាំ",      className: "bg-amber-500 text-white" },
+    REJECTED:     { label: "បានបដិសេធ",       className: "bg-red-500 text-white" },
+    INMODERATION: { label: "កំពុងពិនិត្យ",    className: "bg-indigo-500 text-white" },
   };
   const { label, className } = map[status] ?? { label: status, className: "bg-gray-400 text-white" };
   return <Badge className={className}>{label}</Badge>;
@@ -86,18 +86,18 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         toast.success(
           status === "APPROVED"
             ? canActAsAdmin
-              ? "Leave fully approved! ✅"
-              : "Head Dept approved! Awaiting Manager ✅"
-            : "Leave rejected ❌",
+              ? "ការឈប់សម្រាកបានអនុម័តពេញលេញ! ✅"
+              : "ប្រធានផ្នែកបានអនុម័ត! កំពុងរង់ចាំអ្នកគ្រប់គ្រង ✅"
+            : "ការឈប់សម្រាកបានបដិសេធ ❌",
           { duration: 4000 }
         );
         router.refresh();
       } else {
         const err = await res.json();
-        toast.error(err.error ?? "An error occurred", { duration: 6000 });
+        toast.error(err.error ?? "មានបញ្ហាកើតឡើង", { duration: 6000 });
       }
     } catch {
-      toast.error("An unexpected error occurred");
+      toast.error("មានបញ្ហាដែលមិននឹកស្មានដល់កើតឡើង");
     } finally {
       setLoading(false);
     }
@@ -106,7 +106,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
   return (
     <div className="max-w-3xl mx-auto space-y-6 py-6">
 
-      {/* Back button */}
+      {/* ប៊ូតុងត្រឡប់ */}
       <Button
         variant="ghost"
         size="sm"
@@ -114,40 +114,40 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         className="gap-2 text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to All Leaves
+        ត្រឡប់ទៅបញ្ជីការឈប់សម្រាក
       </Button>
 
-      {/* Header */}
+      {/* ក្បាល */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Leave Request Detail</h1>
-          <p className="text-sm text-muted-foreground mt-1">ID: {leave.id}</p>
+          <h1 className="text-2xl font-bold">លម្អិតសំណើឈប់សម្រាក</h1>
+          <p className="text-sm text-muted-foreground mt-1">លេខសម្គាល់: {leave.id}</p>
         </div>
         <StatusBadge status={leave.status} />
       </div>
 
-      {/* Leave Info Card */}
+      {/* កាតព័ត៌មានការឈប់សម្រាក */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <FileText className="h-4 w-4" />
-            Leave Information
+            ព័ត៌មានការឈប់សម្រាក
           </CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <InfoRow
             icon={<User className="h-4 w-4" />}
-            label="Employee"
+            label="បុគ្គលិក"
             value={leave.userName ?? "—"}
           />
           <InfoRow
             icon={<Briefcase className="h-4 w-4" />}
-            label="Leave Type"
+            label="ប្រភេទការឈប់សម្រាក"
             value={leave.type}
           />
           <InfoRow
             icon={<CalendarDays className="h-4 w-4" />}
-            label="Period"
+            label="រយៈពេល"
             value={
               <span>
                 {dayjs(leave.startDate).format("DD MMM YYYY")}
@@ -158,37 +158,37 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
           />
           <InfoRow
             icon={<Clock className="h-4 w-4" />}
-            label="Duration"
+            label="រយៈពេល"
             value={
               leave.hours && leave.hours > 0
-                ? `${leave.hours} hrs`
-                : `${leave.days} day${leave.days !== 1 ? "s" : ""}`
+                ? `${leave.hours} ម៉ោង`
+                : `${leave.days} ថ្ងៃ${leave.days !== 1 ? "" : ""}`
             }
           />
           <InfoRow
             icon={<Clock className="h-4 w-4" />}
-            label="Requested On"
+            label="បានស្នើនៅ"
             value={dayjs(leave.createdAt).format("DD MMM YYYY HH:mm")}
           />
           <InfoRow
             icon={<FileText className="h-4 w-4" />}
-            label="Reason"
+            label="មូលហេតុ"
             value={leave.userNote ?? "—"}
           />
         </CardContent>
       </Card>
 
-      {/* Approval Timeline Card */}
+      {/* កាតនៃដំណើរការអនុម័ត */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Building2 className="h-4 w-4" />
-            Approval Timeline
+            ដំណើរការអនុម័ត
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
 
-          {/* Step 1 — Head Dept */}
+          {/* ជំហានទី ១ — ប្រធានផ្នែក */}
           <div className="flex gap-4">
             <div className="flex flex-col items-center">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -201,12 +201,12 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
               <div className="w-px flex-1 bg-border mt-2" />
             </div>
             <div className="pb-4">
-              <p className="text-sm font-semibold">Step 1 — Head Department</p>
+              <p className="text-sm font-semibold">ជំហានទី ១ — ប្រធានផ្នែក</p>
               {leave.headDepartmentApproved ? (
                 <>
-                  <p className="text-sm text-green-600">✅ Approved by {leave.headDepartment}</p>
+                  <p className="text-sm text-green-600">✅ បានអនុម័តដោយ {leave.headDepartment}</p>
                   {leave.headDepartmentNote && (
-                    <p className="text-xs text-muted-foreground mt-1">Note: {leave.headDepartmentNote}</p>
+                    <p className="text-xs text-muted-foreground mt-1">កំណត់ចំណាំ: {leave.headDepartmentNote}</p>
                   )}
                   {leave.headDepartmentAt && (
                     <p className="text-xs text-muted-foreground">
@@ -215,12 +215,12 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
                   )}
                 </>
               ) : (
-                <p className="text-sm text-amber-500">⏳ Awaiting Head Department approval</p>
+                <p className="text-sm text-amber-500">⏳ កំពុងរង់ចាំការអនុម័តពីប្រធានផ្នែក</p>
               )}
             </div>
           </div>
 
-          {/* Step 2 — Manager */}
+          {/* ជំហានទី ២ — អ្នកគ្រប់គ្រង */}
           <div className="flex gap-4">
             <div className="flex flex-col items-center">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -238,12 +238,12 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
               </div>
             </div>
             <div>
-              <p className="text-sm font-semibold">Step 2 — Manager</p>
+              <p className="text-sm font-semibold">ជំហានទី ២ — អ្នកគ្រប់គ្រង</p>
               {leave.managerApproved ? (
                 <>
-                  <p className="text-sm text-green-600">✅ Approved by {leave.manager}</p>
+                  <p className="text-sm text-green-600">✅ បានអនុម័តដោយ {leave.manager}</p>
                   {leave.managerNote && (
-                    <p className="text-xs text-muted-foreground mt-1">Note: {leave.managerNote}</p>
+                    <p className="text-xs text-muted-foreground mt-1">កំណត់ចំណាំ: {leave.managerNote}</p>
                   )}
                   {leave.managerAt && (
                     <p className="text-xs text-muted-foreground">
@@ -252,10 +252,10 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
                   )}
                 </>
               ) : leave.status === LeaveStatus.REJECTED ? (
-                <p className="text-sm text-red-500">❌ Rejected — {leave.headDepartmentNote ?? leave.managerNote ?? "No note"}</p>
+                <p className="text-sm text-red-500">❌ បានបដិសេធ — {leave.headDepartmentNote ?? leave.managerNote ?? "គ្មានកំណត់ចំណាំ"}</p>
               ) : (
                 <p className="text-sm text-gray-400">
-                  {leave.headDepartmentApproved ? "⏳ Awaiting Manager approval" : "— Pending Head Dept first"}
+                  {leave.headDepartmentApproved ? "⏳ កំពុងរង់ចាំការអនុម័តពីអ្នកគ្រប់គ្រង" : "— រង់ចាំប្រធានផ្នែកជាមុនសិន"}
                 </p>
               )}
             </div>
@@ -264,13 +264,13 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         </CardContent>
       </Card>
 
-      {/* Action Card — only shown if current user can act */}
+      {/* កាតសកម្មភាព — បង្ហាញតែនៅពេលដែលអ្នកប្រើប្រាស់អាចធ្វើសកម្មភាពបាន */}
       {canAct && (
         <Card className="border-blue-200 bg-blue-50/50 dark:bg-blue-950/10">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2 text-blue-700 dark:text-blue-400">
               <CheckCircle2 className="h-4 w-4" />
-              {canActAsAdmin ? "Manager Decision" : "Head Department Decision"}
+              {canActAsAdmin ? "សេចក្តីសម្រេចរបស់អ្នកគ្រប់គ្រង" : "សេចក្តីសម្រេចរបស់ប្រធានផ្នែក"}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -278,22 +278,22 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
             <div className="rounded-md bg-muted p-3 text-sm">
               {canActAsModerator && (
                 <p className="text-amber-600 font-medium">
-                  📋 Step 1 of 2 — You are approving as <strong>Head Department</strong>
+                  📋 ជំហានទី ១ ក្នុង ២ — អ្នកកំពុងអនុម័តក្នុងតួនាទី <strong>ប្រធានផ្នែក</strong>
                 </p>
               )}
               {canActAsAdmin && (
                 <p className="text-indigo-600 font-medium">
-                  ✅ Step 2 of 2 — Head Dept ({leave.headDepartment}) already approved.
-                  You are approving as <strong>Manager</strong>
+                  ✅ ជំហានទី ២ ក្នុង ២ — ប្រធានផ្នែក ({leave.headDepartment}) បានអនុម័តរួចហើយ។
+                  អ្នកកំពុងអនុម័តក្នុងតួនាទី <strong>អ្នកគ្រប់គ្រង</strong>
                 </p>
               )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="notes">Notes (optional)</Label>
+              <Label htmlFor="notes">កំណត់ចំណាំ (ស្រេចចិត្ត)</Label>
               <Textarea
                 id="notes"
-                placeholder="Add a note for your decision..."
+                placeholder="បន្ថែមកំណត់ចំណាំសម្រាប់សេចក្តីសម្រេចរបស់អ្នក..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={3}
@@ -309,7 +309,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
                 onClick={() => handleAction("APPROVED")}
               >
                 <CheckCircle2 className="h-4 w-4" />
-                {canActAsAdmin ? "Approve as Manager" : "Approve as Head Dept"}
+                {canActAsAdmin ? "អនុម័តក្នុងតួនាទីអ្នកគ្រប់គ្រង" : "អនុម័តក្នុងតួនាទីប្រធានផ្នែក"}
               </Button>
               <Button
                 variant="destructive"
@@ -318,7 +318,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
                 onClick={() => handleAction("REJECTED")}
               >
                 <XCircle className="h-4 w-4" />
-                Reject
+                បដិសេធ
               </Button>
             </div>
 
@@ -326,12 +326,12 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         </Card>
       )}
 
-      {/* Already done */}
+      {/* បានបញ្ចប់រួចហើយ */}
       {isDone && (
         <Card className={`border ${isApproved ? "border-green-200 bg-green-50/50" : "border-red-200 bg-red-50/50"}`}>
           <CardContent className="py-4 text-center">
             <p className={`font-semibold ${isApproved ? "text-green-600" : "text-red-600"}`}>
-              {isApproved ? "🎉 This leave has been fully approved." : "❌ This leave has been rejected."}
+              {isApproved ? "🎉 ការឈប់សម្រាកនេះបានអនុម័តពេញលេញ។" : "❌ ការឈប់សម្រាកនេះបានបដិសេធ។"}
             </p>
           </CardContent>
         </Card>
