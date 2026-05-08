@@ -18,11 +18,21 @@ const SideBarDrawer = ({ user }: SideBarDrawerProps) => {
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <button className="p-2 bg-blue-100 rounded-full text-blue-500">
+        <button
+          className="p-2 bg-blue-100 rounded-full text-blue-500 touch-manipulation"
+          type="button"
+        >
           <TiThMenu size={24} />
         </button>
       </SheetTrigger>
-      <SheetContent side="left" className="flex flex-col justify-between w-52">
+
+      <SheetContent
+        side="left"
+        className="flex flex-col justify-between w-52 touch-manipulation"
+        // ↓ Fix for iOS Safari — prevents Radix from locking pointer events
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onPointerDownOutside={(e) => e.preventDefault()}
+      >
         <div>
           <div className="flex mt-3 justify-center">
             <Image
@@ -33,7 +43,12 @@ const SideBarDrawer = ({ user }: SideBarDrawerProps) => {
               className="object-contain"
             />
           </div>
-          <nav className="flex flex-col items-center px-3 overflow-y-auto">
+
+          <nav
+            className="flex flex-col items-center px-3 overflow-y-auto"
+            // ↓ iOS Safari smooth scroll fix
+            style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}
+          >
             {user?.role === "ADMIN"     && <>{RenderRoutes({ routes: AdminRoutes })}</>}
             {user?.role === "USER"      && <>{RenderRoutes({ routes: UserRoutes })}</>}
             {user?.role === "MODERATOR" && <>{RenderRoutes({ routes: ModeratorRoutes })}</>}
