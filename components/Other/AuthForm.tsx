@@ -151,7 +151,7 @@ export function AuthForm() {
       {tab === "credentials" && (
         <form onSubmit={handleCredentials} className="grid gap-4">
           <div className="grid gap-1">
-            <Label htmlFor="identifier">Email or Username</Label>
+            <Label htmlFor="identifier">Credentials</Label>
             <Input
               id="identifier"
               type="text"

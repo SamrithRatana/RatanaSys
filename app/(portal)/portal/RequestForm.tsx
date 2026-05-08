@@ -63,7 +63,7 @@ const formSchema = z
       });
     }
 
-    const isShort = data.leave === "ANNUAL" && data.annualSubType === "SHORT";
+    const isShort      = data.leave === "ANNUAL" && data.annualSubType === "SHORT";
     const needsEndDate = data.leave !== "ANNUAL" || data.annualSubType === "FULL";
 
     if (needsEndDate && !data.endDate) {
@@ -84,22 +84,23 @@ const formSchema = z
   });
 
 const RequestForm = ({ user }: Props) => {
-  const [open, setOpen] = useState(false);
+  const [open,          setOpen]          = useState(false);
+  const [openLeaveType, setOpenLeaveType] = useState(false); // ✅ added
   const [openStartDate, setOpenStartDate] = useState(false);
-  const [openEndDate, setOpenEndDate] = useState(false);
+  const [openEndDate,   setOpenEndDate]   = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {},
   });
 
-  const selectedLeave = form.watch("leave");
-  const annualSubType = form.watch("annualSubType");
-  const isAnnual      = selectedLeave === "ANNUAL";
-  const isShortLeave  = isAnnual && annualSubType === "SHORT";
-  const isFullDay     = isAnnual && annualSubType === "FULL";
-  const showEndDate   = !isAnnual || isFullDay;
-  const showHours     = isShortLeave;
+  const selectedLeave  = form.watch("leave");
+  const annualSubType  = form.watch("annualSubType");
+  const isAnnual       = selectedLeave === "ANNUAL";
+  const isShortLeave   = isAnnual && annualSubType === "SHORT";
+  const isFullDay      = isAnnual && annualSubType === "FULL";
+  const showEndDate    = !isAnnual || isFullDay;
+  const showHours      = isShortLeave;
   const showDateFields = !isAnnual || !!annualSubType;
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
@@ -149,7 +150,6 @@ const RequestForm = ({ user }: Props) => {
     }
   }
 
-  // ✅ Today at midnight — reusable for both calendars
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const currentYear = today.getFullYear();
@@ -173,7 +173,11 @@ const RequestForm = ({ user }: Props) => {
             render={({ field }) => (
               <FormItem className="flex flex-col">
                 <FormLabel>Leave Type</FormLabel>
-                <Popover modal={true}>
+                <Popover
+                  modal={true}
+                  open={openLeaveType}
+                  onOpenChange={setOpenLeaveType}
+                > {/* ✅ wired up */}
                   <PopoverTrigger asChild>
                     <FormControl>
                       <Button
@@ -202,6 +206,7 @@ const RequestForm = ({ user }: Props) => {
                               form.resetField("annualSubType");
                               form.resetField("endDate");
                               form.resetField("hours");
+                              setOpenLeaveType(false); // ✅ closes on select
                             }}
                           >
                             <BsCheckLg
@@ -324,7 +329,6 @@ const RequestForm = ({ user }: Props) => {
                             field.onChange(date);
                             setOpenStartDate(false);
                           }}
-                          // ✅ Fixed: use midnight today so today is selectable
                           disabled={(date: Date) =>
                             date < today || date.getFullYear() > currentYear
                           }
@@ -393,7 +397,6 @@ const RequestForm = ({ user }: Props) => {
                               field.onChange(date);
                               setOpenEndDate(false);
                             }}
-                            // ✅ Fixed: use midnight today so today is selectable
                             disabled={(date: Date) => date < today}
                             initialFocus
                           />
