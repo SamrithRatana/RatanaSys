@@ -70,7 +70,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    await prisma.leave.create({
+    // Create and capture the new leave record
+    const createdLeave = await prisma.leave.create({
       data: {
         startDate: startDateObj,
         endDate:   endDateObj,
@@ -84,7 +85,11 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // ── Telegram notification on new leave request ──────────────────────────
+    // Build deep link to this specific leave
+    const baseUrl  = process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh";
+    const leaveUrl = `${baseUrl}/dashboard/leaves/${createdLeave.id}`;
+
+    // Telegram notification
     const leaveLabel = getLeaveLabel(leaveType);
     const dateRange  = isShortLeave
       ? `${format(startDateObj, "dd MMM yyyy")} (${calcHours} hr${calcHours !== 1 ? "s" : ""})`
@@ -92,17 +97,19 @@ export async function POST(req: NextRequest) {
         ? format(startDateObj, "dd MMM yyyy")
         : `${format(startDateObj, "dd MMM yyyy")} → ${format(endDateObj, "dd MMM yyyy")} (${calcDays} days)`;
 
-    await sendTelegramMessage([
-      `🏖️ <b>New Leave Request</b>`,
-      ``,
-      `👤 <b>Name:</b> ${user.name}`,
-      `📋 <b>Type:</b> ${leaveLabel}`,
-      `📅 <b>Date:</b> ${dateRange}`,
-      `📝 <b>Reason:</b> ${notes || "—"}`,
-      ``,
-      `⏳ <i>Awaiting approval</i>`,
-    ].join("\n"));
-    // ───────────────────────────────────────────────────────────────────────
+    await sendTelegramMessage(
+      [
+        `📄 <b>New Leave Request</b>`,
+        ``,
+        `👤 <b>Name:</b> ${user.name}`,
+        `📋 <b>Type:</b> ${leaveLabel}`,
+        `📅 <b>Date:</b> ${dateRange}`,
+        `📝 <b>Reason:</b> ${notes || "—"}`,
+        ``,
+        `⏳ <i>Awaiting approval</i>`,
+      ].join("\n"),
+      [{ text: "👀 View & Approve →", url: leaveUrl }]
+    );
 
     return NextResponse.json({ message: "Success" }, { status: 200 });
   } catch (error) {

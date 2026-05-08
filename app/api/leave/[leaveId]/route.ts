@@ -50,12 +50,16 @@ export async function PATCH(req: Request) {
     const actorRole    = loggedInUser.role;
     const leaveLabel   = getLeaveLabel(type);
 
+    // Build deep link to this specific leave
+    const baseUrl  = process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh";
+    const leaveUrl = `${baseUrl}/dashboard/leaves/${id}`;
+
     const leave = await prisma.leave.findUnique({ where: { id } });
     if (!leave) {
       return NextResponse.json({ error: "Leave not found" }, { status: 404 });
     }
 
-    // ── REJECTED ────────────────────────────────────────────────────────────
+    // ── REJECTED ──────────────────────────────────────────────────────────────
     if (status === LeaveStatus.REJECTED) {
       await prisma.leave.update({
         where: { id },
@@ -67,20 +71,22 @@ export async function PATCH(req: Request) {
         },
       });
 
-      // ── Notify group ──────────────────────────────────────────────────────
-      await sendTelegramMessage([
-        `❌ <b>Leave Rejected</b>`,
-        ``,
-        `👤 <b>Name:</b> ${user}`,
-        `📋 <b>Type:</b> ${leaveLabel}`,
-        `🙅 <b>Rejected by:</b> ${actorName}`,
-        `📝 <b>Note:</b> ${notes || "—"}`,
-      ].join("\n"));
+      await sendTelegramMessage(
+        [
+          `❌ <b>Leave Rejected</b>`,
+          ``,
+          `👤 <b>Name:</b> ${user}`,
+          `📋 <b>Type:</b> ${leaveLabel}`,
+          `🙅 <b>Rejected by:</b> ${actorName}`,
+          `📝 <b>Note:</b> ${notes || "—"}`,
+        ].join("\n"),
+        [{ text: "📋 View Leave →", url: leaveUrl }]
+      );
 
       return NextResponse.json({ message: "Leave rejected" }, { status: 200 });
     }
 
-    // ── STEP 1 — MODERATOR (Head Department) ────────────────────────────────
+    // ── STEP 1 — MODERATOR (Head Department) ──────────────────────────────────
     if (status === LeaveStatus.APPROVED) {
 
       if (actorRole === "MODERATOR") {
@@ -103,16 +109,18 @@ export async function PATCH(req: Request) {
           },
         });
 
-        // ── Notify group ────────────────────────────────────────────────────
-        await sendTelegramMessage([
-          `✅ <b>Leave — Head Dept Approved</b>`,
-          ``,
-          `👤 <b>Name:</b> ${user}`,
-          `📋 <b>Type:</b> ${leaveLabel}`,
-          `👍 <b>Approved by:</b> ${actorName} (Head Dept)`,
-          ``,
-          `⏳ <i>Awaiting Manager final approval</i>`,
-        ].join("\n"));
+        await sendTelegramMessage(
+          [
+            `✅ <b>Leave — Head Dept Approved</b>`,
+            ``,
+            `👤 <b>Name:</b> ${user}`,
+            `📋 <b>Type:</b> ${leaveLabel}`,
+            `👍 <b>Approved by:</b> ${actorName} (Head Dept)`,
+            ``,
+            `⏳ <i>Awaiting Manager final approval</i>`,
+          ].join("\n"),
+          [{ text: "✅ Approve as Manager →", url: leaveUrl }]
+        );
 
         return NextResponse.json(
           { message: "Head Department approved. Awaiting Manager final approval." },
@@ -120,7 +128,7 @@ export async function PATCH(req: Request) {
         );
       }
 
-      // ── STEP 2 — ADMIN (Manager final approval) ──────────────────────────
+      // ── STEP 2 — ADMIN (Manager final approval) ────────────────────────────
       if (actorRole === "ADMIN") {
         if (!leave.headDepartmentApproved) {
           return NextResponse.json(
@@ -167,16 +175,18 @@ export async function PATCH(req: Request) {
           },
         });
 
-        // ── Notify group ────────────────────────────────────────────────────
-        await sendTelegramMessage([
-          `🎉 <b>Leave Fully Approved!</b>`,
-          ``,
-          `👤 <b>Name:</b> ${user}`,
-          `📋 <b>Type:</b> ${leaveLabel}`,
-          `📅 <b>Duration:</b> ${isShortLeave ? `${hoursFromDb} hr${hoursFromDb !== 1 ? "s" : ""}` : `${days} day${days !== 1 ? "s" : ""}`}`,
-          `✅ <b>Approved by:</b> ${actorName} (Manager)`,
-          `📝 <b>Note:</b> ${notes || "—"}`,
-        ].join("\n"));
+        await sendTelegramMessage(
+          [
+            `🎉 <b>Leave Fully Approved!</b>`,
+            ``,
+            `👤 <b>Name:</b> ${user}`,
+            `📋 <b>Type:</b> ${leaveLabel}`,
+            `📅 <b>Duration:</b> ${isShortLeave ? `${hoursFromDb} hr${hoursFromDb !== 1 ? "s" : ""}` : `${days} day${days !== 1 ? "s" : ""}`}`,
+            `✅ <b>Approved by:</b> ${actorName} (Manager)`,
+            `📝 <b>Note:</b> ${notes || "—"}`,
+          ].join("\n"),
+          [{ text: "📋 View Leave →", url: leaveUrl }]
+        );
 
         return NextResponse.json(
           { message: "Manager approved. Leave fully approved!" },

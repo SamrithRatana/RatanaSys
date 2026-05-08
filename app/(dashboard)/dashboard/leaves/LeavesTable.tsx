@@ -9,9 +9,11 @@ import { Input } from "@/components/ui/input";
 import dayjs from "dayjs";
 import { formatDistance, subDays } from "date-fns";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Leave, LeaveStatus } from "@prisma/client";
 import EditLeave from "./EditLeave";
-import { Search } from "lucide-react";
+import { Search, Eye } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 type leaveProps = {
   leaves: Leave[];
@@ -19,6 +21,7 @@ type leaveProps = {
 
 const LeavesTable = ({ leaves }: leaveProps) => {
   const [search, setSearch] = useState("");
+  const router = useRouter();
 
   const filtered = leaves.filter((leave) =>
     leave.userName?.toLowerCase().includes(search.toLowerCase())
@@ -26,7 +29,6 @@ const LeavesTable = ({ leaves }: leaveProps) => {
 
   return (
     <div className="space-y-4">
-      {/* Header row with title + search */}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">All Leaves</h2>
         <div className="relative w-64">
@@ -40,10 +42,10 @@ const LeavesTable = ({ leaves }: leaveProps) => {
         </div>
       </div>
 
-      {/* Table */}
       <Table>
         <TableHeader className="whitespace-nowrap">
           <TableRow>
+            <TableHead>View</TableHead>
             <TableHead>Edit</TableHead>
             <TableHead>User</TableHead>
             <TableHead>Type</TableHead>
@@ -65,13 +67,26 @@ const LeavesTable = ({ leaves }: leaveProps) => {
         <TableBody className="whitespace-nowrap">
           {filtered.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={16} className="text-center text-muted-foreground py-8">
+              <TableCell colSpan={17} className="text-center text-muted-foreground py-8">
                 No leaves found for &quot;{search}&quot;
               </TableCell>
             </TableRow>
           ) : (
             filtered.map((leave) => (
               <TableRow key={leave.id}>
+
+                {/* ✅ View button → detail page */}
+                <TableCell>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-blue-600 border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                    onClick={() => router.push(`/dashboard/leaves/${leave.id}`)}
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    View
+                  </Button>
+                </TableCell>
 
                 {/* Edit button */}
                 <TableCell>
@@ -104,7 +119,6 @@ const LeavesTable = ({ leaves }: leaveProps) => {
                 <TableCell>{leave.days}</TableCell>
                 <TableCell>{leave.hours ?? 0}</TableCell>
 
-                {/* Status badge */}
                 <TableCell>
                   <Badge className={`
                     ${leave.status === LeaveStatus.APPROVED     && "bg-green-500"}
@@ -118,7 +132,6 @@ const LeavesTable = ({ leaves }: leaveProps) => {
 
                 <TableCell>{leave.userNote ?? "—"}</TableCell>
 
-                {/* Head Department */}
                 <TableCell>
                   {leave.headDepartmentApproved
                     ? <span className="text-green-600 font-medium">✅ {leave.headDepartment}</span>
@@ -131,7 +144,6 @@ const LeavesTable = ({ leaves }: leaveProps) => {
                     : "—"}
                 </TableCell>
 
-                {/* Manager */}
                 <TableCell>
                   {leave.managerApproved
                     ? <span className="text-green-600 font-medium">✅ {leave.manager}</span>

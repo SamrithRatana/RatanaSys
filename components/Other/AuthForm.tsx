@@ -116,7 +116,7 @@ export function AuthForm() {
   }
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: "credentials", label: "Password" },
+    { id: "credentials", label: "User" },
     { id: "google", label: "Google" },
     { id: "telegram", label: "Telegram" },
   ];
