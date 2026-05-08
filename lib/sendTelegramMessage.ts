@@ -7,8 +7,9 @@ export async function sendTelegramMessage(
   message: string,
   buttons?: InlineButton[]
 ): Promise<void> {
-  const token  = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_GROUP_CHAT_ID;
+  const token   = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId  = process.env.TELEGRAM_GROUP_CHAT_ID;
+  const topicId = process.env.TELEGRAM_LEAVES_TOPIC_ID; // ✅ topic
 
   if (!token || !chatId) {
     console.warn("[Telegram] Missing BOT_TOKEN or GROUP_CHAT_ID");
@@ -25,6 +26,12 @@ export async function sendTelegramMessage(
           chat_id:    chatId,
           text:       message,
           parse_mode: "HTML",
+
+          // ✅ sends into "Leaves Request" topic
+          ...(topicId
+            ? { message_thread_id: Number(topicId) }
+            : {}),
+
           ...(buttons && buttons.length > 0
             ? {
                 reply_markup: {
@@ -37,6 +44,7 @@ export async function sendTelegramMessage(
         }),
       }
     );
+
     if (!res.ok) {
       const err = await res.text();
       console.error("[Telegram] sendMessage failed:", err);
