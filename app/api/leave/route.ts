@@ -32,6 +32,13 @@ function getLeaveLabel(type: string): string {
   return labels[type.toUpperCase()] ?? `ច្បាប់ ${type}`;
 }
 
+// ── Timezone-safe date formatter ──────────────────────────────────────────────
+// Avoids UTC midnight rolling back 1 day in UTC+7 (Cambodia)
+function safeFormat(isoString: string, fmt: string): string {
+  const dateOnly = isoString.split("T")[0]; // "2026-05-08"
+  return format(new Date(`${dateOnly}T12:00:00`), fmt);
+}
+
 export async function POST(req: NextRequest) {
   const loggedInUser = await getCurrentUser();
   if (!loggedInUser) {
@@ -88,11 +95,13 @@ export async function POST(req: NextRequest) {
     const leaveUrl = `${baseUrl}/dashboard/leaves/${createdLeave.id}`;
 
     const leaveLabel = getLeaveLabel(leaveType);
-    const dateRange  = isShortLeave
-      ? `${format(startDateObj, "dd MMM yyyy")} (${calcHours} ម៉ោង)`
+
+    // ✅ Use safeFormat to avoid timezone shift (Cambodia = UTC+7)
+    const dateRange = isShortLeave
+      ? `${safeFormat(startDate, "dd MMM yyyy")} (${calcHours} ម៉ោង)`
       : calcDays === 1
-        ? format(startDateObj, "dd MMM yyyy")
-        : `${format(startDateObj, "dd MMM yyyy")} → ${format(endDateObj, "dd MMM yyyy")} (${calcDays} ថ្ងៃ)`;
+        ? safeFormat(startDate, "dd MMM yyyy")
+        : `${safeFormat(startDate, "dd MMM yyyy")} → ${safeFormat(endDate, "dd MMM yyyy")} (${calcDays} ថ្ងៃ)`;
 
     await sendTelegramMessage(
       [
