@@ -19,7 +19,7 @@ const creditTypes = [
 
 const NSSF_DEFAULTS = {
   ANNUAL:    18,
-  SICK:      180,
+  SICK:      7,
   PERSONAL:  7,
   MATERNITY: 90,
   SPECIAL:   7,
@@ -172,7 +172,7 @@ const AddCredits = ({ email, name, userId, telegramId }: Props) => {
                   <div>
                     <h3 className="font-semibold text-gray-800 dark:text-gray-100 mb-1 text-left">
                       2. Sick Leave{" "}
-                      <span className="text-[#0EA5E9] font-bold ml-2">&rarr; 180 days</span>
+                      <span className="text-[#0EA5E9] font-bold ml-2">&rarr; 7 days</span>
                     </h3>
                     <ul className="list-disc list-inside space-y-1 text-xs text-gray-600 dark:text-gray-400 text-left">
                       <li><span className="font-medium">Requirement:</span> Valid medical certificate required.</li>
