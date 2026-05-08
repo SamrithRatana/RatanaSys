@@ -27,7 +27,7 @@ function getLeaveLabel(type: string): string {
     PERSONAL:  "ច្បាប់ឈប់សម្រាកផ្ទាល់ខ្លួន",
     MATERNITY: "ច្បាប់សម្រាលកូន",
     SPECIAL:   "ច្បាប់ឈប់សម្រាកពិសេស",
-    SHORT:     "ច្បាប់ឈប់សម្រាកខ្លី",
+    SHORT:     "ច្បាប់ឈប់សម្រាករយះពេលខ្លី",
   };
   return labels[type.toUpperCase()] ?? `ច្បាប់ ${type}`;
 }
