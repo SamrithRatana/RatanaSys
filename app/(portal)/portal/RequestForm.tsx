@@ -43,16 +43,16 @@ type Props = { user: User };
 
 const formSchema = z
   .object({
-    notes:         z.string().min(1, "Notes are required.").max(500),
-    leave:         z.string({ required_error: "Please select a leave type." }),
+    notes:           z.string().min(1, "Notes are required.").max(500),
+    leave:           z.string({ required_error: "Please select a leave type." }),
     personalSubType: z.enum(["FULL", "SHORT"]).optional(),
-    startDate:     z.date({ required_error: "A start date is required." }),
-    endDate:       z.date().optional(),
-    hours:         z.coerce
-                     .number()
-                     .min(0.5, "Minimum 0.5 hours")
-                     .max(8, "Maximum 8 hours per day")
-                     .optional(),
+    startDate:       z.date({ required_error: "A start date is required." }),
+    endDate:         z.date().optional(),
+    hours:           z.coerce
+                       .number()
+                       .min(0.5, "Minimum 0.5 hours")
+                       .max(8, "Maximum 8 hours per day")
+                       .optional(),
   })
   .superRefine((data, ctx) => {
     if (data.leave === "PERSONAL" && !data.personalSubType) {
@@ -94,19 +94,18 @@ const RequestForm = ({ user }: Props) => {
     defaultValues: {},
   });
 
-  const selectedLeave    = form.watch("leave");
-  const personalSubType  = form.watch("personalSubType");
-  const isPersonal       = selectedLeave === "PERSONAL";
-  const isShortLeave     = isPersonal && personalSubType === "SHORT";
-  const isFullDay        = isPersonal && personalSubType === "FULL";
-  const showEndDate      = !isPersonal || isFullDay;
-  const showHours        = isShortLeave;
-  const showDateFields   = !isPersonal || !!personalSubType;
+  const selectedLeave   = form.watch("leave");
+  const personalSubType = form.watch("personalSubType");
+  const isPersonal      = selectedLeave === "PERSONAL";
+  const isShortLeave    = isPersonal && personalSubType === "SHORT";
+  const isFullDay       = isPersonal && personalSubType === "FULL";
+  const showEndDate     = !isPersonal || isFullDay;
+  const showHours       = isShortLeave;
+  const showDateFields  = !isPersonal || !!personalSubType;
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
       const isShort      = values.leave === "PERSONAL" && values.personalSubType === "SHORT";
-      // If personal short leave → send type as SHORT so balance logic knows to use hours
       const resolvedType = isShort ? "SHORT" : values.leave;
 
       const effectiveEmail =
@@ -117,14 +116,15 @@ const RequestForm = ({ user }: Props) => {
         (user.id ? `userid-${user.id}` : null) ??
         `name-${user.name?.replace(/\s+/g, "-").toLowerCase()}`;
 
+      // ✅ Send plain "yyyy-MM-dd" strings — no timezone, no UTC shift
       const formattedValues = {
         notes:     values.notes,
         leave:     resolvedType,
         type:      resolvedType,
-        startDate: values.startDate.toISOString(),
+        startDate: format(values.startDate, "yyyy-MM-dd"),
         endDate:   isShort
-          ? values.startDate.toISOString()
-          : values.endDate!.toISOString(),
+          ? format(values.startDate, "yyyy-MM-dd")
+          : format(values.endDate!, "yyyy-MM-dd"),
         hours: isShort ? Number(values.hours) : undefined,
         user: {
           ...user,
