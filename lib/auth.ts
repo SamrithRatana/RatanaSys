@@ -11,13 +11,13 @@ export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as Adapter,
   providers: [
     GoogleProvider({
-      clientId:     process.env.GOOGLE_CLIENT_ID as string,
+      clientId: process.env.GOOGLE_CLIENT_ID as string,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
     }),
 
     // ── Telegram Phone Provider ───────────────────────────────────────────────
     CredentialsProvider({
-      id:   "telegram-phone",
+      id: "telegram-phone",
       name: "Telegram Phone",
       credentials: {
         tempToken: { label: "Temp Token", type: "text" },
@@ -41,20 +41,20 @@ export const authOptions: NextAuthOptions = {
             email:      user.email,
             image:      user.image,
             role:       user.role,
-            telegramId: user.telegramId,
+            telegramId: user.telegramId, // ← NEW
           };
         } catch {
           return null;
         }
       },
     }),
+    // ─────────────────────────────────────────────────────────────────────────
 
-    // ── Credentials Provider ──────────────────────────────────────────────────
     CredentialsProvider({
       name: "Credentials",
       credentials: {
         identifier: { label: "Email or Username", type: "text" },
-        password:   { label: "Password",          type: "password" },
+        password:   { label: "Password", type: "password" },
       },
       async authorize(credentials) {
         if (!credentials?.identifier || !credentials?.password) return null;
@@ -79,7 +79,7 @@ export const authOptions: NextAuthOptions = {
           email:      user.email,
           image:      user.image,
           role:       user.role,
-          telegramId: user.telegramId,
+          telegramId: user.telegramId, // ← NEW
         };
       },
     }),
@@ -97,17 +97,8 @@ export const authOptions: NextAuthOptions = {
   },
 
   callbacks: {
-    // ✅ THIS is the key fix — honours callbackUrl from Telegram deep links
-    async redirect({ url, baseUrl }) {
-      // Allow relative paths (e.g. /dashboard/leaves/abc123)
-      if (url.startsWith("/")) return `${baseUrl}${url}`;
-      // Allow same-origin URLs (e.g. https://system.camprotec.com.kh/dashboard/leaves/abc123)
-      if (new URL(url).origin === baseUrl) return url;
-      // Fallback
-      return `${baseUrl}/portal`;
-    },
-
     async signIn({ user, account }) {
+      // Allow Telegram users without any domain check
       if (account?.provider === "telegram-phone") return true;
 
       if (account?.provider === "google") {
@@ -123,9 +114,12 @@ export const authOptions: NextAuthOptions = {
         token.role       = (user as any).role;
         token.image      = user.image;
         token.name       = user.name;
-        token.telegramId = (user as any).telegramId ?? null;
+        token.telegramId = (user as any).telegramId ?? null; // ← NEW
       }
 
+      // Re-fetch telegramId from DB on every JWT refresh so the
+      // System Integration badge turns green immediately after linking
+      // without the user needing to sign out and back in.
       if (token.sub && !token.telegramId) {
         const dbUser = await prisma.user.findUnique({
           where:  { id: token.sub },
@@ -144,7 +138,7 @@ export const authOptions: NextAuthOptions = {
         session.user.role       = token.role;
         session.user.image      = token.image as string;
         session.user.name       = token.name as string;
-        session.user.telegramId = (token.telegramId as string) ?? null;
+        session.user.telegramId = (token.telegramId as string) ?? null; // ← NEW
       }
       return session;
     },
