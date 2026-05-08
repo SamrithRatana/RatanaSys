@@ -39,9 +39,9 @@ function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string;
   return (
     <div className="flex items-start gap-3 py-2">
       <span className="text-muted-foreground mt-0.5">{icon}</span>
-      <div className="flex flex-col gap-0.5">
-        <span className="text-xs text-muted-foreground">{label}</span>
-        <span className="text-sm font-medium">{value}</span>
+      <div className="flex flex-col gap-1">
+        <span className="text-sm text-muted-foreground">{label}</span>
+        <span className="text-base font-medium">{value}</span>
       </div>
     </div>
   );
