@@ -9,9 +9,9 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Account, User } from "@prisma/client";
+import { User } from "@prisma/client";
 import AddCredits from "./AddCredits";
-import DeleteUser from "./DeleteUser"; 
+import DeleteUser from "./DeleteUser";
 import EditUser, { UserWithAccounts } from "./EditUser";
 
 type UserProps = {
@@ -30,16 +30,16 @@ const UsersTable = ({ users }: UserProps) => {
           <TableHead>Department</TableHead>
           <TableHead>Job Title</TableHead>
           <TableHead>Role</TableHead>
-          <TableHead>Edit</TableHead>
-          <TableHead>Add Leave Credits</TableHead>
-          <TableHead>Delete</TableHead>
-
+          <TableHead className="text-center">Edit</TableHead>
+          <TableHead className="text-center">Add Leave Credits</TableHead>
+          <TableHead className="text-center">Delete</TableHead>
         </TableRow>
       </TableHeader>
+
       <TableBody className="whitespace-nowrap">
         {users.map((user) => (
           <TableRow key={user.id}>
-            <TableCell className="font-medium">
+            <TableCell>
               <Avatar>
                 <AvatarImage src={user.image as string} alt={user.name as string} />
                 <AvatarFallback>
@@ -57,20 +57,24 @@ const UsersTable = ({ users }: UserProps) => {
               <Badge variant="secondary">{user.title}</Badge>
             </TableCell>
             <TableCell>{user.role}</TableCell>
-            <TableCell className="text-right">
+
+            {/* ✅ Removed text-right — let EditUser center itself */}
+            <TableCell className="text-center">
               <EditUser user={user} />
             </TableCell>
-            <TableCell className="text-right">
+
+            <TableCell className="text-center">
               <AddCredits
-  email={user.email}
-  name={user.name ?? "Unknown"}
-  userId={user.id}
-  telegramId={(user as any).telegramId?.toString() ?? null}
-/>
+                email={user.email}
+                name={user.name ?? "Unknown"}
+                userId={user.id}
+                telegramId={(user as any).telegramId?.toString() ?? null}
+              />
             </TableCell>
-            <TableCell>
-        <DeleteUser userId={user.id} userName={user.name ?? "User"} />
-        </TableCell>
+
+            <TableCell className="text-center">
+              <DeleteUser userId={user.id} userName={user.name ?? "User"} />
+            </TableCell>
           </TableRow>
         ))}
       </TableBody>
