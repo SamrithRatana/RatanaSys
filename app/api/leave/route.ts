@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
         ``,
         `⏳ <i>រង់ចាំអនុម័តពីប្រធានផ្នែក</i>`,
       ].join("\n"),
-      [{ text: "👀 មើល និងអនុម័ត →", url: leaveUrl }]
+      [{ text: "👀 មើល និងអនុម័តប្រធានផ្នែក →", url: leaveUrl }]
     );
 
     return NextResponse.json({ message: "Success" }, { status: 200 });
