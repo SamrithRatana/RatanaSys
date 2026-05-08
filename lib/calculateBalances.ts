@@ -55,12 +55,12 @@ export default async function calculateAndUpdateBalances(
 
     case "SHORT":
       // `days` is actually hours here — convert to day fraction (8 hrs = 1 day)
-      // and deduct from annual balance. Also track raw hours in shortUsed.
+      // Deducted from PERSONAL balance, and raw hours tracked in shortUsed
       const dayFraction = days / 8;
       balanceUpdate = {
-        annualUsed:      (balance.annualUsed as number) + dayFraction,
-        annualAvailable: (balance.annualCredit as number) - ((balance.annualUsed as number) + dayFraction),
-        shortUsed:       (balance.shortUsed ?? 0) + days,
+        personalUsed:      (balance.personalUsed as number) + dayFraction,
+        personalAvailable: (balance.personalCredit as number) - ((balance.personalUsed as number) + dayFraction),
+        shortUsed:         (balance.shortUsed ?? 0) + days,
       };
       break;
 

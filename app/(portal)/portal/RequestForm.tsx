@@ -45,7 +45,7 @@ const formSchema = z
   .object({
     notes:         z.string().min(1, "Notes are required.").max(500),
     leave:         z.string({ required_error: "Please select a leave type." }),
-    annualSubType: z.enum(["FULL", "SHORT"]).optional(),
+    personalSubType: z.enum(["FULL", "SHORT"]).optional(),
     startDate:     z.date({ required_error: "A start date is required." }),
     endDate:       z.date().optional(),
     hours:         z.coerce
@@ -55,16 +55,16 @@ const formSchema = z
                      .optional(),
   })
   .superRefine((data, ctx) => {
-    if (data.leave === "ANNUAL" && !data.annualSubType) {
+    if (data.leave === "PERSONAL" && !data.personalSubType) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Please choose Full Day or Short Leave.",
-        path: ["annualSubType"],
+        path: ["personalSubType"],
       });
     }
 
-    const isShort      = data.leave === "ANNUAL" && data.annualSubType === "SHORT";
-    const needsEndDate = data.leave !== "ANNUAL" || data.annualSubType === "FULL";
+    const isShort      = data.leave === "PERSONAL" && data.personalSubType === "SHORT";
+    const needsEndDate = data.leave !== "PERSONAL" || data.personalSubType === "FULL";
 
     if (needsEndDate && !data.endDate) {
       ctx.addIssue({
@@ -94,18 +94,19 @@ const RequestForm = ({ user }: Props) => {
     defaultValues: {},
   });
 
-  const selectedLeave  = form.watch("leave");
-  const annualSubType  = form.watch("annualSubType");
-  const isAnnual       = selectedLeave === "ANNUAL";
-  const isShortLeave   = isAnnual && annualSubType === "SHORT";
-  const isFullDay      = isAnnual && annualSubType === "FULL";
-  const showEndDate    = !isAnnual || isFullDay;
-  const showHours      = isShortLeave;
-  const showDateFields = !isAnnual || !!annualSubType;
+  const selectedLeave    = form.watch("leave");
+  const personalSubType  = form.watch("personalSubType");
+  const isPersonal       = selectedLeave === "PERSONAL";
+  const isShortLeave     = isPersonal && personalSubType === "SHORT";
+  const isFullDay        = isPersonal && personalSubType === "FULL";
+  const showEndDate      = !isPersonal || isFullDay;
+  const showHours        = isShortLeave;
+  const showDateFields   = !isPersonal || !!personalSubType;
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
-      const isShort      = values.leave === "ANNUAL" && values.annualSubType === "SHORT";
+      const isShort      = values.leave === "PERSONAL" && values.personalSubType === "SHORT";
+      // If personal short leave → send type as SHORT so balance logic knows to use hours
       const resolvedType = isShort ? "SHORT" : values.leave;
 
       const effectiveEmail =
@@ -203,7 +204,7 @@ const RequestForm = ({ user }: Props) => {
                             key={leave.value}
                             onSelect={() => {
                               form.setValue("leave", leave.value);
-                              form.resetField("annualSubType");
+                              form.resetField("personalSubType");
                               form.resetField("endDate");
                               form.resetField("hours");
                               setOpenLeaveType(false);
@@ -227,14 +228,14 @@ const RequestForm = ({ user }: Props) => {
             )}
           />
 
-          {/* ── Annual sub-type ── */}
-          {isAnnual && (
+          {/* ── Personal sub-type (Full Day / Short Leave) ── */}
+          {isPersonal && (
             <FormField
               control={form.control}
-              name="annualSubType"
+              name="personalSubType"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Annual Leave Type</FormLabel>
+                  <FormLabel>Personal Leave Type</FormLabel>
                   <div className="grid grid-cols-2 gap-3 mt-1">
                     <button
                       type="button"
@@ -290,7 +291,7 @@ const RequestForm = ({ user }: Props) => {
                         <polyline points="12 7 12 12 15 15" />
                       </svg>
                       Short Leave
-                      <span className="text-xs font-normal opacity-60">Hourly · cuts annual</span>
+                      <span className="text-xs font-normal opacity-60">Hourly · cuts personal</span>
                     </button>
                   </div>
                   <FormMessage />
@@ -341,7 +342,7 @@ const RequestForm = ({ user }: Props) => {
                 )}
               />
 
-              {/* Hours */}
+              {/* Hours — Short Leave only */}
               {showHours && (
                 <FormField
                   control={form.control}
@@ -361,7 +362,7 @@ const RequestForm = ({ user }: Props) => {
                         />
                       </FormControl>
                       <FormDescription>
-                        Enter 0.5 – 8 hours. Deducted from your Annual leave balance.
+                        Enter 0.5 – 8 hours. Deducted from your <strong>Personal</strong> leave balance.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -369,7 +370,7 @@ const RequestForm = ({ user }: Props) => {
                 />
               )}
 
-              {/* End Date */}
+              {/* End Date — Full day leaves only */}
               {showEndDate && (
                 <FormField
                   control={form.control}
