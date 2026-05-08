@@ -116,7 +116,7 @@ export function AuthForm() {
   }
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: "credentials", label: "User" },
+    { id: "credentials", label: "Credentials" },
     { id: "google", label: "Google" },
     { id: "telegram", label: "Telegram" },
   ];
@@ -151,7 +151,7 @@ export function AuthForm() {
       {tab === "credentials" && (
         <form onSubmit={handleCredentials} className="grid gap-4">
           <div className="grid gap-1">
-            <Label htmlFor="identifier">Credentials</Label>
+            <Label htmlFor="identifier">Email or Username</Label>
             <Input
               id="identifier"
               type="text"
