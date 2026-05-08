@@ -157,9 +157,9 @@ const RequestForm = ({ user }: Props) => {
 
   return (
     <DialogWrapper
-      btnTitle="Apply for Leave"
+      btnTitle="ចុចដើម្បីស្នើសុំច្បាប់"
       title="Submit your Leave Application"
-      descr="Make sure you select the right dates for leave."
+      descr="ត្រូវប្រាកដថាអ្នកជ្រើសរើសកាលបរិច្ឆេទត្រឹមត្រូវសម្រាប់ការសុំច្បាប់"
       isBtn={true}
       open={open}
       setOpen={() => setOpen(!open)}
@@ -173,7 +173,7 @@ const RequestForm = ({ user }: Props) => {
             name="leave"
             render={({ field }) => (
               <FormItem className="flex flex-col">
-                <FormLabel>Leave Type</FormLabel>
+                <FormLabel>Leave Type (ប្រភេទច្បាប់)</FormLabel>
                 <Popover
                   modal={true}
                   open={openLeaveType}
