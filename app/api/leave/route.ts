@@ -1,7 +1,7 @@
 import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
-import { differenceInDays, parseISO, format } from "date-fns";
+import { differenceInDays, format } from "date-fns";
 import { sendTelegramMessage } from "@/lib/sendTelegramMessage";
 
 type SubmittedLeave = {
@@ -32,9 +32,14 @@ function getLeaveLabel(type: string): string {
   return labels[type.toUpperCase()] ?? `ច្បាប់ ${type}`;
 }
 
+// ✅ Timezone-safe: force noon UTC so Cambodia (UTC+7) never rolls back a day
+function safeParse(isoString: string): Date {
+  const dateOnly = isoString.split("T")[0]; // "2026-05-08"
+  return new Date(`${dateOnly}T12:00:00.000Z`);
+}
+
 function safeFormat(isoString: string, fmt: string): string {
-  const dateOnly = isoString.split("T")[0];
-  return format(new Date(`${dateOnly}T12:00:00`), fmt);
+  return format(safeParse(isoString), fmt);
 }
 
 export async function POST(req: NextRequest) {
@@ -50,14 +55,13 @@ export async function POST(req: NextRequest) {
     const leaveType    = (body.type ?? body.leave ?? "").toUpperCase();
     const isShortLeave = leaveType === "SHORT";
 
-    const startDateObj = parseISO(startDate);
-    const endDateObj   = parseISO(endDate);
+    // ✅ Timezone-safe parsing — avoids UTC midnight rolling back in UTC+7
+    const startDateObj = safeParse(startDate);
+    const endDateObj   = safeParse(endDate);
     const year         = startDateObj.getFullYear().toString();
 
     const calcDays  = isShortLeave ? 0 : differenceInDays(endDateObj, startDateObj) + 1;
     const calcHours = isShortLeave ? Number(hours ?? 0) : 0;
-
-    // ── Duplicate check removed — allow multiple leaves on same date ──
 
     const createdLeave = await prisma.leave.create({
       data: {
@@ -73,8 +77,8 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    const baseUrl  = process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh";
-    const leaveUrl = `${baseUrl}/dashboard/leaves/${createdLeave.id}`;
+    const baseUrl    = process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh";
+    const leaveUrl   = `${baseUrl}/dashboard/leaves/${createdLeave.id}`;
     const leaveLabel = getLeaveLabel(leaveType);
 
     const dateRange = isShortLeave
@@ -92,7 +96,7 @@ export async function POST(req: NextRequest) {
         `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRange}`,
         `📝 <b>មូលហេតុ៖</b> ${notes || "—"}`,
         ``,
-        `⏳ <i>រង់ចាំការអនុម័តពីប្រធានផ្នែក</i>`,
+        `⏳ <i>រង់ចាំអនុម័តពីប្រធានផ្នែក</i>`,
       ].join("\n"),
       [{ text: "👀 មើល និងអនុម័ត →", url: leaveUrl }]
     );
