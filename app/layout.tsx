@@ -2,10 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 import Providers from "./Provider";
 import { Toaster } from "sonner"; // ← add this import
-
 export const metadata: Metadata = {
-  title: "Spana",
-  description: "...",
+  title: "CAM LMS",
+  description: "Leave Management System by Camprotec",
 };
 
 export default function RootLayout({

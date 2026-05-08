@@ -72,51 +72,49 @@ const AuthComponent = () => {
           ))}
         </div>
       </div>
+{/* RIGHT — Form card */}
+<div className="flex flex-1 items-center justify-center px-4 py-6 sm:px-8 sm:py-8 min-h-screen lg:min-h-0">
+  <div className="w-full max-w-md bg-white rounded-3xl shadow-xl border border-[#E0F2FE] p-6 sm:p-10">
 
-      {/* RIGHT — Form card */}
-      <div className="flex flex-1 items-center justify-center px-8 py-8">
-        <div className="w-full max-w-md bg-white rounded-3xl shadow-xl border border-[#E0F2FE] p-10">
-
-          {/* Header */}
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h1 className="text-3xl font-black text-gray-900 tracking-tight">
-                LOGIN
-              </h1>
-              <p className="text-xs text-gray-500 mt-1 whitespace-nowrap">
-                Access your Leave Management System
-              </p>
-            </div>
-            <div className="relative w-48 h-20">
-              <Image
-                src="/Cam-Logo-1.png"
-                alt="Cam. logo"
-                fill
-                className="object-contain"
-              />
-            </div>
-          </div>
-
-          <div className="border-t border-[#E0F2FE] mb-6" />
-
-          <Suspense fallback={null}>
-            <AuthForm />
-          </Suspense>
-
-          <p className="mt-6 text-xs text-center text-gray-400">
-            By continuing, you agree to the{" "}
-            <Link href="/terms" className="underline hover:text-[#0EA5E9] transition-colors">
-              Terms of Service
-            </Link>{" "}
-            and{" "}
-            <Link href="/privacy" className="underline hover:text-[#0EA5E9] transition-colors">
-              Privacy Policy
-            </Link>
-            .
-          </p>
-        </div>
+    {/* Header */}
+    <div className="flex items-center justify-between mb-6">
+      <div>
+        <h1 className="text-3xl font-black text-gray-900 tracking-tight">
+          LOGIN
+        </h1>
+        <p className="text-xs text-gray-500 mt-1 whitespace-nowrap">
+          Access your Leave Management System
+        </p>
       </div>
+      <div className="relative w-32 h-14 sm:w-48 sm:h-20">
+        <Image
+          src="/Cam-Logo-1.png"
+          alt="Cam. logo"
+          fill
+          className="object-contain"
+        />
+      </div>
+    </div>
 
+    <div className="border-t border-[#E0F2FE] mb-6" />
+
+    <Suspense fallback={null}>
+      <AuthForm />
+    </Suspense>
+
+    <p className="mt-6 text-xs text-center text-gray-400">
+      By continuing, you agree to the{" "}
+      <Link href="/terms" className="underline hover:text-[#0EA5E9] transition-colors">
+        Terms of Service
+      </Link>{" "}
+      and{" "}
+      <Link href="/privacy" className="underline hover:text-[#0EA5E9] transition-colors">
+        Privacy Policy
+      </Link>
+      .
+    </p>
+  </div>
+</div>
     </div>
   );
 };
