@@ -1,8 +1,8 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import Container from "@/components/Common/Container";
-import LeaveDetail from "./LeaveDetail"; 
+import LeaveDetail from "./LeaveDetail";
 import { Leave } from "@prisma/client";
 
 type Props = {
@@ -10,17 +10,30 @@ type Props = {
 };
 
 export default async function LeaveDetailPage({ params }: Props) {
-  const user  = await getCurrentUser();
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/");
+  }
+
   const leave = await prisma.leave.findUnique({ where: { id: params.id } });
 
   if (!leave) return notFound();
+
+  const isAdminOrMod = user.role === "ADMIN" || user.role === "MODERATOR";
+  const isOwner      = leave.userEmail === user.email ||
+                       leave.userName  === user.name;
+
+  if (!isAdminOrMod && !isOwner) {
+    redirect("/dashboard/leaves");
+  }
 
   return (
     <Container>
       <LeaveDetail
         leave={leave as Leave}
-        currentUserRole={user?.role ?? "USER"}
-        currentUserName={user?.name ?? user?.email ?? "Unknown"}
+        currentUserRole={user.role ?? "USER"}
+        currentUserName={user.name ?? user.email ?? "Unknown"}
       />
     </Container>
   );

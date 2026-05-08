@@ -4,7 +4,7 @@ import TableWrapper from "@/components/Common/TableWrapper";
 import { getAllLeaveDays } from "@/lib/data/getLeaveDays";
 import { Leave } from "@prisma/client";
 
-export default async function  AdminLeaves()  {
+export default async function AdminLeaves() {
   const allLeaves = await getAllLeaveDays();
   if (allLeaves === null) {
     return <Container>No Leaves found...</Container>;
@@ -17,4 +17,4 @@ export default async function  AdminLeaves()  {
       </TableWrapper>
     </Container>
   );
-};
+}
