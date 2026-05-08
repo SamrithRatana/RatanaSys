@@ -22,14 +22,14 @@ type SubmittedLeave = {
 
 function getLeaveLabel(type: string): string {
   const labels: Record<string, string> = {
-    ANNUAL:    "Annual Leave",
-    SICK:      "Sick Leave",
-    PERSONAL:  "Personal Leave",
-    MATERNITY: "Maternity Leave",
-    SPECIAL:   "Special Leave",
-    SHORT:     "Short Leave",
+    ANNUAL:    "ច្បាប់ឈប់សម្រាកប្រចាំឆ្នាំ",
+    SICK:      "ច្បាប់ឈប់សម្រាកឈឺ",
+    PERSONAL:  "ច្បាប់ឈប់សម្រាកផ្ទាល់ខ្លួន",
+    MATERNITY: "ច្បាប់សម្រាលកូន",
+    SPECIAL:   "ច្បាប់ឈប់សម្រាកពិសេស",
+    SHORT:     "ច្បាប់ឈប់សម្រាកខ្លី",
   };
-  return labels[type.toUpperCase()] ?? `${type} Leave`;
+  return labels[type.toUpperCase()] ?? `ច្បាប់ ${type}`;
 }
 
 export async function POST(req: NextRequest) {
@@ -70,7 +70,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Create and capture the new leave record
     const createdLeave = await prisma.leave.create({
       data: {
         startDate: startDateObj,
@@ -85,30 +84,28 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Build deep link to this specific leave
     const baseUrl  = process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh";
     const leaveUrl = `${baseUrl}/dashboard/leaves/${createdLeave.id}`;
 
-    // Telegram notification
     const leaveLabel = getLeaveLabel(leaveType);
     const dateRange  = isShortLeave
-      ? `${format(startDateObj, "dd MMM yyyy")} (${calcHours} hr${calcHours !== 1 ? "s" : ""})`
+      ? `${format(startDateObj, "dd MMM yyyy")} (${calcHours} ម៉ោង)`
       : calcDays === 1
         ? format(startDateObj, "dd MMM yyyy")
-        : `${format(startDateObj, "dd MMM yyyy")} → ${format(endDateObj, "dd MMM yyyy")} (${calcDays} days)`;
+        : `${format(startDateObj, "dd MMM yyyy")} → ${format(endDateObj, "dd MMM yyyy")} (${calcDays} ថ្ងៃ)`;
 
     await sendTelegramMessage(
       [
-        `📄 <b>New Leave Request</b>`,
+        `📄 <b>សំណើច្បាប់ថ្មី</b>`,
         ``,
-        `👤 <b>Name:</b> ${user.name}`,
-        `📋 <b>Type:</b> ${leaveLabel}`,
-        `📅 <b>Date:</b> ${dateRange}`,
-        `📝 <b>Reason:</b> ${notes || "—"}`,
+        `👤 <b>ឈ្មោះ៖</b> ${user.name}`,
+        `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
+        `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRange}`,
+        `📝 <b>មូលហេតុ៖</b> ${notes || "—"}`,
         ``,
-        `⏳ <i>Awaiting approval</i>`,
+        `⏳ <i>កំពុងរង់ចាំការអនុម័ត</i>`,
       ].join("\n"),
-      [{ text: "👀 View & Approve →", url: leaveUrl }]
+      [{ text: "👀 មើល និងអនុម័ត →", url: leaveUrl }]
     );
 
     return NextResponse.json({ message: "Success" }, { status: 200 });

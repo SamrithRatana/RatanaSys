@@ -20,14 +20,14 @@ type EditBody = {
 
 function getLeaveLabel(type: string): string {
   const labels: Record<string, string> = {
-    ANNUAL:    "Annual Leave",
-    SICK:      "Sick Leave",
-    PERSONAL:  "Personal Leave",
-    MATERNITY: "Maternity Leave",
-    SPECIAL:   "Special Leave",
-    SHORT:     "Short Leave",
+    ANNUAL:    "ច្បាប់ឈប់សម្រាកប្រចាំឆ្នាំ",
+    SICK:      "ច្បាប់ឈប់សម្រាកឈឺ",
+    PERSONAL:  "ច្បាប់ឈប់សម្រាកផ្ទាល់ខ្លួន",
+    MATERNITY: "ច្បាប់សម្រាលកូន",
+    SPECIAL:   "ច្បាប់ឈប់សម្រាកពិសេស",
+    SHORT:     "ច្បាប់ឈប់សម្រាកខ្លី",
   };
-  return labels[type.toUpperCase()] ?? `${type} Leave`;
+  return labels[type.toUpperCase()] ?? `ច្បាប់ ${type}`;
 }
 
 export async function PATCH(req: Request) {
@@ -50,7 +50,6 @@ export async function PATCH(req: Request) {
     const actorRole    = loggedInUser.role;
     const leaveLabel   = getLeaveLabel(type);
 
-    // Build deep link to this specific leave
     const baseUrl  = process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh";
     const leaveUrl = `${baseUrl}/dashboard/leaves/${id}`;
 
@@ -59,7 +58,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Leave not found" }, { status: 404 });
     }
 
-    // ── REJECTED ──────────────────────────────────────────────────────────────
+    // ── បដិសេធ ────────────────────────────────────────────────────────────────
     if (status === LeaveStatus.REJECTED) {
       await prisma.leave.update({
         where: { id },
@@ -73,20 +72,20 @@ export async function PATCH(req: Request) {
 
       await sendTelegramMessage(
         [
-          `❌ <b>Leave Rejected</b>`,
+          `❌ <b>ច្បាប់ត្រូវបានបដិសេធ</b>`,
           ``,
-          `👤 <b>Name:</b> ${user}`,
-          `📋 <b>Type:</b> ${leaveLabel}`,
-          `🙅 <b>Rejected by:</b> ${actorName}`,
-          `📝 <b>Note:</b> ${notes || "—"}`,
+          `👤 <b>ឈ្មោះ៖</b> ${user}`,
+          `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
+          `🙅 <b>បដិសេធដោយ៖</b> ${actorName}`,
+          `📝 <b>កំណត់ចំណាំ៖</b> ${notes || "—"}`,
         ].join("\n"),
-        [{ text: "📋 View Leave →", url: leaveUrl }]
+        [{ text: "📋 មើលច្បាប់ →", url: leaveUrl }]
       );
 
       return NextResponse.json({ message: "Leave rejected" }, { status: 200 });
     }
 
-    // ── STEP 1 — MODERATOR (Head Department) ──────────────────────────────────
+    // ── ជំហានទី១ — អនុម័តដោយប្រធានផ្នែក ─────────────────────────────────────
     if (status === LeaveStatus.APPROVED) {
 
       if (actorRole === "MODERATOR") {
@@ -111,15 +110,15 @@ export async function PATCH(req: Request) {
 
         await sendTelegramMessage(
           [
-            `✅ <b>Leave — Head Dept Approved</b>`,
+            `✅ <b>ច្បាប់ — អនុម័តដោយប្រធានផ្នែក</b>`,
             ``,
-            `👤 <b>Name:</b> ${user}`,
-            `📋 <b>Type:</b> ${leaveLabel}`,
-            `👍 <b>Approved by:</b> ${actorName} (Head Dept)`,
+            `👤 <b>ឈ្មោះ៖</b> ${user}`,
+            `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
+            `👍 <b>អនុម័តដោយ៖</b> ${actorName} (ប្រធានផ្នែក)`,
             ``,
-            `⏳ <i>Awaiting Manager final approval</i>`,
+            `⏳ <i>កំពុងរង់ចាំការអនុម័តពីអ្នកគ្រប់គ្រង</i>`,
           ].join("\n"),
-          [{ text: "✅ Approve as Manager →", url: leaveUrl }]
+          [{ text: "✅ អនុម័តក្នុងនាមអ្នកគ្រប់គ្រង →", url: leaveUrl }]
         );
 
         return NextResponse.json(
@@ -128,7 +127,7 @@ export async function PATCH(req: Request) {
         );
       }
 
-      // ── STEP 2 — ADMIN (Manager final approval) ────────────────────────────
+      // ── ជំហានទី២ — អនុម័តចុងក្រោយដោយអ្នកគ្រប់គ្រង ──────────────────────
       if (actorRole === "ADMIN") {
         if (!leave.headDepartmentApproved) {
           return NextResponse.json(
@@ -156,10 +155,10 @@ export async function PATCH(req: Request) {
         await prisma.events.create({
           data: {
             startDate,
-            title:       `${user} on ${getLeaveLabel(type)}`,
+            title:       `${user} ឈប់សម្រាក ${getLeaveLabel(type)}`,
             description: isShortLeave
-              ? `For ${hoursFromDb} hour${hoursFromDb !== 1 ? "s" : ""}`
-              : `For ${days} day${days !== 1 ? "s" : ""}`,
+              ? `រយៈពេល ${hoursFromDb} ម៉ោង`
+              : `រយៈពេល ${days} ថ្ងៃ`,
           },
         });
 
@@ -177,15 +176,15 @@ export async function PATCH(req: Request) {
 
         await sendTelegramMessage(
           [
-            `🎉 <b>Leave Fully Approved!</b>`,
+            `🎉 <b>ច្បាប់ត្រូវបានអនុម័តទាំងស្រុង!</b>`,
             ``,
-            `👤 <b>Name:</b> ${user}`,
-            `📋 <b>Type:</b> ${leaveLabel}`,
-            `📅 <b>Duration:</b> ${isShortLeave ? `${hoursFromDb} hr${hoursFromDb !== 1 ? "s" : ""}` : `${days} day${days !== 1 ? "s" : ""}`}`,
-            `✅ <b>Approved by:</b> ${actorName} (Manager)`,
-            `📝 <b>Note:</b> ${notes || "—"}`,
+            `👤 <b>ឈ្មោះ៖</b> ${user}`,
+            `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
+            `📅 <b>រយៈពេល៖</b> ${isShortLeave ? `${hoursFromDb} ម៉ោង` : `${days} ថ្ងៃ`}`,
+            `✅ <b>អនុម័តដោយ៖</b> ${actorName} (អ្នកគ្រប់គ្រង)`,
+            `📝 <b>កំណត់ចំណាំ៖</b> ${notes || "—"}`,
           ].join("\n"),
-          [{ text: "📋 View Leave →", url: leaveUrl }]
+          [{ text: "📋 មើលច្បាប់ →", url: leaveUrl }]
         );
 
         return NextResponse.json(
