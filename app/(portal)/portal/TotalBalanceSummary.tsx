@@ -57,9 +57,12 @@ export default function TotalBalanceSummary({ balances }: Props) {
             <p className="text-xs font-semibold uppercase tracking-wide text-orange-600 dark:text-orange-400">
               Total Used
             </p>
-            <p className="text-2xl font-bold text-orange-700 dark:text-orange-300">
-              {formatValue(totalUsed, isHours)}
-            </p>
+            <p
+  className="font-bold text-orange-700 dark:text-orange-300 leading-tight"
+  style={{ fontSize: "clamp(0.85rem, 2.5vw, 1.5rem)" }}
+>
+  {formatValue(totalUsed, isHours)}
+</p>
           </CardContent>
         </Card>
 
@@ -82,14 +85,15 @@ export default function TotalBalanceSummary({ balances }: Props) {
               Total Balance
             </p>
             <p
-              className={`text-2xl font-bold ${
-                isNegative
-                  ? "text-red-700 dark:text-red-300"
-                  : "text-green-700 dark:text-green-300"
-              }`}
-            >
-              {formatValue(totalAvailable, isHours)}
-            </p>
+  className={`font-bold leading-tight ${
+    isNegative
+      ? "text-red-700 dark:text-red-300"
+      : "text-green-700 dark:text-green-300"
+  }`}
+  style={{ fontSize: "clamp(0.85rem, 2.5vw, 1.5rem)" }}
+>
+  {formatValue(totalAvailable, isHours)}
+</p>
             {isNegative && (
               <span className="text-[10px] bg-red-100 text-red-600 border border-red-300 rounded px-1.5 py-0.5 font-medium">
                 over limit
