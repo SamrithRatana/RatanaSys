@@ -30,6 +30,15 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { leaveTypes } from "@/lib/dummy-data";
+
+// ── Khmer labels for each leave type value ────────────────────────────────
+const leaveKhmerLabels: Record<string, string> = {
+  ANNUAL:    "ច្បាប់ប្រចាំឆ្នាំ",
+  SICK:      "ច្បាប់ឈប់ព្យាបាលជំងឺ",
+  PERSONAL:  "ច្បាប់ផ្ទាល់ខ្លួន",
+  MATERNITY: "ច្បាប់សម្រាលកូន",
+  SPECIAL:   "ច្បាប់ពិសេស",
+};
 import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -37,7 +46,7 @@ import { Calendar } from "@/components/ui/calendar";
 import DialogWrapper from "@/components/Common/DialogWrapper";
 import { User } from "@prisma/client";
 import toast from "react-hot-toast";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 type Props = { user: User };
 
@@ -125,6 +134,19 @@ const RequestForm = ({ user }: Props) => {
   const showDateFields  = !isPersonal || !!personalSubType;
 
   const currentYear = today.getFullYear();
+
+  // ── Auto-set dates when Maternity / Special is selected ──────────────────
+  useEffect(() => {
+    const needsAdvanceNotice =
+      selectedLeave === "MATERNITY" || selectedLeave === "SPECIAL";
+
+    if (needsAdvanceNotice) {
+      const autoDate = new Date(today);
+      autoDate.setDate(autoDate.getDate() + 7);
+      form.setValue("startDate", autoDate, { shouldValidate: false });
+      form.setValue("endDate",   autoDate, { shouldValidate: false });
+    }
+  }, [selectedLeave]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Compute the minimum selectable start date based on leave type
   const getMinStartDate = (): Date => {
@@ -218,20 +240,21 @@ const RequestForm = ({ user }: Props) => {
                         className={cn("justify-between", !field.value && "text-muted-foreground")}
                       >
                         {field.value
-                          ? leaveTypes.find((l) => l.value === field.value)?.label
-                          : "Select a leave"}
+                          ? leaveKhmerLabels[field.value] ??
+                            leaveTypes.find((l) => l.value === field.value)?.label
+                          : "ជ្រើសរើសប្រភេទច្បាប់"}
                         <PiCaretUpDownBold className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </FormControl>
                   </PopoverTrigger>
                   <PopoverContent className="w-[200px] p-0">
                     <Command>
-                      <CommandInput placeholder="Search a leave..." />
-                      <CommandEmpty>No leave type found.</CommandEmpty>
+                      <CommandInput placeholder="ស្វែងរកប្រភេទច្បាប់..." />
+                      <CommandEmpty>រកមិនឃើញប្រភេទច្បាប់។</CommandEmpty>
                       <CommandGroup>
                         {leaveTypes.map((leave) => (
                           <CommandItem
-                            value={leave.label}
+                            value={leaveKhmerLabels[leave.value] ?? leave.label}
                             key={leave.value}
                             onSelect={() => {
                               form.setValue("leave", leave.value);
@@ -248,7 +271,7 @@ const RequestForm = ({ user }: Props) => {
                                 leave.value === field.value ? "opacity-100" : "opacity-0"
                               )}
                             />
-                            {leave.label}
+                            {leaveKhmerLabels[leave.value] ?? leave.label}
                           </CommandItem>
                         ))}
                       </CommandGroup>
