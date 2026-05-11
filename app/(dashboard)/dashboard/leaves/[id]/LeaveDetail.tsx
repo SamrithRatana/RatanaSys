@@ -26,10 +26,10 @@ type Props = {
 
 function StatusBadge({ status }: { status: LeaveStatus }) {
   const map: Record<LeaveStatus, { label: string; className: string }> = {
-    APPROVED:     { label: "បានអនុម័ត",       className: "bg-green-500 text-white" },
-    PENDING:      { label: "កំពុងរង់ចាំ",      className: "bg-amber-500 text-white" },
-    REJECTED:     { label: "បានបដិសេធ",       className: "bg-red-500 text-white" },
-    INMODERATION: { label: "កំពុងពិនិត្យ",    className: "bg-indigo-500 text-white" },
+    APPROVED:     { label: "បានអនុម័ត",    className: "bg-green-500 text-white" },
+    PENDING:      { label: "កំពុងរង់ចាំ",   className: "bg-amber-500 text-white" },
+    REJECTED:     { label: "បានបដិសេធ",    className: "bg-red-500 text-white" },
+    INMODERATION: { label: "កំពុងពិនិត្យ", className: "bg-indigo-500 text-white" },
   };
   const { label, className } = map[status] ?? { label: status, className: "bg-gray-400 text-white" };
   return <Badge className={className}>{label}</Badge>;
@@ -49,19 +49,32 @@ function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string;
 
 export default function LeaveDetail({ leave, currentUserRole, currentUserName }: Props) {
   const router = useRouter();
-  const [notes, setNotes]       = useState("");
-  const [loading, setLoading]   = useState(false);
+  const [notes, setNotes]     = useState("");
+  const [loading, setLoading] = useState(false);
 
   const isApproved = leave.status === LeaveStatus.APPROVED;
   const isRejected = leave.status === LeaveStatus.REJECTED;
   const isDone     = isApproved || isRejected;
 
   const isStep1 = !leave.headDepartmentApproved;
-  const isStep2 = leave.headDepartmentApproved && leave.status === LeaveStatus.INMODERATION;
+  const isStep2 = leave.headDepartmentApproved && !leave.managerApproved && !isDone;
 
+  // MODERATOR: Step 1 only
   const canActAsModerator = currentUserRole === "MODERATOR" && isStep1 && !isDone;
-  const canActAsAdmin     = currentUserRole === "ADMIN" && isStep2 && !isDone;
-  const canAct            = canActAsModerator || canActAsAdmin;
+
+  // ADMIN: Step 1 OR Step 2 (whichever is pending)
+  const canActAsAdminStep1 = currentUserRole === "ADMIN" && isStep1 && !isDone;
+  const canActAsAdminStep2 = currentUserRole === "ADMIN" && isStep2 && !isDone;
+  const canActAsAdmin      = canActAsAdminStep1 || canActAsAdminStep2;
+
+  const canAct = canActAsModerator || canActAsAdmin;
+
+  // Label for the action card
+  const actionLabel = canActAsAdminStep2
+    ? "សេចក្តីសម្រេចរបស់អ្នកគ្រប់គ្រង"
+    : canActAsAdminStep1
+      ? "សេចក្តីសម្រេចរបស់ប្រធានផ្នែក / អ្នកគ្រប់គ្រង"
+      : "សេចក្តីសម្រេចរបស់ប្រធានផ្នែក";
 
   async function handleAction(status: "APPROVED" | "REJECTED") {
     setLoading(true);
@@ -85,7 +98,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
       if (res.ok) {
         toast.success(
           status === "APPROVED"
-            ? canActAsAdmin
+            ? canActAsAdminStep2
               ? "ការឈប់សម្រាកបានអនុម័តពេញលេញ! ✅"
               : "ប្រធានផ្នែកបានអនុម័ត! កំពុងរង់ចាំអ្នកគ្រប់គ្រង ✅"
             : "ការឈប់សម្រាកបានបដិសេធ ❌",
@@ -147,7 +160,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
           />
           <InfoRow
             icon={<CalendarDays className="h-4 w-4" />}
-            label="រយៈពេល"
+            label="កាលបរិច្ឆេទ"
             value={
               <span>
                 {dayjs(leave.startDate).format("DD MMM YYYY")}
@@ -162,7 +175,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
             value={
               leave.hours && leave.hours > 0
                 ? `${leave.hours} ម៉ោង`
-                : `${leave.days} ថ្ងៃ${leave.days !== 1 ? "" : ""}`
+                : `${leave.days} ថ្ងៃ`
             }
           />
           <InfoRow
@@ -264,13 +277,13 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         </CardContent>
       </Card>
 
-      {/* កាតសកម្មភាព — បង្ហាញតែនៅពេលដែលអ្នកប្រើប្រាស់អាចធ្វើសកម្មភាពបាន */}
+      {/* កាតសកម្មភាព */}
       {canAct && (
         <Card className="border-blue-200 bg-blue-50/50 dark:bg-blue-950/10">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2 text-blue-700 dark:text-blue-400">
               <CheckCircle2 className="h-4 w-4" />
-              {canActAsAdmin ? "សេចក្តីសម្រេចរបស់អ្នកគ្រប់គ្រង" : "សេចក្តីសម្រេចរបស់ប្រធានផ្នែក"}
+              {actionLabel}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -281,7 +294,12 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
                   📋 ជំហានទី ១ ក្នុង ២ — អ្នកកំពុងអនុម័តក្នុងតួនាទី <strong>ប្រធានផ្នែក</strong>
                 </p>
               )}
-              {canActAsAdmin && (
+              {canActAsAdminStep1 && (
+                <p className="text-amber-600 font-medium">
+                  📋 ជំហានទី ១ ក្នុង ២ — អ្នកកំពុងអនុម័តក្នុងតួនាទី <strong>ប្រធានផ្នែក</strong> (Admin)
+                </p>
+              )}
+              {canActAsAdminStep2 && (
                 <p className="text-indigo-600 font-medium">
                   ✅ ជំហានទី ២ ក្នុង ២ — ប្រធានផ្នែក ({leave.headDepartment}) បានអនុម័តរួចហើយ។
                   អ្នកកំពុងអនុម័តក្នុងតួនាទី <strong>អ្នកគ្រប់គ្រង</strong>
@@ -309,7 +327,9 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
                 onClick={() => handleAction("APPROVED")}
               >
                 <CheckCircle2 className="h-4 w-4" />
-                {canActAsAdmin ? "អនុម័តក្នុងតួនាទីអ្នកគ្រប់គ្រង" : "អនុម័តក្នុងតួនាទីប្រធានផ្នែក"}
+                {canActAsAdminStep2
+                  ? "អនុម័តក្នុងតួនាទីអ្នកគ្រប់គ្រង"
+                  : "អនុម័តក្នុងតួនាទីប្រធានផ្នែក"}
               </Button>
               <Button
                 variant="destructive"
