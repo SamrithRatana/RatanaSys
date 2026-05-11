@@ -14,6 +14,7 @@ declare global {
         ) => void;
         platform: string;
         version: string;
+        initData: string;
       };
     };
     __pwaInstallPrompt: any;
@@ -28,12 +29,14 @@ export default function InstallPWAButton() {
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
 
-    if (tg) {
-      // Running inside Telegram Mini App
+    // Only treat as Telegram if initData exists (real Mini App session)
+    const isRealTelegram = !!tg && !!tg.initData && tg.initData.length > 0;
+
+    if (isRealTelegram && tg) {
       tg.ready();
+      tg.expand();
       setIsTelegram(true);
 
-      // Check if already added to home screen
       if (typeof tg.checkHomeScreenStatus === 'function') {
         tg.checkHomeScreenStatus((status) => {
           if (status === 'added') {
@@ -42,16 +45,14 @@ export default function InstallPWAButton() {
           } else if (status === 'missed' || status === 'unknown') {
             setShow(true);
           } else if (status === 'unsupported') {
-            // Device doesn't support it, hide button
             setShow(false);
           }
         });
       } else {
-        // Older Telegram version — show button anyway
         setShow(true);
       }
     } else {
-      // Not Telegram — fallback to browser PWA install
+      // Normal browser — use PWA install prompt
       if (window.__pwaInstallPrompt) {
         setShow(true);
       }
@@ -63,12 +64,10 @@ export default function InstallPWAButton() {
 
   const handleInstall = async () => {
     const tg = window.Telegram?.WebApp;
+    const isRealTelegram = !!tg && !!tg.initData && tg.initData.length > 0;
 
-    if (isTelegram && tg) {
-      // Use Telegram's native add to home screen
+    if (isTelegram && isRealTelegram && tg) {
       tg.addToHomeScreen();
-
-      // Re-check status after attempt
       setTimeout(() => {
         tg.checkHomeScreenStatus?.((status) => {
           if (status === 'added') {
@@ -78,7 +77,6 @@ export default function InstallPWAButton() {
         });
       }, 2000);
     } else {
-      // Browser PWA fallback
       const prompt = window.__pwaInstallPrompt;
       if (!prompt) return;
       await prompt.prompt();
