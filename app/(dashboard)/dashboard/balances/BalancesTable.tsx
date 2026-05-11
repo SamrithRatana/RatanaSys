@@ -31,9 +31,8 @@ const balanceCategories = [
 ];
 
 const BalancesTable = ({ balances }: BalanceProps) => {
-  const [isHours, setIsHours] = useState(false);
+  const [isHours, setIsHours] = useState(true); // default Hours
 
-  // Returns the display value and whether it's negative
   const convert = (val: number | undefined | null): { display: string; negative: boolean } => {
     if (val === undefined || val === null) val = 0;
     const result   = isHours ? val * HOURS_PER_DAY : val;
@@ -105,7 +104,6 @@ const BalancesTable = ({ balances }: BalanceProps) => {
                           : ""
                       }
                     >
-                      {/* Show deficit badge for negative available */}
                       {isAvailable && negative ? (
                         <span className="inline-flex items-center gap-1">
                           {display}

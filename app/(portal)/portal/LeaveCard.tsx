@@ -10,7 +10,7 @@ type LeaveCardProps = {
   credit?: number;
   used: number;
   balance?: number;
-  isHours: boolean;
+  isHours?: boolean; // optional, defaults to true
 };
 
 const VISIBLE_TYPES = ["ANNUAL", "SICK", "PERSONAL", "MATERNITY", "SPECIAL"];
@@ -23,9 +23,6 @@ const leaveKhmerLabels: Record<string, string> = {
   SPECIAL:   "ច្បាប់ពិសេស",
 };
 
-// Converts a decimal day value to a human-readable string.
-// In Days mode:  5.125 → "5 days 1 hr",  0.5 → "4 hrs",  3 → "3 days"
-// In Hours mode: 5.125 → "41 hrs",        0.5 → "4 hrs",  3 → "24 hrs"
 function formatValue(val: number, isHours: boolean): string {
   if (val === 0) return isHours ? "0 hrs" : "0 days";
 
@@ -42,7 +39,14 @@ function formatValue(val: number, isHours: boolean): string {
   return `${wholeDays} day${wholeDays !== 1 ? "s" : ""} ${remainingHrs} hr${remainingHrs !== 1 ? "s" : ""}`;
 }
 
-const LeaveCard = ({ year, leaveType, credit, used, balance, isHours }: LeaveCardProps) => {
+const LeaveCard = ({
+  year,
+  leaveType,
+  credit,
+  used,
+  balance,
+  isHours = true, // default Hours
+}: LeaveCardProps) => {
   if (!VISIBLE_TYPES.includes(leaveType)) return null;
 
   return (
