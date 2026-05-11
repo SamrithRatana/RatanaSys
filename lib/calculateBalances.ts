@@ -1,6 +1,18 @@
 import { Balances } from "@prisma/client";
 import prisma from "@/lib/prisma";
 
+const MATERNITY_DAYS: Record<string, number> = {
+  MALE:   7,
+  FEMALE: 90,
+};
+
+function inferMaternityCredit(used: number, currentCredit: number): number {
+  if (currentCredit > 0) return currentCredit;
+  // Legacy record: credit was never set — infer from used amount
+  if (used <= 7)  return 7;   // Paternity
+  return 90;                   // Maternity
+}
+
 export default async function calculateAndUpdateBalances(
   email: string,
   year: string,
@@ -39,12 +51,25 @@ export default async function calculateAndUpdateBalances(
       };
       break;
 
-    case "MATERNITY":
+    case "MATERNITY": {
+      // ── Auto-heal legacy records where credit was never set ───────────────
+      // If maternityCredit is still 0, infer the correct credit from the
+      // days being approved (7 = paternity, 90 = maternity) so balance
+      // never goes negative.
+      const existingCredit = balance.maternityCredit as number;
+      const existingUsed   = balance.maternityUsed   as number;
+      const healedCredit   = inferMaternityCredit(existingUsed + days, existingCredit);
+
+      const newUsed      = existingUsed + days;
+      const newAvailable = healedCredit - newUsed;
+
       balanceUpdate = {
-        maternityUsed:      (balance.maternityUsed as number) + days,
-        maternityAvailable: (balance.maternityCredit as number) - ((balance.maternityUsed as number) + days),
+        maternityCredit:    healedCredit,   // fix the credit if it was 0
+        maternityUsed:      newUsed,
+        maternityAvailable: Math.max(0, newAvailable), // floor at 0, never negative
       };
       break;
+    }
 
     case "SPECIAL":
       balanceUpdate = {
@@ -53,9 +78,7 @@ export default async function calculateAndUpdateBalances(
       };
       break;
 
-    case "SHORT":
-      // `days` is actually hours here — convert to day fraction (8 hrs = 1 day)
-      // Deducted from PERSONAL balance, and raw hours tracked in shortUsed
+    case "SHORT": {
       const dayFraction = days / 8;
       balanceUpdate = {
         personalUsed:      (balance.personalUsed as number) + dayFraction,
@@ -63,6 +86,7 @@ export default async function calculateAndUpdateBalances(
         shortUsed:         (balance.shortUsed ?? 0) + days,
       };
       break;
+    }
 
     default:
       throw new Error(`Unsupported leave type: ${type}`);
