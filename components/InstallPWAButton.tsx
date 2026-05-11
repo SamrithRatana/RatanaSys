@@ -4,8 +4,13 @@ import { useEffect, useState } from 'react';
 
 declare global {
   interface Window {
-    __pwaInstallPrompt: any;
+    __pwaInstallPrompt: BeforeInstallPromptEvent | null;
   }
+}
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
 export default function InstallPWAButton() {
@@ -13,7 +18,6 @@ export default function InstallPWAButton() {
   const [installed, setInstalled] = useState(false);
 
   useEffect(() => {
-    // Already fired before component mounted
     if (window.__pwaInstallPrompt) {
       setReady(true);
     }
@@ -37,7 +41,7 @@ export default function InstallPWAButton() {
     const prompt = window.__pwaInstallPrompt;
     if (!prompt) return;
 
-    prompt.prompt();
+    await prompt.prompt();
 
     const { outcome } = await prompt.userChoice;
     if (outcome === 'accepted') {
@@ -46,7 +50,6 @@ export default function InstallPWAButton() {
     }
   };
 
-  // Don't show if already installed or prompt not ready
   if (!ready || installed) return null;
 
   return (
