@@ -143,13 +143,9 @@ const RequestForm = ({ user }: Props) => {
   // Auto-set startDate & endDate when leave type / gender changes
   useEffect(() => {
     if (selectedLeave === "MATERNITY" && maternityGender) {
-      // Maternity: start from today, end = today + gender days
-      const autoStart = new Date(today);
-      const days      = MATERNITY_DAYS[maternityGender];
-      const autoEnd   = new Date(autoStart);
-      autoEnd.setDate(autoEnd.getDate() + days);
-      form.setValue("startDate", autoStart, { shouldValidate: false });
-      form.setValue("endDate",   autoEnd,   { shouldValidate: false });
+      // Maternity: let user pick startDate freely — just reset both fields
+      form.resetField("startDate");
+      form.resetField("endDate");
     } else if (selectedLeave === "SPECIAL") {
       // Special: start = today + 7, end = start + 7
       const autoStart = new Date(today);
@@ -445,6 +441,14 @@ const RequestForm = ({ user }: Props) => {
                           selected={field.value}
                           onSelect={(date) => { field.onChange(date); setOpenStartDate(false); }}
                           disabled={(date: Date) => {
+                            if (selectedLeave === "MATERNITY") {
+                              // Maternity: from today onwards, no advance required
+                              return date < today || date.getFullYear() > currentYear;
+                            }
+                            if (selectedLeave === "PERSONAL") {
+                              // Personal: allow any date in the current year (including past)
+                              return date.getFullYear() !== currentYear;
+                            }
                             const minStartDate = getMinStartDate();
                             return date < today || date.getFullYear() > currentYear || date < minStartDate;
                           }}
@@ -498,7 +502,11 @@ const RequestForm = ({ user }: Props) => {
                             mode="single"
                             selected={field.value}
                             onSelect={(date) => { field.onChange(date); setOpenEndDate(false); }}
-                            disabled={(date: Date) => date < today}
+                            disabled={(date: Date) =>
+                              selectedLeave === "PERSONAL"
+                                ? date.getFullYear() !== currentYear
+                                : date < today
+                            }
                             initialFocus
                           />
                         </PopoverContent>
