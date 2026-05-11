@@ -28,8 +28,6 @@ export default function InstallPWAButton() {
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
-
-    // Only treat as Telegram if initData exists (real Mini App session)
     const isRealTelegram = !!tg && !!tg.initData && tg.initData.length > 0;
 
     if (isRealTelegram && tg) {
@@ -52,7 +50,6 @@ export default function InstallPWAButton() {
         setShow(true);
       }
     } else {
-      // Normal browser — use PWA install prompt
       if (window.__pwaInstallPrompt) {
         setShow(true);
       }

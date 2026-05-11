@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cam-lms-v1';
+const CACHE_NAME = 'cam-lms-v2'; // bumped from v1
 const STATIC_ASSETS = [
   '/',
   '/manifest.webmanifest',
@@ -6,7 +6,6 @@ const STATIC_ASSETS = [
   '/icon-512x512.png',
 ];
 
-// Install - cache static assets
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -16,7 +15,6 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate - clean up old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -30,9 +28,7 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch - network first, fallback to cache
 self.addEventListener('fetch', (event) => {
-  // Skip non-GET and chrome-extension requests
   if (
     event.request.method !== 'GET' ||
     event.request.url.startsWith('chrome-extension')
@@ -40,7 +36,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Skip API requests - always go to network
   if (event.request.url.includes('/api/')) {
     event.respondWith(
       fetch(event.request).catch(() => {
@@ -53,11 +48,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // For pages and assets: network first, fallback to cache
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        // Cache successful responses
         if (response && response.status === 200) {
           const cloned = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
@@ -67,10 +60,8 @@ self.addEventListener('fetch', (event) => {
         return response;
       })
       .catch(() => {
-        // Fallback to cache when offline
         return caches.match(event.request).then((cached) => {
           if (cached) return cached;
-          // If no cache, return offline page for navigation
           if (event.request.mode === 'navigate') {
             return caches.match('/');
           }
@@ -80,11 +71,10 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Handle push notifications (optional, for future use)
 self.addEventListener('push', (event) => {
   if (!event.data) return;
   const data = event.data.json();
-  self.registration.showNotification(data.title || 'CAM LMS', {
+  self.registration.showNotification(data.title || 'LMS App', {
     body: data.body || '',
     icon: '/icon-192x192.png',
     badge: '/icon-192x192.png',

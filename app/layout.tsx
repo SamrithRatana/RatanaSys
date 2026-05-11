@@ -6,13 +6,13 @@ import { Toaster } from "sonner";
 import InstallPWAButton from "@/components/InstallPWAButton";
 
 export const metadata: Metadata = {
-  title: "CAM LMS",
+  title: "LMS App",
   description: "Leave Management System by Camprotec",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "CAM LMS",
+    title: "LMS App",
   },
 };
 
@@ -32,7 +32,7 @@ export default function RootLayout({
         <meta name="theme-color" content="#0088cc" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="CAM LMS" />
+        <meta name="apple-mobile-web-app-title" content="LMS App" />
         <link rel="apple-touch-icon" href="/icon-192x192.png" />
         <meta name="msapplication-TileColor" content="#0088cc" />
         <meta name="msapplication-TileImage" content="/icon-192x192.png" />
