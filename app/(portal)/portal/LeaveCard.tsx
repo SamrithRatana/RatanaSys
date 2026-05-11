@@ -13,7 +13,7 @@ type LeaveCardProps = {
   isHours: boolean;
 };
 
-const VISIBLE_TYPES = ["ANNUAL", "SICK", "PERSONAL", "MATERNITY", "SPECIAL"];
+const VISIBLE_TYPES = ["ច្បាប់ប្រចាំឆ្នាំ", "ច្បាប់ឈឺផ្ទាល់ខ្លួន", "ច្បាប់ផ្ទាល់ខ្លួន", "ច្បាប់មាតុភាព", "ច្បាប់ពិសេស"];
 
 // Converts a decimal day value to a human-readable string.
 // In Days mode:  5.125 → "5 days 1 hr",  0.5 → "4 hrs",  3 → "3 days"
