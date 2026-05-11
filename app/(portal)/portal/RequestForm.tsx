@@ -126,6 +126,7 @@ const RequestForm = ({ user }: Props) => {
 
   const selectedLeave   = form.watch("leave");
   const personalSubType = form.watch("personalSubType");
+  const startDateValue  = form.watch("startDate");
   const isPersonal      = selectedLeave === "PERSONAL";
   const isShortLeave    = isPersonal && personalSubType === "SHORT";
   const isFullDay       = isPersonal && personalSubType === "FULL";
@@ -135,18 +136,27 @@ const RequestForm = ({ user }: Props) => {
 
   const currentYear = today.getFullYear();
 
-  // ── Auto-set dates when Maternity / Special is selected ──────────────────
-  useEffect(() => {
-    const needsAdvanceNotice =
-      selectedLeave === "MATERNITY" || selectedLeave === "SPECIAL";
+  const isAdvanceLeave = (leave: string | undefined) =>
+    leave === "MATERNITY" || leave === "SPECIAL";
 
-    if (needsAdvanceNotice) {
-      const autoDate = new Date(today);
-      autoDate.setDate(autoDate.getDate() + 7);
-      form.setValue("startDate", autoDate, { shouldValidate: false });
-      form.setValue("endDate",   autoDate, { shouldValidate: false });
-    }
+  // ── Auto-set startDate=today+7, endDate=today+14 when type is selected ───
+  useEffect(() => {
+    if (!isAdvanceLeave(selectedLeave)) return;
+    const autoStart = new Date(today);
+    autoStart.setDate(autoStart.getDate() + 7);
+    const autoEnd = new Date(autoStart);
+    autoEnd.setDate(autoEnd.getDate() + 7);
+    form.setValue("startDate", autoStart, { shouldValidate: false });
+    form.setValue("endDate",   autoEnd,   { shouldValidate: false });
   }, [selectedLeave]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── When user manually changes startDate, shift endDate = startDate+7 ────
+  useEffect(() => {
+    if (!isAdvanceLeave(selectedLeave) || !startDateValue) return;
+    const autoEnd = new Date(startDateValue);
+    autoEnd.setDate(autoEnd.getDate() + 7);
+    form.setValue("endDate", autoEnd, { shouldValidate: false });
+  }, [startDateValue]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Compute the minimum selectable start date based on leave type
   const getMinStartDate = (): Date => {
