@@ -349,8 +349,8 @@ const RequestForm = ({ user }: Props) => {
                         <line x1="4.22"  y1="19.78" x2="6.34"  y2="17.66" />
                         <line x1="17.66" y1="6.34"  x2="19.78" y2="4.22"  />
                       </svg>
-                      Full Day
-                      <span className="text-xs font-normal opacity-60">All day leave</span>
+                      ច្បាប់ពេញថ្ងៃ
+                      <span className="text-xs font-normal opacity-60">ច្បាប់ឈប់សម្រាកពេញមួយថ្ងៃ</span>
                     </button>
 
                     <button
@@ -374,8 +374,8 @@ const RequestForm = ({ user }: Props) => {
                         <circle cx="12" cy="12" r="9" />
                         <polyline points="12 7 12 12 15 15" />
                       </svg>
-                      Short Leave
-                      <span className="text-xs font-normal opacity-60">Hourly · cuts personal</span>
+                      ច្បាប់រយះពេលខ្លី
+                      <span className="text-xs font-normal opacity-60">គិតជាម៉ោង · កាត់ច្បាប់ផ្ទាល់ខ្លួន</span>
                     </button>
                   </div>
                   <FormMessage />
