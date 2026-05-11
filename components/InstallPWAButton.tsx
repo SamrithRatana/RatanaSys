@@ -4,53 +4,93 @@ import { useEffect, useState } from 'react';
 
 declare global {
   interface Window {
-    __pwaInstallPrompt: BeforeInstallPromptEvent | null;
+    Telegram?: {
+      WebApp?: {
+        ready: () => void;
+        expand: () => void;
+        addToHomeScreen: () => void;
+        checkHomeScreenStatus: (
+          callback: (status: 'unsupported' | 'unknown' | 'added' | 'missed') => void
+        ) => void;
+        platform: string;
+        version: string;
+      };
+    };
+    __pwaInstallPrompt: any;
   }
 }
 
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
-}
-
 export default function InstallPWAButton() {
-  const [ready, setReady] = useState(false);
-  const [installed, setInstalled] = useState(false);
+  const [show, setShow] = useState(false);
+  const [isTelegram, setIsTelegram] = useState(false);
+  const [alreadyAdded, setAlreadyAdded] = useState(false);
 
   useEffect(() => {
-    if (window.__pwaInstallPrompt) {
-      setReady(true);
+    const tg = window.Telegram?.WebApp;
+
+    if (tg) {
+      // Running inside Telegram Mini App
+      tg.ready();
+      setIsTelegram(true);
+
+      // Check if already added to home screen
+      if (typeof tg.checkHomeScreenStatus === 'function') {
+        tg.checkHomeScreenStatus((status) => {
+          if (status === 'added') {
+            setAlreadyAdded(true);
+            setShow(false);
+          } else if (status === 'missed' || status === 'unknown') {
+            setShow(true);
+          } else if (status === 'unsupported') {
+            // Device doesn't support it, hide button
+            setShow(false);
+          }
+        });
+      } else {
+        // Older Telegram version — show button anyway
+        setShow(true);
+      }
+    } else {
+      // Not Telegram — fallback to browser PWA install
+      if (window.__pwaInstallPrompt) {
+        setShow(true);
+      }
+      const onReady = () => setShow(true);
+      window.addEventListener('pwaInstallReady', onReady);
+      return () => window.removeEventListener('pwaInstallReady', onReady);
     }
-
-    const onReady = () => setReady(true);
-    const onInstalled = () => {
-      setInstalled(true);
-      setReady(false);
-    };
-
-    window.addEventListener('pwaInstallReady', onReady);
-    window.addEventListener('appinstalled', onInstalled);
-
-    return () => {
-      window.removeEventListener('pwaInstallReady', onReady);
-      window.removeEventListener('appinstalled', onInstalled);
-    };
   }, []);
 
   const handleInstall = async () => {
-    const prompt = window.__pwaInstallPrompt;
-    if (!prompt) return;
+    const tg = window.Telegram?.WebApp;
 
-    await prompt.prompt();
+    if (isTelegram && tg) {
+      // Use Telegram's native add to home screen
+      tg.addToHomeScreen();
 
-    const { outcome } = await prompt.userChoice;
-    if (outcome === 'accepted') {
-      window.__pwaInstallPrompt = null;
-      setReady(false);
+      // Re-check status after attempt
+      setTimeout(() => {
+        tg.checkHomeScreenStatus?.((status) => {
+          if (status === 'added') {
+            setAlreadyAdded(true);
+            setShow(false);
+          }
+        });
+      }, 2000);
+    } else {
+      // Browser PWA fallback
+      const prompt = window.__pwaInstallPrompt;
+      if (!prompt) return;
+      await prompt.prompt();
+      const { outcome } = await prompt.userChoice;
+      if (outcome === 'accepted') {
+        window.__pwaInstallPrompt = null;
+        setShow(false);
+      }
     }
   };
 
-  if (!ready || installed) return null;
+  if (!show || alreadyAdded) return null;
 
   return (
     <button
