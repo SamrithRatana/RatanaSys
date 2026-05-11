@@ -10,7 +10,7 @@ type Props = {
 };
 
 const UserBalances = ({ balances }: Props) => {
-  const [isHours, setIsHours] = useState(false);
+  const [isHours, setIsHours] = useState(true);
 
   return (
     <Container>

@@ -28,7 +28,7 @@ function formatValue(val: number, isHours: boolean): string {
 type Props = { balances: Balances };
 
 export default function TotalBalanceSummary({ balances }: Props) {
-  const [isHours, setIsHours] = useState(false);
+  const [isHours, setIsHours] = useState(true);
 
   const totalUsed = LEAVE_KEYS.reduce((sum, key) => {
     return sum + (Number((balances as any)[`${key}Used`]) || 0);
