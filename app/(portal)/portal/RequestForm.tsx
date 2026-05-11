@@ -33,11 +33,11 @@ import { leaveTypes } from "@/lib/dummy-data";
 
 // ── Khmer labels for each leave type value ────────────────────────────────
 const leaveKhmerLabels: Record<string, string> = {
-  ANNUAL:    "ច្បាប់ប្រចាំឆ្នាំ",
-  SICK:      "ច្បាប់ឈប់ព្យាបាលជំងឺ",
-  PERSONAL:  "ច្បាប់ផ្ទាល់ខ្លួន",
-  MATERNITY: "ច្បាប់សម្រាលកូន",
-  SPECIAL:   "ច្បាប់ពិសេស",
+  ANNUAL:    "ច្បាប់ប្រចាំឆ្នាំ-Annual Leave",
+  SICK:      "ច្បាប់ឈឺផ្ទាល់ខ្លួន-Sick Leave",
+  PERSONAL:  "ច្បាប់ផ្ទាល់ខ្លួន-Personal Leave",
+  MATERNITY: "ច្បាប់សម្រាលកូន-Maternity Leave",
+  SPECIAL:   "ច្បាប់ពិសេស-Special Leave",
 };
 import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
@@ -436,7 +436,7 @@ const RequestForm = ({ user }: Props) => {
                   name="hours"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Hours Requested</FormLabel>
+                      <FormLabel>ចំនួនម៉ោងស្នើសុំ</FormLabel>
                       <FormControl>
                         <Input
                           type="number"
