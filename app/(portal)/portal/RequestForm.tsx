@@ -41,6 +41,9 @@ import { useState } from "react";
 
 type Props = { user: User };
 
+const today = new Date();
+today.setHours(0, 0, 0, 0);
+
 const formSchema = z
   .object({
     notes:           z.string().min(1, "Notes are required.").max(500),
@@ -81,6 +84,24 @@ const formSchema = z
         path: ["hours"],
       });
     }
+
+    // ── 7-day advance notice for Maternity / Special ──────────────────────
+    const needsAdvanceNotice =
+      data.leave === "MATERNITY" || data.leave === "SPECIAL";
+
+    if (needsAdvanceNotice && data.startDate) {
+      const minDate = new Date(today);
+      minDate.setDate(minDate.getDate() + 7);
+
+      if (data.startDate < minDate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Maternity and Special leave must be requested at least 7 days in advance.",
+          path: ["startDate"],
+        });
+      }
+    }
   });
 
 const RequestForm = ({ user }: Props) => {
@@ -102,6 +123,20 @@ const RequestForm = ({ user }: Props) => {
   const showEndDate     = !isPersonal || isFullDay;
   const showHours       = isShortLeave;
   const showDateFields  = !isPersonal || !!personalSubType;
+
+  const currentYear = today.getFullYear();
+
+  // Compute the minimum selectable start date based on leave type
+  const getMinStartDate = (): Date => {
+    const needsAdvanceNotice =
+      selectedLeave === "MATERNITY" || selectedLeave === "SPECIAL";
+    if (needsAdvanceNotice) {
+      const minDate = new Date(today);
+      minDate.setDate(minDate.getDate() + 7);
+      return minDate;
+    }
+    return today;
+  };
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
@@ -150,10 +185,6 @@ const RequestForm = ({ user }: Props) => {
       toast.error("An unexpected error occurred");
     }
   }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const currentYear = today.getFullYear();
 
   return (
     <DialogWrapper
@@ -205,6 +236,7 @@ const RequestForm = ({ user }: Props) => {
                             onSelect={() => {
                               form.setValue("leave", leave.value);
                               form.resetField("personalSubType");
+                              form.resetField("startDate");
                               form.resetField("endDate");
                               form.resetField("hours");
                               setOpenLeaveType(false);
@@ -227,6 +259,25 @@ const RequestForm = ({ user }: Props) => {
               </FormItem>
             )}
           />
+
+          {/* ── 7-day notice banner for Maternity / Special ── */}
+          {(selectedLeave === "MATERNITY" || selectedLeave === "SPECIAL") && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+              <svg
+                width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                className="mt-0.5 shrink-0"
+              >
+                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+              <span>
+                <strong>7-day advance notice required.</strong> ច្បាប់ប្រភេទនេះត្រូវតែស្នើសុំ
+                យ៉ាងហោចណាស់ <strong>7 ថ្ងៃ</strong> មុនពេលចូលច្បាប់។
+              </span>
+            </div>
+          )}
 
           {/* ── Personal sub-type (Full Day / Short Leave) ── */}
           {isPersonal && (
@@ -330,9 +381,12 @@ const RequestForm = ({ user }: Props) => {
                             field.onChange(date);
                             setOpenStartDate(false);
                           }}
-                          disabled={(date: Date) =>
-                            date < today || date.getFullYear() > currentYear
-                          }
+                          disabled={(date: Date) => {
+                            const tooEarly = date < today;
+                            const tooLate  = date.getFullYear() > currentYear;
+                            const minStartDate = getMinStartDate();
+                            return tooEarly || tooLate || date < minStartDate;
+                          }}
                           initialFocus
                         />
                       </PopoverContent>
