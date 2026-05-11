@@ -100,15 +100,14 @@ const formSchema = z
       });
     }
 
-    // 7-day advance notice for Maternity / Special
-    const needsAdvanceNotice = data.leave === "MATERNITY" || data.leave === "SPECIAL";
-    if (needsAdvanceNotice && data.startDate) {
+    // 7-day advance notice for Special leave ONLY
+    if (data.leave === "SPECIAL" && data.startDate) {
       const minDate = new Date(today);
       minDate.setDate(minDate.getDate() + 7);
       if (data.startDate < minDate) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Maternity and Special leave must be requested at least 7 days in advance.",
+          message: "Special leave must be requested at least 7 days in advance.",
           path: ["startDate"],
         });
       }
@@ -126,52 +125,60 @@ const RequestForm = ({ user }: Props) => {
     defaultValues: {},
   });
 
-  const selectedLeave    = form.watch("leave");
-  const personalSubType  = form.watch("personalSubType");
-  const maternityGender  = form.watch("maternityGender");
-  const startDateValue   = form.watch("startDate");
+  const selectedLeave   = form.watch("leave");
+  const personalSubType = form.watch("personalSubType");
+  const maternityGender = form.watch("maternityGender");
+  const startDateValue  = form.watch("startDate");
 
-  const isPersonal      = selectedLeave === "PERSONAL";
-  const isMaternity     = selectedLeave === "MATERNITY";
-  const isShortLeave    = isPersonal && personalSubType === "SHORT";
-  const isFullDay       = isPersonal && personalSubType === "FULL";
-  const showEndDate     = !isPersonal || isFullDay;
-  const showHours       = isShortLeave;
-  const showDateFields  = (!isPersonal || !!personalSubType) && (!isMaternity || !!maternityGender);
+  const isPersonal     = selectedLeave === "PERSONAL";
+  const isMaternity    = selectedLeave === "MATERNITY";
+  const isShortLeave   = isPersonal && personalSubType === "SHORT";
+  const isFullDay      = isPersonal && personalSubType === "FULL";
+  const showEndDate    = !isPersonal || isFullDay;
+  const showHours      = isShortLeave;
+  const showDateFields = (!isPersonal || !!personalSubType) && (!isMaternity || !!maternityGender);
 
   const currentYear = today.getFullYear();
 
-  const isAdvanceLeave = (leave: string | undefined) =>
-    leave === "MATERNITY" || leave === "SPECIAL";
-
-  // Auto-set startDate+7, endDate based on gender days when maternity + gender selected
+  // Auto-set startDate & endDate when leave type / gender changes
   useEffect(() => {
-    if (!isAdvanceLeave(selectedLeave)) return;
-    const autoStart = new Date(today);
-    autoStart.setDate(autoStart.getDate() + 7);
-    const days = selectedLeave === "MATERNITY" && maternityGender
-      ? MATERNITY_DAYS[maternityGender]
-      : 7;
-    const autoEnd = new Date(autoStart);
-    autoEnd.setDate(autoEnd.getDate() + days);
-    form.setValue("startDate", autoStart, { shouldValidate: false });
-    form.setValue("endDate",   autoEnd,   { shouldValidate: false });
+    if (selectedLeave === "MATERNITY" && maternityGender) {
+      // Maternity: start from today, end = today + gender days
+      const autoStart = new Date(today);
+      const days      = MATERNITY_DAYS[maternityGender];
+      const autoEnd   = new Date(autoStart);
+      autoEnd.setDate(autoEnd.getDate() + days);
+      form.setValue("startDate", autoStart, { shouldValidate: false });
+      form.setValue("endDate",   autoEnd,   { shouldValidate: false });
+    } else if (selectedLeave === "SPECIAL") {
+      // Special: start = today + 7, end = start + 7
+      const autoStart = new Date(today);
+      autoStart.setDate(autoStart.getDate() + 7);
+      const autoEnd = new Date(autoStart);
+      autoEnd.setDate(autoEnd.getDate() + 7);
+      form.setValue("startDate", autoStart, { shouldValidate: false });
+      form.setValue("endDate",   autoEnd,   { shouldValidate: false });
+    }
   }, [selectedLeave, maternityGender]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Shift endDate when startDate changes for advance leaves
+  // Shift endDate when startDate changes
   useEffect(() => {
-    if (!isAdvanceLeave(selectedLeave) || !startDateValue) return;
-    const days = selectedLeave === "MATERNITY" && maternityGender
-      ? MATERNITY_DAYS[maternityGender]
-      : 7;
-    const autoEnd = new Date(startDateValue);
-    autoEnd.setDate(autoEnd.getDate() + days);
-    form.setValue("endDate", autoEnd, { shouldValidate: false });
+    if (!startDateValue) return;
+    if (selectedLeave === "MATERNITY" && maternityGender) {
+      const days    = MATERNITY_DAYS[maternityGender];
+      const autoEnd = new Date(startDateValue);
+      autoEnd.setDate(autoEnd.getDate() + days);
+      form.setValue("endDate", autoEnd, { shouldValidate: false });
+    } else if (selectedLeave === "SPECIAL") {
+      const autoEnd = new Date(startDateValue);
+      autoEnd.setDate(autoEnd.getDate() + 7);
+      form.setValue("endDate", autoEnd, { shouldValidate: false });
+    }
   }, [startDateValue]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getMinStartDate = (): Date => {
-    const needsAdvanceNotice = selectedLeave === "MATERNITY" || selectedLeave === "SPECIAL";
-    if (needsAdvanceNotice) {
+    // Only Special leave requires 7-day advance notice
+    if (selectedLeave === "SPECIAL") {
       const minDate = new Date(today);
       minDate.setDate(minDate.getDate() + 7);
       return minDate;
@@ -288,8 +295,8 @@ const RequestForm = ({ user }: Props) => {
             )}
           />
 
-          {/* ── 7-day notice banner ── */}
-          {(selectedLeave === "MATERNITY" || selectedLeave === "SPECIAL") && (
+          {/* ── 7-day notice banner — Special leave ONLY ── */}
+          {selectedLeave === "SPECIAL" && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0">
                 <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
@@ -323,7 +330,6 @@ const RequestForm = ({ user }: Props) => {
                           : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400"
                       )}
                     >
-                      {/* Male icon */}
                       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                         <circle cx="10" cy="14" r="5" />
                         <line x1="19" y1="5" x2="14.14" y2="9.86" />
@@ -346,7 +352,6 @@ const RequestForm = ({ user }: Props) => {
                           : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400"
                       )}
                     >
-                      {/* Female icon */}
                       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                         <circle cx="12" cy="8" r="5" />
                         <line x1="12" y1="13" x2="12" y2="21" />
