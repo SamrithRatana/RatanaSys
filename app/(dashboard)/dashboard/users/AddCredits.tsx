@@ -21,7 +21,7 @@ const NSSF_DEFAULTS = {
   ANNUAL:    18,
   SICK:      7,
   PERSONAL:  7,
-  MATERNITY: 90,
+  MATERNITY: 0,
   SPECIAL:   7,
 };
 

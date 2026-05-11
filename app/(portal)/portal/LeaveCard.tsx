@@ -6,12 +6,12 @@ import { Badge } from "@/components/ui/badge";
 const HOURS_PER_DAY = 8;
 
 type LeaveCardProps = {
-  year: string;
+  year:      string;
   leaveType: string;
-  credit?: number;
-  used: number;
-  balance?: number;
-  isHours?: boolean;
+  credit?:   number;
+  used:      number;
+  balance?:  number;
+  isHours?:  boolean;
 };
 
 const VISIBLE_TYPES = ["ANNUAL", "SICK", "PERSONAL", "MATERNITY", "SPECIAL"];
@@ -40,11 +40,12 @@ function formatValue(val: number, isHours: boolean): string {
   return `${wholeDays} day${wholeDays !== 1 ? "s" : ""} ${remainingHrs} hr${remainingHrs !== 1 ? "s" : ""}`;
 }
 
-// Detect gender from credit value for maternity
-function detectMaternityGender(credit: number): "MALE" | "FEMALE" | null {
-  if (credit === 7)  return "MALE";
-  if (credit === 90) return "FEMALE";
-  return null; // 0 = not yet applied
+// Infer gender from credit value, falling back to used amount for legacy records
+// where credit was never set by admin but leaves were already submitted.
+function detectMaternityGender(credit: number, used: number): "MALE" | "FEMALE" | null {
+  if (credit === 7  || (credit === 0 && used > 0 && used <= 7))  return "MALE";
+  if (credit === 90 || (credit === 0 && used > 7))               return "FEMALE";
+  return null;
 }
 
 const LeaveCard = ({
@@ -59,8 +60,14 @@ const LeaveCard = ({
 
   const isMaternity = leaveType === "MATERNITY";
   const creditVal   = credit ?? 0;
-  const gender      = isMaternity ? detectMaternityGender(creditVal) : null;
-  const notApplied  = isMaternity && creditVal === 0;
+  const usedVal     = used   ?? 0;
+
+  // Infer gender — works for both new records (credit set) and legacy records
+  // (credit=0 but used>0 because admin never manually added maternity credit)
+  const gender     = isMaternity ? detectMaternityGender(creditVal, usedVal) : null;
+
+  // Only truly "not applied" when both credit and used are zero
+  const notApplied = isMaternity && creditVal === 0 && usedVal === 0;
 
   return (
     <Card>
@@ -76,7 +83,6 @@ const LeaveCard = ({
         {isMaternity && (
           <div className="flex justify-center">
             {notApplied ? (
-              // Not yet requested
               <Badge
                 variant="outline"
                 className="text-[11px] text-gray-500 border-gray-300 bg-gray-50 px-2 py-0.5"
@@ -84,7 +90,6 @@ const LeaveCard = ({
                 ⏳ អត់ទាន់ស្នើ · Credit អនុវត្តតាមភេទ
               </Badge>
             ) : gender === "MALE" ? (
-              // Male / Paternity
               <Badge
                 variant="outline"
                 className="text-[11px] text-blue-600 border-blue-300 bg-blue-50 px-2 py-0.5"
@@ -92,7 +97,6 @@ const LeaveCard = ({
                 👨 បុរស · Paternity · 7 ថ្ងៃ
               </Badge>
             ) : gender === "FEMALE" ? (
-              // Female / Maternity
               <Badge
                 variant="outline"
                 className="text-[11px] text-pink-600 border-pink-300 bg-pink-50 px-2 py-0.5"
@@ -116,7 +120,7 @@ const LeaveCard = ({
         {/* Used */}
         <div className="flex items-center justify-between">
           <h4 className="text-sm text-muted-foreground">Used</h4>
-          <h4 className="text-sm font-medium">{formatValue(used ?? 0, isHours)}</h4>
+          <h4 className="text-sm font-medium">{formatValue(usedVal, isHours)}</h4>
         </div>
 
         {/* Balance */}

@@ -5,13 +5,13 @@ import { differenceInDays, format } from "date-fns";
 import { sendTelegramMessage } from "@/lib/sendTelegramMessage";
 
 type SubmittedLeave = {
-  notes:           string;
-  leave?:          string;
-  type?:           string;
-  maternityGender?: "MALE" | "FEMALE"; // ← new
-  startDate:       string;
-  endDate:         string;
-  hours?:          number;
+  notes:            string;
+  leave?:           string;
+  type?:            string;
+  maternityGender?: "MALE" | "FEMALE";
+  startDate:        string;
+  endDate:          string;
+  hours?:           number;
   user: {
     email: string;
     image: string;
@@ -21,7 +21,6 @@ type SubmittedLeave = {
   };
 };
 
-// Gender-based maternity days
 const MATERNITY_DAYS: Record<string, number> = {
   MALE:   7,
   FEMALE: 90,
@@ -34,11 +33,11 @@ function getLeaveLabel(type: string, gender?: string): string {
       : "ច្បាប់មាតុភាព (ស្ត្រី · Maternity · 90ថ្ងៃ)";
   }
   const labels: Record<string, string> = {
-    ANNUAL:    "ច្បាប់ឈប់សម្រាកប្រចាំឆ្នាំ",
-    SICK:      "ច្បាប់ឈប់សម្រាកឈឺ",
-    PERSONAL:  "ច្បាប់ឈប់សម្រាកផ្ទាល់ខ្លួន",
-    SPECIAL:   "ច្បាប់ឈប់សម្រាកពិសេស",
-    SHORT:     "ច្បាប់ឈប់សម្រាករយះពេលខ្លី",
+    ANNUAL:   "ច្បាប់ឈប់សម្រាកប្រចាំឆ្នាំ",
+    SICK:     "ច្បាប់ឈប់សម្រាកឈឺ",
+    PERSONAL: "ច្បាប់ឈប់សម្រាកផ្ទាល់ខ្លួន",
+    SPECIAL:  "ច្បាប់ឈប់សម្រាកពិសេស",
+    SHORT:    "ច្បាប់ឈប់សម្រាករយះពេលខ្លី",
   };
   return labels[type.toUpperCase()] ?? `ច្បាប់ ${type}`;
 }
@@ -70,7 +69,7 @@ export async function POST(req: NextRequest) {
     const endDateObj   = safeParse(endDate);
     const year         = startDateObj.getFullYear().toString();
 
-    // ── Gender-aware day calculation for MATERNITY ──────────────────────────
+    // ── Gender-aware day calculation ──────────────────────────────────────────
     let calcDays: number;
     if (isMaternity && maternityGender) {
       calcDays = MATERNITY_DAYS[maternityGender] ?? 90;
@@ -82,20 +81,60 @@ export async function POST(req: NextRequest) {
 
     const calcHours = isShortLeave ? Number(hours ?? 0) : 0;
 
+    // ── Auto-set maternity credit on balance if not yet set ───────────────────
+    // This ensures credit/balance always reflects the gender the user selected,
+    // even if admin never manually added credits for MATERNITY.
+    if (isMaternity && maternityGender) {
+      const creditDays = MATERNITY_DAYS[maternityGender];
+
+      const existingBalance = await prisma.balances.findFirst({
+        where: { email: user.email, year },
+      });
+
+      if (existingBalance) {
+        // Only overwrite if credit is still 0 (not manually set by admin)
+        if ((existingBalance.maternityCredit as number) === 0) {
+          await prisma.balances.update({
+            where: { id: existingBalance.id },
+            data: {
+              maternityCredit:    creditDays,
+              maternityAvailable: creditDays,
+            },
+          });
+        }
+      } else {
+        // No balance record at all yet — create a minimal one for this year
+        // so the card can display correctly before admin adds full credits
+        await prisma.balances.create({
+          data: {
+            email:              user.email,
+            name:               user.name,
+            year,
+            annualCredit:       0, annualAvailable:    0, annualUsed:    0,
+            sickCredit:         0, sickAvailable:      0, sickUsed:      0,
+            personalCredit:     0, personalAvailable:  0, personalUsed:  0,
+            maternityCredit:    creditDays,
+            maternityAvailable: creditDays,
+            maternityUsed:      0,
+            specialCredit:      0, specialAvailable:   0, specialUsed:   0,
+            shortUsed:          0,
+          },
+        });
+      }
+    }
+
+    // ── Create the leave record ───────────────────────────────────────────────
     const createdLeave = await prisma.leave.create({
       data: {
-        startDate:      startDateObj,
-        endDate:        endDateObj,
-        userEmail:      user.email,
-        type:           leaveType,
-        userNote:       notes,
-        userName:       user.name,
-        days:           calcDays,
-        hours:          calcHours,
+        startDate: startDateObj,
+        endDate:   endDateObj,
+        userEmail: user.email,
+        type:      leaveType,
+        userNote:  notes,
+        userName:  user.name,
+        days:      calcDays,
+        hours:     calcHours,
         year,
-        // Store gender on the leave record if your schema has it,
-        // otherwise remove this line:
-        // maternityGender: maternityGender ?? null,
       },
     });
 

@@ -85,17 +85,25 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ message: "Leave rejected" }, { status: 200 });
     }
 
-    // ── ជំហានទី១ — អនុម័តដោយប្រធានផ្នែក ─────────────────────────────────────
+    // ── អនុម័ត ────────────────────────────────────────────────────────────────
     if (status === LeaveStatus.APPROVED) {
 
-      if (actorRole === "MODERATOR") {
-        if (leave.headDepartmentApproved) {
-          return NextResponse.json(
-            { error: "Head Department has already approved this leave. Awaiting Manager." },
-            { status: 400 }
-          );
-        }
+      // ── ជំហានទី១ — អនុម័តដោយប្រធានផ្នែក ───────────────────────────────────
+      // MODERATOR: Step 1 only
+      // ADMIN:     Step 1 if head dept hasn't approved yet
+      const canDoStep1 =
+        (actorRole === "MODERATOR" || actorRole === "ADMIN") &&
+        !leave.headDepartmentApproved;
 
+      // ── ជំហានទី២ — អនុម័តចុងក្រោយដោយអ្នកគ្រប់គ្រង ──────────────────────
+      // ADMIN only, after Step 1 is done
+      const canDoStep2 =
+        actorRole === "ADMIN" &&
+        leave.headDepartmentApproved &&
+        !leave.managerApproved;
+
+      // ── Step 1 ───────────────────────────────────────────────────────────────
+      if (canDoStep1) {
         await prisma.leave.update({
           where: { id },
           data: {
@@ -127,22 +135,8 @@ export async function PATCH(req: Request) {
         );
       }
 
-      // ── ជំហានទី២ — អនុម័តចុងក្រោយដោយអ្នកគ្រប់គ្រង ──────────────────────
-      if (actorRole === "ADMIN") {
-        if (!leave.headDepartmentApproved) {
-          return NextResponse.json(
-            { error: "Head Department must approve first before Manager can approve." },
-            { status: 400 }
-          );
-        }
-
-        if (leave.managerApproved) {
-          return NextResponse.json(
-            { error: "This leave has already been fully approved." },
-            { status: 400 }
-          );
-        }
-
+      // ── Step 2 ───────────────────────────────────────────────────────────────
+      if (canDoStep2) {
         const hoursFromDb = Number(leave.hours ?? 0);
 
         await calculateAndUpdateBalances(
@@ -192,6 +186,12 @@ export async function PATCH(req: Request) {
           { status: 200 }
         );
       }
+
+      // Neither step applies
+      return NextResponse.json(
+        { error: "No valid approval action for your role at this stage." },
+        { status: 400 }
+      );
     }
 
     return NextResponse.json({ error: "Invalid approval state" }, { status: 400 });
