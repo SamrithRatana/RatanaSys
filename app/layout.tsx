@@ -3,7 +3,7 @@ import Script from "next/script";
 import "./globals.css";
 import Providers from "./Provider";
 import { Toaster } from "sonner";
-import InstallPWAButton from "@/components/InstallPWAButton"; // ✅ ADD THIS
+import InstallPWAButton from "@/components/InstallPWAButton";
 
 export const metadata: Metadata = {
   title: "CAM LMS",
@@ -41,6 +41,7 @@ export default function RootLayout({
           src="https://telegram.org/js/telegram-web-app.js"
           strategy="beforeInteractive"
         />
+
         <Script id="register-sw" strategy="afterInteractive">
           {`
             if ('serviceWorker' in navigator) {
@@ -57,6 +58,7 @@ export default function RootLayout({
             }
           `}
         </Script>
+
         <Script id="pwa-install-prompt" strategy="afterInteractive">
           {`
             window.addEventListener('beforeinstallprompt', function (e) {
@@ -78,7 +80,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           {children}
-          <InstallPWAButton /> {/* ✅ ADD THIS — sits above Toaster */}
+          <InstallPWAButton />
           <Toaster richColors position="top-right" />
         </Providers>
       </body>
