@@ -50,6 +50,7 @@ enum Role {
   ADMIN
   MODERATOR
 }
+
 model User {
   id            String     @id @default(cuid())
   name          String?
@@ -62,7 +63,7 @@ model User {
   title         String?
   manager       String?
   department    String?
-  telegramId    String?    @unique   // ← ADD THIS
+  telegramId    String?    @unique
   accounts      Account[]
   sessions      Session[]
   balances      Balances[]
@@ -72,7 +73,7 @@ model LeaveType {
   id          String   @id @default(cuid())
   title       String
   values      String[] @default(["Credit", "Used", "Available"])
-  category    String   // Should be a lower case of the title
+  category    String
   description String?
 }
 
@@ -109,6 +110,9 @@ model Leave {
   managerApproved Boolean?  @default(false)
   managerAt       DateTime?
 
+  // Telegram — stores the group message_id so edits/cancels update the original message
+  telegramMessageId Int?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now())
 }
@@ -119,7 +123,7 @@ model Balances {
   name  String
   email String
 
-  // Annual — Float so short leave fractions (e.g. 0.25 days) are stored correctly
+  // Annual
   annualCredit        Float? @default(0)
   annualUsed          Float? @default(0)
   annualAvailable     Float? @default(0)
@@ -144,7 +148,7 @@ model Balances {
   specialUsed         Float? @default(0)
   specialAvailable    Float? @default(0)
 
-  // Short leave — hours only, no credit/available cap (deducted from annual above)
+  // Short leave — hours only, no credit/available cap
   shortUsed           Float? @default(0)
 
   user User @relation(fields: [email], references: [email], onDelete: Cascade)

@@ -23,7 +23,7 @@ function getLeaveLabel(type: string): string {
     ANNUAL:    "ច្បាប់ឈប់សម្រាកប្រចាំឆ្នាំ",
     SICK:      "ច្បាប់ឈប់សម្រាកឈឺ",
     PERSONAL:  "ច្បាប់ឈប់សម្រាកផ្ទាល់ខ្លួន",
-    MATERNITY: "ច្បាប់សម្រាលកូន",
+    MATERNITY: "ច្បាប់មាតុភាព",
     SPECIAL:   "ច្បាប់ឈប់សម្រាកពិសេស",
     SHORT:     "ច្បាប់ឈប់សម្រាករយះពេលខ្លី",
   };

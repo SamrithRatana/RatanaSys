@@ -21,10 +21,7 @@ type SubmittedLeave = {
   };
 };
 
-const MATERNITY_DAYS: Record<string, number> = {
-  MALE:   7,
-  FEMALE: 90,
-};
+const MATERNITY_DAYS: Record<string, number> = { MALE: 7, FEMALE: 90 };
 
 function getLeaveLabel(type: string, gender?: string): string {
   if (type === "MATERNITY") {
@@ -69,7 +66,6 @@ export async function POST(req: NextRequest) {
     const endDateObj   = safeParse(endDate);
     const year         = startDateObj.getFullYear().toString();
 
-    // ── Gender-aware day calculation ──────────────────────────────────────────
     let calcDays: number;
     if (isMaternity && maternityGender) {
       calcDays = MATERNITY_DAYS[maternityGender] ?? 90;
@@ -81,49 +77,36 @@ export async function POST(req: NextRequest) {
 
     const calcHours = isShortLeave ? Number(hours ?? 0) : 0;
 
-    // ── Auto-set maternity credit on balance if not yet set ───────────────────
-    // This ensures credit/balance always reflects the gender the user selected,
-    // even if admin never manually added credits for MATERNITY.
+    // ── Auto-set maternity credit ─────────────────────────────────────────────
     if (isMaternity && maternityGender) {
-      const creditDays = MATERNITY_DAYS[maternityGender];
-
+      const creditDays      = MATERNITY_DAYS[maternityGender];
       const existingBalance = await prisma.balances.findFirst({
         where: { email: user.email, year },
       });
 
       if (existingBalance) {
-        // Only overwrite if credit is still 0 (not manually set by admin)
         if ((existingBalance.maternityCredit as number) === 0) {
           await prisma.balances.update({
             where: { id: existingBalance.id },
-            data: {
-              maternityCredit:    creditDays,
-              maternityAvailable: creditDays,
-            },
+            data: { maternityCredit: creditDays, maternityAvailable: creditDays },
           });
         }
       } else {
-        // No balance record at all yet — create a minimal one for this year
-        // so the card can display correctly before admin adds full credits
         await prisma.balances.create({
           data: {
-            email:              user.email,
-            name:               user.name,
-            year,
-            annualCredit:       0, annualAvailable:    0, annualUsed:    0,
-            sickCredit:         0, sickAvailable:      0, sickUsed:      0,
-            personalCredit:     0, personalAvailable:  0, personalUsed:  0,
-            maternityCredit:    creditDays,
-            maternityAvailable: creditDays,
-            maternityUsed:      0,
-            specialCredit:      0, specialAvailable:   0, specialUsed:   0,
-            shortUsed:          0,
+            email: user.email, name: user.name, year,
+            annualCredit: 0, annualAvailable: 0, annualUsed: 0,
+            sickCredit: 0, sickAvailable: 0, sickUsed: 0,
+            personalCredit: 0, personalAvailable: 0, personalUsed: 0,
+            maternityCredit: creditDays, maternityAvailable: creditDays, maternityUsed: 0,
+            specialCredit: 0, specialAvailable: 0, specialUsed: 0,
+            shortUsed: 0,
           },
         });
       }
     }
 
-    // ── Create the leave record ───────────────────────────────────────────────
+    // ── Create leave record ───────────────────────────────────────────────────
     const createdLeave = await prisma.leave.create({
       data: {
         startDate: startDateObj,
@@ -148,7 +131,8 @@ export async function POST(req: NextRequest) {
         ? safeFormat(startDate, "dd MMM yyyy")
         : `${safeFormat(startDate, "dd MMM yyyy")} → ${safeFormat(endDate, "dd MMM yyyy")} (${calcDays} ថ្ងៃ)`;
 
-    await sendTelegramMessage(
+    // ── Send Telegram & store messageId for future edits ─────────────────────
+    const telegramMessageId = await sendTelegramMessage(
       [
         `📄 <b>សំណើច្បាប់ថ្មី</b>`,
         ``,
@@ -164,6 +148,14 @@ export async function POST(req: NextRequest) {
       ].join("\n"),
       [{ text: "👀 មើល និងអនុម័តប្រធានផ្នែក →", url: leaveUrl }]
     );
+
+    // Store the Telegram message ID so we can edit it later when leave is updated
+    if (telegramMessageId) {
+      await prisma.leave.update({
+        where: { id: createdLeave.id },
+        data:  { telegramMessageId },  // add this field to your Prisma schema
+      });
+    }
 
     return NextResponse.json({ message: "Success" }, { status: 200 });
   } catch (error) {
