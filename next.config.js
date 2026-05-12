@@ -9,6 +9,8 @@ const nextConfig = {
       ],
     },
   },
+  // ✅ Add this line to fix DYNAMIC_SERVER_USAGE build error
+  staticPageGenerationTimeout: 120,
 }
 
 module.exports = nextConfig

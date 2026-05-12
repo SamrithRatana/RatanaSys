@@ -1,4 +1,5 @@
-// app/(dashboard)/dashboard/users/page.tsx
+export const dynamic = 'force-dynamic'
+
 import Container from '@/components/Common/Container'
 import TableWrapper from '@/components/Common/TableWrapper'
 import UsersTable from './UsersTable'

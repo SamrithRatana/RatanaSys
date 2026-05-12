@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import Container from "@/components/Common/Container";
 import AddEvent from "./AddEvent";
 import EventsTable from "./EventsTable";
@@ -9,8 +11,8 @@ const Settings = async () => {
   return (
     <Container>
       <div>
-        <div className=" my-4 py-6 rounded-md bg-white dark:bg-black">
-          <h2 className="text-xl text-center font-extrabold leading-tight  lg:text-2xl">
+        <div className="my-4 py-6 rounded-md bg-white dark:bg-black">
+          <h2 className="text-xl text-center font-extrabold leading-tight lg:text-2xl">
             Event Settings
           </h2>
         </div>

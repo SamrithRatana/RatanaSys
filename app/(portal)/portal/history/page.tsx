@@ -1,7 +1,8 @@
+export const dynamic = 'force-dynamic'
+
 import Container from "@/components/Common/Container";
 import HistoryTable from "./HistoryTable";
 import TableWrapper from "../../../../components/Common/TableWrapper";
-
 import { Leave } from "@prisma/client";
 import { getUserLeaveDays } from "@/lib/data/getLeaveDays";
 
@@ -14,7 +15,7 @@ const UserHistory = async () => {
   return (
     <Container>
       <TableWrapper title="My Leave History">
-        <HistoryTable history={leaveHistory as  Leave[]} />
+        <HistoryTable history={leaveHistory as Leave[]} />
       </TableWrapper>
     </Container>
   );

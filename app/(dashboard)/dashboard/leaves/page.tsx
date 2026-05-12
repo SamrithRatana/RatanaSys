@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import Container from "@/components/Common/Container";
 import LeavesTable from "./LeavesTable";
 import TableWrapper from "@/components/Common/TableWrapper";
@@ -9,7 +11,6 @@ import { redirect } from "next/navigation";
 export default async function AdminLeaves() {
   const loggedInUser = await getCurrentUser();
 
-  // Only ADMIN and MODERATOR can access this page
   if (
     !loggedInUser ||
     (loggedInUser.role !== "ADMIN" && loggedInUser.role !== "MODERATOR")
@@ -19,7 +20,7 @@ export default async function AdminLeaves() {
 
   const [allLeaves, myLeaves] = await Promise.all([
     getAllLeaveDays(),
-    getUserLeaveDays(), // ← fetch own leaves (same as /portal/history)
+    getUserLeaveDays(),
   ]);
 
   if (allLeaves === null) {
@@ -34,7 +35,7 @@ export default async function AdminLeaves() {
           currentUserRole={loggedInUser.role}
           currentUserName={loggedInUser.name ?? ""}
           currentUserEmail={loggedInUser.email ?? ""}
-          myLeaves={(myLeaves ?? []) as Leave[]} // ← pass own leaves
+          myLeaves={(myLeaves ?? []) as Leave[]}
         />
       </TableWrapper>
     </Container>

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'  // ✅ no import dynamic line
+
 import React from 'react'
 import WelcomeBanner from './WelcomeBanner'
 import { getCurrentUser } from '@/lib/session';
