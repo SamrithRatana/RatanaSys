@@ -6,20 +6,17 @@ import {
   TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import dayjs from "dayjs";
 import { formatDistance, subDays } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Leave, LeaveStatus } from "@prisma/client";
 import EditLeave from "./EditLeave";
-import { Search, Eye, User, ArrowLeft } from "lucide-react";
+import { Search, Eye, User, ArrowLeft, Pencil, Trash2, X, Check, FileEdit } from "lucide-react";
 import { useRouter } from "next/navigation";
-
-// ── inline HistoryTable (same as HistoryTable.tsx but embedded) ──
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { Pencil, Trash2, X, Check, FileEdit } from "lucide-react";
 import { createPortal } from "react-dom";
 import toast from "react-hot-toast";
 
@@ -28,6 +25,7 @@ type LeaveProps = {
   currentUserRole: string;
   currentUserName?: string;
   currentUserEmail?: string;
+  myLeaves?: Leave[]; // ← own leaves from getUserLeaveDays()
 };
 
 // ─────────────────────────────────────────────
@@ -307,17 +305,16 @@ function MyHistoryTable({ history }: { history: Leave[] }) {
 // ─────────────────────────────────────────────
 // Main LeavesTable
 // ─────────────────────────────────────────────
-const LeavesTable = ({ leaves, currentUserRole, currentUserName, currentUserEmail }: LeaveProps) => {
+const LeavesTable = ({
+  leaves,
+  currentUserRole,
+  currentUserName,
+  currentUserEmail,
+  myLeaves = [],
+}: LeaveProps) => {
   const [search, setSearch] = useState("");
   const [myOnly, setMyOnly] = useState(false);
   const router = useRouter();
-
-  // my own leaves filtered by email (reliable) or name fallback
-  const myLeaves = leaves.filter((leave) =>
-    currentUserEmail
-      ? leave.userEmail === currentUserEmail
-      : leave.userName  === currentUserName
-  );
 
   const filtered = leaves.filter((leave) =>
     leave.userName?.toLowerCase().includes(search.toLowerCase())
@@ -335,7 +332,7 @@ const LeavesTable = ({ leaves, currentUserRole, currentUserName, currentUserEmai
 
   const isModerator = currentUserRole === "MODERATOR";
 
-  // ── When myOnly is active, render the HistoryTable view ──
+  // ── When myOnly: render MyHistoryTable with own leaves ──
   if (myOnly) {
     return (
       <div className="space-y-4">

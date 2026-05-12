@@ -1,7 +1,7 @@
 import Container from "@/components/Common/Container";
 import LeavesTable from "./LeavesTable";
 import TableWrapper from "@/components/Common/TableWrapper";
-import { getAllLeaveDays } from "@/lib/data/getLeaveDays";
+import { getAllLeaveDays, getUserLeaveDays } from "@/lib/data/getLeaveDays";
 import { getCurrentUser } from "@/lib/session";
 import { Leave } from "@prisma/client";
 import { redirect } from "next/navigation";
@@ -17,7 +17,11 @@ export default async function AdminLeaves() {
     redirect("/dashboard");
   }
 
-  const allLeaves = await getAllLeaveDays();
+  const [allLeaves, myLeaves] = await Promise.all([
+    getAllLeaveDays(),
+    getUserLeaveDays(), // ← fetch own leaves (same as /portal/history)
+  ]);
+
   if (allLeaves === null) {
     return <Container>No Leaves found...</Container>;
   }
@@ -28,6 +32,9 @@ export default async function AdminLeaves() {
         <LeavesTable
           leaves={allLeaves as Leave[]}
           currentUserRole={loggedInUser.role}
+          currentUserName={loggedInUser.name ?? ""}
+          currentUserEmail={loggedInUser.email ?? ""}
+          myLeaves={(myLeaves ?? []) as Leave[]} // ← pass own leaves
         />
       </TableWrapper>
     </Container>
