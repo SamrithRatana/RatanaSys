@@ -12,30 +12,27 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Leave, LeaveStatus } from "@prisma/client";
 import EditLeave from "./EditLeave";
-import { Search, Eye } from "lucide-react";
+import { Search, Eye, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type LeaveProps = {
   leaves: Leave[];
   currentUserRole: string;
+  currentUserName?: string; // ← add this
 };
 
-const LeavesTable = ({ leaves, currentUserRole }: LeaveProps) => {
-  const [search, setSearch] = useState("");
+const LeavesTable = ({ leaves, currentUserRole, currentUserName }: LeaveProps) => {
+  const [search,       setSearch]       = useState("");
+  const [myOnly,       setMyOnly]       = useState(false); // ← toggle state
   const router = useRouter();
 
-  const filtered = leaves.filter((leave) =>
-    leave.userName?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = leaves.filter((leave) => {
+    const matchesSearch = leave.userName?.toLowerCase().includes(search.toLowerCase());
+    const matchesMine   = myOnly ? leave.userName === currentUserName : true;
+    return matchesSearch && matchesMine;
+  });
 
-  /**
-   * Whether this user can edit/action a given leave row.
-   *
-   * ADMIN    — can act at Step 1 or Step 2
-   * MODERATOR — can only act at Step 1 (headDepartmentApproved === false)
-   */
   function canEdit(leave: Leave): boolean {
-    // Never show Edit on terminal states
     if (
       leave.status === LeaveStatus.APPROVED ||
       leave.status === LeaveStatus.REJECTED
@@ -46,17 +43,32 @@ const LeavesTable = ({ leaves, currentUserRole }: LeaveProps) => {
     if (currentUserRole === "ADMIN") return true;
 
     if (currentUserRole === "MODERATOR") {
-      // Step 1 only — head dept has not yet approved
       return !leave.headDepartmentApproved;
     }
 
     return false;
   }
 
+  const isModerator = currentUserRole === "MODERATOR";
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">All Leaves</h2>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <h2 className="text-xl font-semibold">All Leaves</h2>
+          {/* ── My Requests toggle — MODERATOR only ── */}
+          {isModerator && (
+            <Button
+              size="sm"
+              variant={myOnly ? "default" : "outline"}
+              className={`gap-1.5 ${myOnly ? "bg-blue-600 hover:bg-blue-700 text-white" : "text-blue-600 border-blue-200 hover:bg-blue-50"}`}
+              onClick={() => setMyOnly((prev) => !prev)}
+            >
+              <User className="h-3.5 w-3.5" />
+{myOnly ? "Showing My History Request" : "My History Request"}
+            </Button>
+          )}
+        </div>
         <div className="relative w-64">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
@@ -94,14 +106,15 @@ const LeavesTable = ({ leaves, currentUserRole }: LeaveProps) => {
           {filtered.length === 0 ? (
             <TableRow>
               <TableCell colSpan={17} className="text-center text-muted-foreground py-8">
-                No leaves found for &quot;{search}&quot;
+                {myOnly
+                  ? "You have no leave requests."
+                  : `No leaves found for "${search}"`}
               </TableCell>
             </TableRow>
           ) : (
             filtered.map((leave) => (
               <TableRow key={leave.id}>
 
-                {/* View button → detail page */}
                 <TableCell>
                   <Button
                     variant="outline"
@@ -114,7 +127,6 @@ const LeavesTable = ({ leaves, currentUserRole }: LeaveProps) => {
                   </Button>
                 </TableCell>
 
-                {/* Edit button — role + step aware */}
                 <TableCell>
                   {canEdit(leave) && (
                     <EditLeave
