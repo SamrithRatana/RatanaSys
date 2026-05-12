@@ -15,17 +15,43 @@ import EditLeave from "./EditLeave";
 import { Search, Eye } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-type leaveProps = {
+type LeaveProps = {
   leaves: Leave[];
+  currentUserRole: string;
 };
 
-const LeavesTable = ({ leaves }: leaveProps) => {
+const LeavesTable = ({ leaves, currentUserRole }: LeaveProps) => {
   const [search, setSearch] = useState("");
   const router = useRouter();
 
   const filtered = leaves.filter((leave) =>
     leave.userName?.toLowerCase().includes(search.toLowerCase())
   );
+
+  /**
+   * Whether this user can edit/action a given leave row.
+   *
+   * ADMIN    — can act at Step 1 or Step 2
+   * MODERATOR — can only act at Step 1 (headDepartmentApproved === false)
+   */
+  function canEdit(leave: Leave): boolean {
+    // Never show Edit on terminal states
+    if (
+      leave.status === LeaveStatus.APPROVED ||
+      leave.status === LeaveStatus.REJECTED
+    ) {
+      return false;
+    }
+
+    if (currentUserRole === "ADMIN") return true;
+
+    if (currentUserRole === "MODERATOR") {
+      // Step 1 only — head dept has not yet approved
+      return !leave.headDepartmentApproved;
+    }
+
+    return false;
+  }
 
   return (
     <div className="space-y-4">
@@ -75,7 +101,7 @@ const LeavesTable = ({ leaves }: leaveProps) => {
             filtered.map((leave) => (
               <TableRow key={leave.id}>
 
-                {/* ✅ View button → detail page */}
+                {/* View button → detail page */}
                 <TableCell>
                   <Button
                     variant="outline"
@@ -88,10 +114,9 @@ const LeavesTable = ({ leaves }: leaveProps) => {
                   </Button>
                 </TableCell>
 
-                {/* Edit button */}
+                {/* Edit button — role + step aware */}
                 <TableCell>
-                  {leave.status !== LeaveStatus.APPROVED &&
-                   leave.status !== LeaveStatus.REJECTED && (
+                  {canEdit(leave) && (
                     <EditLeave
                       id={leave.id}
                       days={leave.days}
@@ -120,12 +145,14 @@ const LeavesTable = ({ leaves }: leaveProps) => {
                 <TableCell>{leave.hours ?? 0}</TableCell>
 
                 <TableCell>
-                  <Badge className={`
-                    ${leave.status === LeaveStatus.APPROVED     && "bg-green-500"}
-                    ${leave.status === LeaveStatus.PENDING      && "bg-amber-500"}
-                    ${leave.status === LeaveStatus.REJECTED     && "bg-red-500"}
-                    ${leave.status === LeaveStatus.INMODERATION && "bg-indigo-500"}
-                  `}>
+                  <Badge
+                    className={`
+                      ${leave.status === LeaveStatus.APPROVED     && "bg-green-500"}
+                      ${leave.status === LeaveStatus.PENDING      && "bg-amber-500"}
+                      ${leave.status === LeaveStatus.REJECTED     && "bg-red-500"}
+                      ${leave.status === LeaveStatus.INMODERATION && "bg-indigo-500"}
+                    `}
+                  >
                     {leave.status}
                   </Badge>
                 </TableCell>

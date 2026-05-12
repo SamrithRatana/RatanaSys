@@ -56,10 +56,12 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
   const isRejected = leave.status === LeaveStatus.REJECTED;
   const isDone     = isApproved || isRejected;
 
+  // Step flags — based on DB state
   const isStep1 = !leave.headDepartmentApproved;
   const isStep2 = leave.headDepartmentApproved && !leave.managerApproved && !isDone;
 
-  // MODERATOR: Step 1 only
+  // ── Role-based action permissions ──────────────────────────────────────────
+  // MODERATOR: Step 1 (head dept) ONLY — never Step 2
   const canActAsModerator = currentUserRole === "MODERATOR" && isStep1 && !isDone;
 
   // ADMIN: Step 1 OR Step 2 (whichever is pending)
@@ -67,9 +69,10 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
   const canActAsAdminStep2 = currentUserRole === "ADMIN" && isStep2 && !isDone;
   const canActAsAdmin      = canActAsAdminStep1 || canActAsAdminStep2;
 
+  // Combined: can this user act at all?
   const canAct = canActAsModerator || canActAsAdmin;
 
-  // Label for the action card
+  // Label shown in the action card header
   const actionLabel = canActAsAdminStep2
     ? "សេចក្តីសម្រេចរបស់អ្នកគ្រប់គ្រង"
     : canActAsAdminStep1
@@ -205,7 +208,9 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
           <div className="flex gap-4">
             <div className="flex flex-col items-center">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                leave.headDepartmentApproved ? "bg-green-100 text-green-600" : "bg-amber-100 text-amber-600"
+                leave.headDepartmentApproved
+                  ? "bg-green-100 text-green-600"
+                  : "bg-amber-100 text-amber-600"
               }`}>
                 {leave.headDepartmentApproved
                   ? <CheckCircle2 className="h-5 w-5" />
@@ -219,7 +224,9 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
                 <>
                   <p className="text-sm text-green-600">✅ បានអនុម័តដោយ {leave.headDepartment}</p>
                   {leave.headDepartmentNote && (
-                    <p className="text-xs text-muted-foreground mt-1">កំណត់ចំណាំ: {leave.headDepartmentNote}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      កំណត់ចំណាំ: {leave.headDepartmentNote}
+                    </p>
                   )}
                   {leave.headDepartmentAt && (
                     <p className="text-xs text-muted-foreground">
@@ -256,7 +263,9 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
                 <>
                   <p className="text-sm text-green-600">✅ បានអនុម័តដោយ {leave.manager}</p>
                   {leave.managerNote && (
-                    <p className="text-xs text-muted-foreground mt-1">កំណត់ចំណាំ: {leave.managerNote}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      កំណត់ចំណាំ: {leave.managerNote}
+                    </p>
                   )}
                   {leave.managerAt && (
                     <p className="text-xs text-muted-foreground">
@@ -265,10 +274,14 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
                   )}
                 </>
               ) : leave.status === LeaveStatus.REJECTED ? (
-                <p className="text-sm text-red-500">❌ បានបដិសេធ — {leave.headDepartmentNote ?? leave.managerNote ?? "គ្មានកំណត់ចំណាំ"}</p>
+                <p className="text-sm text-red-500">
+                  ❌ បានបដិសេធ — {leave.headDepartmentNote ?? leave.managerNote ?? "គ្មានកំណត់ចំណាំ"}
+                </p>
               ) : (
                 <p className="text-sm text-gray-400">
-                  {leave.headDepartmentApproved ? "⏳ កំពុងរង់ចាំការអនុម័តពីអ្នកគ្រប់គ្រង" : "— រង់ចាំប្រធានផ្នែកជាមុនសិន"}
+                  {leave.headDepartmentApproved
+                    ? "⏳ កំពុងរង់ចាំការអនុម័តពីអ្នកគ្រប់គ្រង"
+                    : "— រង់ចាំប្រធានផ្នែកជាមុនសិន"}
                 </p>
               )}
             </div>
@@ -277,7 +290,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         </CardContent>
       </Card>
 
-      {/* កាតសកម្មភាព */}
+      {/* ── កាតសកម្មភាព — shown only when this user has something to do ── */}
       {canAct && (
         <Card className="border-blue-200 bg-blue-50/50 dark:bg-blue-950/10">
           <CardHeader>
@@ -288,20 +301,23 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
           </CardHeader>
           <CardContent className="space-y-4">
 
+            {/* Context banner explaining current step & role */}
             <div className="rounded-md bg-muted p-3 text-sm">
               {canActAsModerator && (
                 <p className="text-amber-600 font-medium">
-                  📋 ជំហានទី ១ ក្នុង ២ — អ្នកកំពុងអនុម័តក្នុងតួនាទី <strong>ប្រធានផ្នែក</strong>
+                  📋 ជំហានទី ១ ក្នុង ២ — អ្នកកំពុងអនុម័តក្នុងតួនាទី{" "}
+                  <strong>ប្រធានផ្នែក</strong>
                 </p>
               )}
               {canActAsAdminStep1 && (
                 <p className="text-amber-600 font-medium">
-                  📋 ជំហានទី ១ ក្នុង ២ — អ្នកកំពុងអនុម័តក្នុងតួនាទី <strong>ប្រធានផ្នែក</strong> (Admin)
+                  📋 ជំហានទី ១ ក្នុង ២ — អ្នកកំពុងអនុម័តក្នុងតួនាទី{" "}
+                  <strong>ប្រធានផ្នែក</strong> (Admin)
                 </p>
               )}
               {canActAsAdminStep2 && (
                 <p className="text-indigo-600 font-medium">
-                  ✅ ជំហានទី ២ ក្នុង ២ — ប្រធានផ្នែក ({leave.headDepartment}) បានអនុម័តរួចហើយ។
+                  ✅ ជំហានទី ២ ក្នុង ២ — ប្រធានផ្នែក ({leave.headDepartment}) បានអនុម័តរួចហើយ។{" "}
                   អ្នកកំពុងអនុម័តក្នុងតួនាទី <strong>អ្នកគ្រប់គ្រង</strong>
                 </p>
               )}
@@ -346,12 +362,26 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         </Card>
       )}
 
-      {/* បានបញ្ចប់រួចហើយ */}
+      {/* ── MODERATOR info banner — Step 2 is pending, but they can't act ── */}
+      {currentUserRole === "MODERATOR" && isStep2 && (
+        <Card className="border-amber-200 bg-amber-50/50 dark:bg-amber-950/10">
+          <CardContent className="py-4 text-center">
+            <p className="text-amber-700 dark:text-amber-400 text-sm font-medium">
+              ⏳ ច្បាប់នេះកំពុងរង់ចាំការអនុម័តពី <strong>អ្នកគ្រប់គ្រង (Admin)</strong>។
+              តួនាទីរបស់អ្នក (Moderator) ត្រូវបានបញ្ចប់នៅជំហានទី ១ រួចហើយ។
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Fully done banner ── */}
       {isDone && (
         <Card className={`border ${isApproved ? "border-green-200 bg-green-50/50" : "border-red-200 bg-red-50/50"}`}>
           <CardContent className="py-4 text-center">
             <p className={`font-semibold ${isApproved ? "text-green-600" : "text-red-600"}`}>
-              {isApproved ? "🎉 ការឈប់សម្រាកនេះបានអនុម័តពេញលេញ។" : "❌ ការឈប់សម្រាកនេះបានបដិសេធ។"}
+              {isApproved
+                ? "🎉 ការឈប់សម្រាកនេះបានអនុម័តពេញលេញ។"
+                : "❌ ការឈប់សម្រាកនេះបានបដិសេធ។"}
             </p>
           </CardContent>
         </Card>
