@@ -53,11 +53,18 @@ function timeToMinutes(t: string): number {
   return h * 60 + m;
 }
 
-// Calculate personal leave hours from endTime (start is always 08:00)
-function calcPersonalHours(endTime: string): number {
-  const startMin = 8 * 60; // 08:00
+// Calculate personal leave hours between startTime and endTime
+function calcPersonalHours(startTime: string, endTime: string): number {
+  const startMin = timeToMinutes(startTime);
   const endMin   = timeToMinutes(endTime);
   return Math.max(0, (endMin - startMin) / 60);
+}
+
+// Format minutes back to HH:mm
+function minutesToTime(min: number): string {
+  const h = Math.floor(min / 60).toString().padStart(2, "0");
+  const m = (min % 60).toString().padStart(2, "0");
+  return `${h}:${m}`;
 }
 
 const formSchema = z
@@ -67,7 +74,8 @@ const formSchema = z
     maternityGender: z.enum(["MALE", "FEMALE"]).optional(),
     startDate:       z.date({ required_error: "A start date is required." }),
     endDate:         z.date().optional(),
-    // Personal leave: end time on same-day leave (default 17:00)
+    // Personal leave: start and end time for same-day leave
+    personalStartTime: z.string().optional(),
     personalEndTime: z.string().optional(),
   })
   .superRefine((data, ctx) => {
@@ -95,12 +103,12 @@ const formSchema = z
     if (isPersonal && data.startDate && data.endDate) {
       const isSameDay =
         differenceInDays(data.endDate, data.startDate) === 0;
-      if (isSameDay && data.personalEndTime) {
-        const hrs = calcPersonalHours(data.personalEndTime);
+      if (isSameDay && data.personalStartTime && data.personalEndTime) {
+        const hrs = calcPersonalHours(data.personalStartTime, data.personalEndTime);
         if (hrs <= 0) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: "End time must be after 8:00 AM.",
+            message: "End time must be after start time.",
             path: ["personalEndTime"],
           });
         }
@@ -130,6 +138,7 @@ const RequestForm = ({ user }: Props) => {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      personalStartTime: "08:00",
       personalEndTime: "17:00",
     },
   });
@@ -138,7 +147,8 @@ const RequestForm = ({ user }: Props) => {
   const maternityGender = form.watch("maternityGender");
   const startDateValue  = form.watch("startDate");
   const endDateValue    = form.watch("endDate");
-  const personalEndTime = form.watch("personalEndTime") ?? "17:00";
+  const personalStartTime = form.watch("personalStartTime") ?? "08:00";
+  const personalEndTime   = form.watch("personalEndTime")   ?? "17:00";
 
   const isPersonal  = selectedLeave === "PERSONAL";
   const isMaternity = selectedLeave === "MATERNITY";
@@ -155,7 +165,9 @@ const RequestForm = ({ user }: Props) => {
     ? differenceInDays(endDateValue, startDateValue) + 1
     : 1;
 
-  const personalHours = isSameDay ? calcPersonalHours(personalEndTime) : null;
+  const personalHours = isSameDay
+    ? calcPersonalHours(personalStartTime, personalEndTime)
+    : null;
 
   // Summary label shown under personal date picker
   const personalSummary = (() => {
@@ -164,8 +176,8 @@ const RequestForm = ({ user }: Props) => {
       if (!personalHours || personalHours <= 0) return null;
       const h = +personalHours.toFixed(1);
       return h >= 8
-        ? "1 ថ្ងៃ (8:00 – 17:00)"
-        : `${h} ម៉ោង (8:00 – ${personalEndTime})`;
+        ? `1 ថ្ងៃ (${personalStartTime} – ${personalEndTime})`
+        : `${h} ម៉ោង (${personalStartTime} – ${personalEndTime})`;
     }
     return `${personalDays} ថ្ងៃ (${format(startDateValue, "dd MMM")} – ${format(endDateValue, "dd MMM yyyy")})`;
   })();
@@ -223,7 +235,10 @@ const RequestForm = ({ user }: Props) => {
         : false;
 
       const hours = sameDay
-        ? calcPersonalHours(values.personalEndTime ?? "17:00")
+        ? calcPersonalHours(
+            values.personalStartTime ?? "08:00",
+            values.personalEndTime   ?? "17:00"
+          )
         : undefined;
 
       const days = isPersonalLeave
@@ -260,7 +275,7 @@ const RequestForm = ({ user }: Props) => {
       if (res.ok) {
         toast.success("Leave Submitted", { duration: 4000 });
         setOpen(false);
-        form.reset({ personalEndTime: "17:00" });
+        form.reset({ personalStartTime: "08:00", personalEndTime: "17:00" });
       } else {
         const data = await res.json();
         toast.error(`An error occurred: ${JSON.stringify(data)}`, { duration: 6000 });
@@ -319,6 +334,7 @@ const RequestForm = ({ user }: Props) => {
                               form.resetField("maternityGender");
                               form.resetField("startDate");
                               form.resetField("endDate");
+                              form.setValue("personalStartTime", "08:00");
                               form.setValue("personalEndTime", "17:00");
                               setOpenLeaveType(false);
                             }}
@@ -494,36 +510,83 @@ const RequestForm = ({ user }: Props) => {
                 )}
               />
 
-              {/* ── Personal: same-day end time picker ── */}
+              {/* ── Personal: same-day time pickers ── */}
               {isPersonal && isSameDay && (
-                <FormField
-                  control={form.control}
-                  name="personalEndTime"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>ម៉ោងបញ្ចប់ (End Time)</FormLabel>
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm text-muted-foreground bg-muted px-3 py-2 rounded-md">
-                          8:00 AM
-                        </span>
-                        <span className="text-muted-foreground">→</span>
+                <FormItem>
+                  <FormLabel>ម៉ោង (Time)</FormLabel>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Start time */}
+                    <FormField
+                      control={form.control}
+                      name="personalStartTime"
+                      render={({ field }) => (
                         <FormControl>
                           <Input
                             type="time"
-                            min="08:01"
+                            min="06:00"
+                            max="16:59"
+                            className="w-32"
+                            {...field}
+                            onChange={(e) => {
+                              field.onChange(e);
+                              const newStart = e.target.value;
+                              const curEnd   = form.getValues("personalEndTime") ?? "17:00";
+                              if (timeToMinutes(curEnd) <= timeToMinutes(newStart)) {
+                                const pushed = Math.min(timeToMinutes(newStart) + 60, 17 * 60);
+                                form.setValue("personalEndTime", minutesToTime(pushed));
+                              }
+                            }}
+                          />
+                        </FormControl>
+                      )}
+                    />
+
+                    <span className="text-muted-foreground text-sm">→</span>
+
+                    {/* End time */}
+                    <FormField
+                      control={form.control}
+                      name="personalEndTime"
+                      render={({ field }) => (
+                        <FormControl>
+                          <Input
+                            type="time"
+                            min="06:01"
                             max="17:00"
-                            className="w-36"
+                            className="w-32"
                             {...field}
                           />
                         </FormControl>
-                      </div>
-                      <FormDescription>
-                        ចាប់ពី 8:00 AM · កំណត់ម៉ោងបញ្ចប់ (max 17:00)
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                      )}
+                    />
+
+                    {/* Hours shortcut input */}
+                    <div className="flex items-center gap-1.5 ml-1">
+                      <Input
+                        type="number"
+                        min={0.5}
+                        max={9}
+                        step={0.5}
+                        placeholder="h"
+                        className="w-16 text-center"
+                        onChange={(e) => {
+                          const h = parseFloat(e.target.value);
+                          if (!h || h <= 0) return;
+                          const startMin = timeToMinutes(
+                            form.getValues("personalStartTime") ?? "08:00"
+                          );
+                          const endMin = Math.min(startMin + h * 60, 17 * 60);
+                          form.setValue("personalEndTime", minutesToTime(endMin));
+                        }}
+                      />
+                      <span className="text-sm text-muted-foreground whitespace-nowrap">ម៉ោង</span>
+                    </div>
+                  </div>
+                  <FormDescription>
+                    ជ្រើសម៉ោង ឬវាយចំនួនម៉ោង (1, 2, 3…) ដើម្បីគណនាម៉ោងបញ្ចប់ស្វ័យប្រវត្តិ
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
               )}
 
               {/* ── Personal leave summary ── */}
@@ -534,7 +597,7 @@ const RequestForm = ({ user }: Props) => {
                   </svg>
                   <span>
                     ច្បាប់ស្នើសុំ: <strong>{personalSummary}</strong>
-                    {isSameDay && personalHours && personalHours < 8 && (
+                    {isSameDay && personalHours != null && personalHours < 8 && personalHours > 0 && (
                       <> · កាត់ <strong>{+personalHours.toFixed(1)} ម៉ោង</strong> ពីច្បាប់ផ្ទាល់ខ្លួន</>
                     )}
                   </span>
