@@ -42,7 +42,7 @@ export async function PATCH(req: Request) {
 
   try {
     const body: EditBody = await req.json();
-    const { notes, status, id, days, type, year, email, user, startDate } = body;
+    const { notes, status, id, days, hours, type, year, email, user, startDate } = body;
 
     const isShortLeave = type === "SHORT";
     const updatedAt    = new Date().toISOString();
@@ -88,15 +88,10 @@ export async function PATCH(req: Request) {
     // ── អនុម័ត ────────────────────────────────────────────────────────────────
     if (status === LeaveStatus.APPROVED) {
 
-      // ── ជំហានទី១ — អនុម័តដោយប្រធានផ្នែក ───────────────────────────────────
-      // MODERATOR: Step 1 only
-      // ADMIN:     Step 1 if head dept hasn't approved yet
       const canDoStep1 =
         (actorRole === "MODERATOR" || actorRole === "ADMIN") &&
         !leave.headDepartmentApproved;
 
-      // ── ជំហានទី២ — អនុម័តចុងក្រោយដោយអ្នកគ្រប់គ្រង ──────────────────────
-      // ADMIN only, after Step 1 is done
       const canDoStep2 =
         actorRole === "ADMIN" &&
         leave.headDepartmentApproved &&
@@ -137,22 +132,44 @@ export async function PATCH(req: Request) {
 
       // ── Step 2 ───────────────────────────────────────────────────────────────
       if (canDoStep2) {
+        // Read hours from the DB record (source of truth), not from body
         const hoursFromDb = Number(leave.hours ?? 0);
 
-        await calculateAndUpdateBalances(
-          email,
-          year,
-          type,
-          isShortLeave ? hoursFromDb : days
-        );
+        // ── Determine the correct value to pass to calculateAndUpdateBalances ──
+        //
+        // SHORT:            pass raw hours → calculateAndUpdateBalances divides by 8 itself
+        // PERSONAL partial: days = 0, hours > 0 → convert hours → fractional days (÷ 8)
+        //   e.g. 10 min = 0.167 hrs → 0.167 / 8 = 0.0208 days deducted
+        //   e.g. 3 hrs              → 3.0   / 8 = 0.375  days deducted
+        // Everything else:  use full days as-is
+        const isPartialPersonal =
+          type === "PERSONAL" && hoursFromDb > 0 && (days === 0 || days == null);
+
+        const effectiveValue = isShortLeave
+          ? hoursFromDb          // SHORT: calculateAndUpdateBalances handles /8
+          : isPartialPersonal
+            ? hoursFromDb / 8    // PERSONAL partial hours → fractional days
+            : days;              // full-day leaves (annual, sick, special, maternity, etc.)
+
+        await calculateAndUpdateBalances(email, year, type, effectiveValue);
+
+        // Duration label for event + Telegram
+        const durationLabel = isShortLeave
+          ? `${hoursFromDb} ម៉ោង`
+          : isPartialPersonal
+            ? (() => {
+                const totalMin = Math.round(hoursFromDb * 60);
+                return totalMin < 60
+                  ? `${totalMin} នាទី`
+                  : `${+hoursFromDb.toFixed(1)} ម៉ោង`;
+              })()
+            : `${days} ថ្ងៃ`;
 
         await prisma.events.create({
           data: {
             startDate,
             title:       `${user} ឈប់សម្រាក ${getLeaveLabel(type)}`,
-            description: isShortLeave
-              ? `រយៈពេល ${hoursFromDb} ម៉ោង`
-              : `រយៈពេល ${days} ថ្ងៃ`,
+            description: `រយៈពេល ${durationLabel}`,
           },
         });
 
@@ -174,7 +191,7 @@ export async function PATCH(req: Request) {
             ``,
             `👤 <b>ឈ្មោះ៖</b> ${user}`,
             `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
-            `📅 <b>រយៈពេល៖</b> ${isShortLeave ? `${hoursFromDb} ម៉ោង` : `${days} ថ្ងៃ`}`,
+            `📅 <b>រយៈពេល៖</b> ${durationLabel}`,
             `✅ <b>អនុម័តដោយ៖</b> ${actorName} (អ្នកគ្រប់គ្រង)`,
             `📝 <b>កំណត់ចំណាំ៖</b> ${notes || "—"}`,
           ].join("\n"),
@@ -187,7 +204,6 @@ export async function PATCH(req: Request) {
         );
       }
 
-      // Neither step applies
       return NextResponse.json(
         { error: "No valid approval action for your role at this stage." },
         { status: 400 }
