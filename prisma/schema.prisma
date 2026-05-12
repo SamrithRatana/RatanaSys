@@ -45,12 +45,6 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-enum Role {
-  USER
-  ADMIN
-  MODERATOR
-}
-
 model User {
   id            String     @id @default(cuid())
   name          String?
@@ -58,15 +52,22 @@ model User {
   emailVerified DateTime?
   image         String?
   password      String?
-  role          Role       @default(USER)
+  role          String     @default("USER")  // matches Role.label
   phone         String?
-  title         String?
+  title         String?                      // matches JobTitle.label
   manager       String?
-  department    String?
+  department    String?                      // matches Department.label
   telegramId    String?    @unique
   accounts      Account[]
   sessions      Session[]
   balances      Balances[]
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  INMODERATION
+  REJECTED
 }
 
 model LeaveType {
@@ -75,13 +76,6 @@ model LeaveType {
   values      String[] @default(["Credit", "Used", "Available"])
   category    String
   description String?
-}
-
-enum LeaveStatus {
-  PENDING
-  APPROVED
-  INMODERATION
-  REJECTED
 }
 
 model Leave {
@@ -118,8 +112,8 @@ model Leave {
 }
 
 model Balances {
-  id   String @id @default(cuid())
-  year String
+  id    String @id @default(cuid())
+  year  String
   name  String
   email String
 
@@ -162,4 +156,31 @@ model Events {
   description String?
   startDate   DateTime
   endDate     DateTime?
+}
+
+// ✅ Dynamic departments — managed by admin from UI
+model Department {
+  id          String   @id @default(cuid())
+  label       String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ✅ Dynamic job titles — managed by admin from UI
+model JobTitle {
+  id          String   @id @default(cuid())
+  label       String   @unique  // e.g. "Senior Developer", "CEO", "HR Manager"
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ✅ Dynamic roles — managed by admin from UI (no more hardcoded enum)
+model Role {
+  id          String   @id @default(cuid())
+  label       String   @unique  // e.g. "ADMIN", "USER", "MODERATOR"
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

@@ -1,32 +1,36 @@
 import {
   HiOutlineUserGroup,
-  HiOutlineCog6Tooth,
   HiOutlineSquares2X2,
   HiMiniComputerDesktop,
+  HiOutlineBuildingOffice2,  // ✅ replaces HiOutlineOfficeBuilding
+  HiOutlineBriefcase,        // ✅ exists in hi2
+  HiOutlineShieldCheck,      // ✅ exists in hi2
 } from "react-icons/hi2";
 import { TbListCheck } from "react-icons/tb";
-import { MdOutlineBalance } from "react-icons/md";
-import { MdOutlineEvent } from "react-icons/md";
+import { MdOutlineBalance, MdOutlineEvent } from "react-icons/md";
 
 export const AdminRoutes = [
-  { title: "Portal", url: "/portal", icon: HiMiniComputerDesktop },
-  { title: "Dashboard", url: "/dashboard/", icon: HiOutlineSquares2X2 },
-  { title: "Balances", url: "/dashboard/balances", icon: MdOutlineBalance },
-  { title: "Leaves", url: "/dashboard/leaves", icon: TbListCheck },
-  { title: "Users", url: "/dashboard/users", icon: HiOutlineUserGroup },
-  // ✅ Settings → Events
-  { title: "Events", url: "/dashboard/settings", icon: MdOutlineEvent },
+  { title: "Portal",       url: "/portal",                          icon: HiMiniComputerDesktop },
+  { title: "Dashboard",    url: "/dashboard/",                      icon: HiOutlineSquares2X2 },
+  { title: "Balances",     url: "/dashboard/balances",              icon: MdOutlineBalance },
+  { title: "Leaves",       url: "/dashboard/leaves",                icon: TbListCheck },
+  { title: "Users",        url: "/dashboard/users",                 icon: HiOutlineUserGroup },
+  { title: "Events",       url: "/dashboard/settings",              icon: MdOutlineEvent },
+  { title: "Departments",  url: "/dashboard/settings/departments",  icon: HiOutlineBuildingOffice2 },
+  { title: "Job Titles",   url: "/dashboard/settings/jobtitles",    icon: HiOutlineBriefcase },
+  { title: "Roles",        url: "/dashboard/settings/roles",        icon: HiOutlineShieldCheck },
 ];
 
 export const UserRoutes = [
-  { title: "Portal", url: "/portal", icon: HiMiniComputerDesktop },
-  { title: "History", url: "/portal/history", icon: TbListCheck },
+  { title: "Portal",   url: "/portal",          icon: HiMiniComputerDesktop },
+  { title: "History",  url: "/portal/history",  icon: TbListCheck },
 ];
 
 export const ModeratorRoutes = [
-  { title: "Portal", url: "/portal", icon: HiMiniComputerDesktop },
-  { title: "Balances", url: "/dashboard/balances", icon: MdOutlineBalance },
-  { title: "Leaves", url: "/dashboard/leaves", icon: TbListCheck },
-  // ✅ Settings → Events
-  { title: "Events", url: "/dashboard/settings", icon: MdOutlineEvent },
+  { title: "Portal",       url: "/portal",                         icon: HiMiniComputerDesktop },
+  { title: "Balances",     url: "/dashboard/balances",             icon: MdOutlineBalance },
+  { title: "Leaves",       url: "/dashboard/leaves",               icon: TbListCheck },
+  { title: "Events",       url: "/dashboard/settings",             icon: MdOutlineEvent },
+  { title: "Departments",  url: "/dashboard/settings/departments", icon: HiOutlineBuildingOffice2 },
+  { title: "Job Titles",   url: "/dashboard/settings/jobtitles",   icon: HiOutlineBriefcase },
 ];
