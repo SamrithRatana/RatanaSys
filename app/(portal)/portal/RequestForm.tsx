@@ -190,6 +190,7 @@ const RequestForm = ({ user }: Props) => {
 
   const currentYear = today.getFullYear();
 
+  // helper to reset shortcut inputs
   const resetShortcuts = () => {
     setShortcutH(0);
     setShortcutM(0);
@@ -346,7 +347,7 @@ const RequestForm = ({ user }: Props) => {
                               form.resetField("endDate");
                               form.setValue("personalStartTime", "08:00");
                               form.setValue("personalEndTime",   "17:00");
-                              resetShortcuts();
+                              resetShortcuts(); // ← reset on leave type change
                               setOpenLeaveType(false);
                             }}
                           >
@@ -467,7 +468,7 @@ const RequestForm = ({ user }: Props) => {
                               form.setValue("endDate",           date ?? undefined, { shouldValidate: false });
                               form.setValue("personalStartTime", "08:00",           { shouldValidate: false });
                               form.setValue("personalEndTime",   "17:00",           { shouldValidate: false });
-                              resetShortcuts();
+                              resetShortcuts(); // ← reset on date change
                             }
                             setOpenStartDate(false);
                           }}
@@ -511,7 +512,7 @@ const RequestForm = ({ user }: Props) => {
                           selected={field.value}
                           onSelect={(date) => {
                             field.onChange(date);
-                            resetShortcuts();
+                            resetShortcuts(); // ← reset on end date change too
                             setOpenEndDate(false);
                           }}
                           disabled={(date: Date) =>
@@ -553,7 +554,7 @@ const RequestForm = ({ user }: Props) => {
                                 const pushed = Math.min(timeToMinutes(newStart) + 60, 17 * 60);
                                 form.setValue("personalEndTime", minutesToTime(pushed));
                               }
-                              resetShortcuts();
+                              resetShortcuts(); // ← reset shortcuts when start time changes manually
                             }}
                           />
                         </FormControl>
@@ -579,7 +580,7 @@ const RequestForm = ({ user }: Props) => {
                     />
                   </div>
 
-                  {/* ── Hours + Minutes shortcut inputs (controlled, default 0, auto-select on focus) ── */}
+                  {/* ── Hours + Minutes shortcut inputs (controlled, default 0) ── */}
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <Input
                       type="number"
@@ -590,7 +591,6 @@ const RequestForm = ({ user }: Props) => {
                       className="w-14 text-center"
                       value={shortcutH}
                       onKeyDown={blockFloatKeys}
-                      onFocus={(e) => e.target.select()}
                       onChange={(e) => {
                         const h = Math.max(0, parseInt(e.target.value) || 0);
                         setShortcutH(h);
@@ -610,7 +610,6 @@ const RequestForm = ({ user }: Props) => {
                       className="w-14 text-center"
                       value={shortcutM}
                       onKeyDown={blockFloatKeys}
-                      onFocus={(e) => e.target.select()}
                       onChange={(e) => {
                         const m = Math.max(0, parseInt(e.target.value) || 0);
                         setShortcutM(m);
