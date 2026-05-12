@@ -11,7 +11,8 @@ type SubmittedLeave = {
   maternityGender?: "MALE" | "FEMALE";
   startDate:        string;
   endDate:          string;
-  hours?:           number;
+  hours?:           number;   // only set for personal same-day (partial hours)
+  days?:            number;   // pre-computed by frontend
   user: {
     email: string;
     image: string;
@@ -56,26 +57,35 @@ export async function POST(req: NextRequest) {
 
   try {
     const body: SubmittedLeave = await req.json();
-    const { startDate, endDate, notes, hours, user, maternityGender } = body;
+    const { startDate, endDate, notes, hours, days: frontendDays, user, maternityGender } = body;
 
     const leaveType    = (body.type ?? body.leave ?? "").toUpperCase();
-    const isShortLeave = leaveType === "SHORT";
     const isMaternity  = leaveType === "MATERNITY";
+    const isPersonal   = leaveType === "PERSONAL";
 
     const startDateObj = safeParse(startDate);
     const endDateObj   = safeParse(endDate);
     const year         = startDateObj.getFullYear().toString();
 
-    let calcDays: number;
-    if (isMaternity && maternityGender) {
-      calcDays = MATERNITY_DAYS[maternityGender] ?? 90;
-    } else if (isShortLeave) {
-      calcDays = 0;
-    } else {
-      calcDays = differenceInDays(endDateObj, startDateObj) + 1;
-    }
+    // ── Determine if this is a partial-hour personal leave ───────────────────
+    // hours is set by frontend only when: personal leave, same day, endTime < 17:00
+    const isPersonalHours = isPersonal && !!hours && hours > 0;
+    const isSameDay       = differenceInDays(endDateObj, startDateObj) === 0;
 
-    const calcHours = isShortLeave ? Number(hours ?? 0) : 0;
+    let calcDays: number;
+    let calcHours: number;
+
+    if (isMaternity && maternityGender) {
+      calcDays  = MATERNITY_DAYS[maternityGender] ?? 90;
+      calcHours = 0;
+    } else if (isPersonalHours) {
+      // partial personal leave: store hours, days = 0 (handled separately in balance)
+      calcDays  = 0;
+      calcHours = Number(hours);
+    } else {
+      calcDays  = frontendDays ?? (differenceInDays(endDateObj, startDateObj) + 1);
+      calcHours = 0;
+    }
 
     // ── Auto-set maternity credit ─────────────────────────────────────────────
     if (isMaternity && maternityGender) {
@@ -125,13 +135,28 @@ export async function POST(req: NextRequest) {
     const leaveUrl   = `${baseUrl}/dashboard/leaves/${createdLeave.id}`;
     const leaveLabel = getLeaveLabel(leaveType, maternityGender);
 
-    const dateRange = isShortLeave
-      ? `${safeFormat(startDate, "dd MMM yyyy")} (${calcHours} ម៉ោង)`
-      : calcDays === 1
-        ? safeFormat(startDate, "dd MMM yyyy")
-        : `${safeFormat(startDate, "dd MMM yyyy")} → ${safeFormat(endDate, "dd MMM yyyy")} (${calcDays} ថ្ងៃ)`;
+    // ── Build human-readable duration string ─────────────────────────────────
+    const dateRange = (() => {
+      if (isPersonalHours) {
+        // e.g. "12 មីនា 2026 (3 ម៉ោង)"
+        const h = +calcHours.toFixed(1);
+        return `${safeFormat(startDate, "dd MMM yyyy")} (${h} ម៉ោង)`;
+      }
+      if (isMaternity && maternityGender) {
+        return `${safeFormat(startDate, "dd MMM yyyy")} → ${safeFormat(endDate, "dd MMM yyyy")} (${calcDays} ថ្ងៃ)`;
+      }
+      if (calcDays === 1) {
+        return safeFormat(startDate, "dd MMM yyyy");
+      }
+      return `${safeFormat(startDate, "dd MMM yyyy")} → ${safeFormat(endDate, "dd MMM yyyy")} (${calcDays} ថ្ងៃ)`;
+    })();
 
-    // ── Send Telegram & store messageId for future edits ─────────────────────
+    // ── Duration label for Telegram ──────────────────────────────────────────
+    const durationLabel = isPersonalHours
+      ? `${+calcHours.toFixed(1)} ម៉ោង`
+      : `${calcDays} ថ្ងៃ`;
+
+    // ── Send Telegram notification ────────────────────────────────────────────
     const telegramMessageId = await sendTelegramMessage(
       [
         `📄 <b>សំណើច្បាប់ថ្មី</b>`,
@@ -142,6 +167,7 @@ export async function POST(req: NextRequest) {
           ? [`⚧ <b>ភេទ៖</b> ${maternityGender === "MALE" ? "បុរស 👨" : "ស្ត្រី 👩"}`]
           : []),
         `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRange}`,
+        `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
         `📝 <b>មូលហេតុ៖</b> ${notes || "—"}`,
         ``,
         `⏳ <i>រង់ចាំអនុម័តពីប្រធានផ្នែក</i>`,
@@ -149,11 +175,11 @@ export async function POST(req: NextRequest) {
       [{ text: "👀 មើល និងអនុម័តប្រធានផ្នែក →", url: leaveUrl }]
     );
 
-    // Store the Telegram message ID so we can edit it later when leave is updated
+    // Store the Telegram message ID for future edits
     if (telegramMessageId) {
       await prisma.leave.update({
         where: { id: createdLeave.id },
-        data:  { telegramMessageId },  // add this field to your Prisma schema
+        data:  { telegramMessageId },
       });
     }
 
