@@ -1,14 +1,12 @@
 import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
-import { Role } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
 const allowedRoles = ["ADMIN", "MODERATOR"];
 
-// ── POST — Add Credits ────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const loggedInUser = await getCurrentUser();
-  if (!allowedRoles.includes(loggedInUser?.role as Role)) {
+  if (!allowedRoles.includes(loggedInUser?.role as string)) {
     return NextResponse.json({ error: "Not permitted" }, { status: 403 });
   }
 
@@ -19,15 +17,11 @@ export async function POST(req: NextRequest) {
       year, email, name, userId, telegramId,
     } = body;
 
-    // ✅ Fix — Balances.email must be non-null (it's the FK to User.email)
-    // For Telegram-only users who have no email, we use a synthetic key
     const safeEmail: string =
       email ??
       (telegramId ? `telegram-${telegramId}@noemail.local` : null) ??
       `userid-${userId}@noemail.local`;
 
-    // Check if Telegram user actually has a real email in DB
-    // (User.email is unique, so we need the real one for the FK)
     let resolvedEmail = safeEmail;
     if (!email && (telegramId || userId)) {
       const dbUser = await prisma.user.findFirst({
@@ -44,7 +38,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Check duplicate
     const existing = await prisma.balances.findFirst({
       where: { email: resolvedEmail, year },
     });
@@ -58,25 +51,25 @@ export async function POST(req: NextRequest) {
 
     await prisma.balances.create({
       data: {
-        email:             resolvedEmail,
-        name:              name ?? "Unknown",
+        email:              resolvedEmail,
+        name:               name ?? "Unknown",
         year,
-        annualCredit:      Number(ANNUAL    ?? 0),
-        annualAvailable:   Number(ANNUAL    ?? 0),
-        annualUsed:        0,
-        sickCredit:        Number(SICK      ?? 0),
-        sickAvailable:     Number(SICK      ?? 0),
-        sickUsed:          0,
-        personalCredit:    Number(PERSONAL  ?? 0),
-        personalAvailable: Number(PERSONAL  ?? 0),
-        personalUsed:      0,
-        maternityCredit:   Number(MATERNITY ?? 0),
-        maternityAvailable:Number(MATERNITY ?? 0),
-        maternityUsed:     0,
-        specialCredit:     Number(SPECIAL   ?? 0),
-        specialAvailable:  Number(SPECIAL   ?? 0),
-        specialUsed:       0,
-        shortUsed:         0,
+        annualCredit:       Number(ANNUAL    ?? 0),
+        annualAvailable:    Number(ANNUAL    ?? 0),
+        annualUsed:         0,
+        sickCredit:         Number(SICK      ?? 0),
+        sickAvailable:      Number(SICK      ?? 0),
+        sickUsed:           0,
+        personalCredit:     Number(PERSONAL  ?? 0),
+        personalAvailable:  Number(PERSONAL  ?? 0),
+        personalUsed:       0,
+        maternityCredit:    Number(MATERNITY ?? 0),
+        maternityAvailable: Number(MATERNITY ?? 0),
+        maternityUsed:      0,
+        specialCredit:      Number(SPECIAL   ?? 0),
+        specialAvailable:   Number(SPECIAL   ?? 0),
+        specialUsed:        0,
+        shortUsed:          0,
       },
     });
 
@@ -87,7 +80,6 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ── PATCH — Edit Credits ──────────────────────────────────────────────────────
 interface EditBody {
   [key: string]: number | string;
   id: string;
@@ -95,7 +87,7 @@ interface EditBody {
 
 export async function PATCH(req: Request) {
   const loggedInUser = await getCurrentUser();
-  if (!allowedRoles.includes(loggedInUser?.role as Role)) {
+  if (!allowedRoles.includes(loggedInUser?.role as string)) {
     return NextResponse.json({ error: "Not permitted" }, { status: 403 });
   }
 
@@ -103,7 +95,6 @@ export async function PATCH(req: Request) {
     const body: EditBody = await req.json();
     const { id, ...data } = body;
 
-    // Strip out read-only SHORT fields that don't exist in DB
     const { shortCredit, shortAvailable, ...safeData } = data as any;
 
     await prisma.balances.update({

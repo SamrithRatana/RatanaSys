@@ -10,45 +10,33 @@ import { IoPencil } from "react-icons/io5";
 import { FaTelegram } from "react-icons/fa";
 import { Eye, EyeOff, KeyRound, ShieldCheck } from "lucide-react";
 import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
+  Form, FormControl, FormField,
+  FormItem, FormLabel, FormMessage,
 } from "@/components/ui/form";
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
+  Command, CommandEmpty, CommandGroup,
+  CommandInput, CommandItem,
 } from "@/components/ui/command";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+  Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { PiCaretUpDownBold } from "react-icons/pi";
 import { cn } from "@/lib/utils";
-import { UserRoles, orgDepartments, orgTitles } from "@/lib/dummy-data";
 import { BsCheckLg } from "react-icons/bs";
 import { Account, User } from "@prisma/client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type UserWithAccounts = User & {
-  accounts: Account[];
-};
+export type UserWithAccounts = User & { accounts: Account[] };
 
-type EditUserProps = {
-  user: UserWithAccounts;
-};
+type EditUserProps = { user: UserWithAccounts };
+
+type DynamicItem = { id: string; label: string };
 
 // ─── Google SVG ──────────────────────────────────────────────────────────────
 
@@ -65,24 +53,18 @@ function GoogleIcon({ className }: { className?: string }) {
 
 // ─── Integration Badge ────────────────────────────────────────────────────────
 
-function IntegrationBadge({
-  connected,
-  icon,
-  label,
-}: {
+function IntegrationBadge({ connected, icon, label }: {
   connected: boolean;
   icon: React.ReactNode;
   label: string;
 }) {
   return (
-    <div
-      className={cn(
-        "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-all",
-        connected
-          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-          : "border-dashed border-muted-foreground/30 bg-muted/40 text-muted-foreground opacity-50"
-      )}
-    >
+    <div className={cn(
+      "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-all",
+      connected
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : "border-dashed border-muted-foreground/30 bg-muted/40 text-muted-foreground opacity-50"
+    )}>
       <span className={cn("flex h-4 w-4 items-center justify-center", !connected && "grayscale")}>
         {icon}
       </span>
@@ -94,39 +76,41 @@ function IntegrationBadge({
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
 
-const formSchema = z
-  .object({
-    name: z.string().min(1, "Name is required"),
-    email: z.string().email("Invalid email"),
-    phone: z.string().max(50).optional().or(z.literal("")),
-    manager: z.string().optional().or(z.literal("")),
-    department: z.string().optional().or(z.literal("")),
-    title: z.string().optional().or(z.literal("")),
-    role: z.enum(UserRoles as unknown as [string, ...string[]]),
-    password: z
-      .string()
-      .min(6, "Password must be at least 6 characters")
-      .optional()
-      .or(z.literal("")),
-    confirmPassword: z.string().optional().or(z.literal("")),
-  })
-  .refine(
-    (data) => {
-      if (data.password && data.password !== data.confirmPassword) return false;
-      return true;
-    },
-    { message: "Passwords do not match", path: ["confirmPassword"] }
-  );
+const formSchema = z.object({
+  name:            z.string().min(1, "Name is required"),
+  email:           z.string().email("Invalid email"),
+  phone:           z.string().max(50).optional().or(z.literal("")),
+  manager:         z.string().optional().or(z.literal("")),
+  department:      z.string().optional().or(z.literal("")),
+  title:           z.string().optional().or(z.literal("")),
+  role:            z.string().min(1, "Role is required"),
+  password:        z.string().min(6).optional().or(z.literal("")),
+  confirmPassword: z.string().optional().or(z.literal("")),
+}).refine(
+  (data) => !data.password || data.password === data.confirmPassword,
+  { message: "Passwords do not match", path: ["confirmPassword"] }
+);
 
 type FormValues = z.infer<typeof formSchema>;
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 const EditUser = ({ user }: EditUserProps) => {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen]               = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
+  const [showConfirm, setShowConfirm]   = useState(false);
   const router = useRouter();
+
+  // ✅ Dynamic data from DB
+  const [departments, setDepartments] = useState<DynamicItem[]>([]);
+  const [jobTitles, setJobTitles]     = useState<DynamicItem[]>([]);
+  const [roles, setRoles]             = useState<DynamicItem[]>([]);
+
+  useEffect(() => {
+    fetch("/api/departments").then(r => r.json()).then(setDepartments);
+    fetch("/api/jobtitles").then(r => r.json()).then(setJobTitles);
+    fetch("/api/roles").then(r => r.json()).then(setRoles);
+  }, []);
 
   const hasGoogle   = user.accounts.some((a) => a.provider === "google");
   const hasTelegram = !!user.telegramId;
@@ -141,20 +125,19 @@ const EditUser = ({ user }: EditUserProps) => {
       manager:         user.manager    ?? "",
       department:      user.department ?? "",
       title:           user.title      ?? "",
-      role:            user.role,
+      role:            user.role       ?? "USER",
       password:        "",
       confirmPassword: "",
     },
   });
 
   async function onSubmit(values: FormValues) {
-    const id = user.id;
     const { confirmPassword, ...payload } = values;
     try {
       const res = await fetch("/api/user/userId", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, id }),
+        body: JSON.stringify({ ...payload, id: user.id }),
       });
       if (res.ok) {
         toast.success("User updated successfully", { duration: 4000 });
@@ -172,7 +155,6 @@ const EditUser = ({ user }: EditUserProps) => {
 
   return (
     <>
-      {/* ✅ ONE trigger button only — icon prop removed from DialogWrapper */}
       <Button
         type="button"
         variant="ghost"
@@ -186,13 +168,12 @@ const EditUser = ({ user }: EditUserProps) => {
       <DialogWrapper
         title="Edit User"
         isBtn={false}
-        // ❌ icon={IoPencil} removed — was causing the second pencil icon
         open={open}
         setOpen={() => setOpen(!open)}
       >
         <div className="max-h-[70vh] overflow-y-auto pr-1">
 
-          {/* ── Integration Status ── */}
+          {/* Integrations */}
           <div className="mb-4 flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Integrations:</span>
             <IntegrationBadge
@@ -212,201 +193,148 @@ const EditUser = ({ user }: EditUserProps) => {
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
 
-              {/* ── Name ── */}
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Full Name</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Full name" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {/* Name */}
+              <FormField control={form.control} name="name" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Full Name</FormLabel>
+                  <FormControl><Input placeholder="Full name" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
 
-              {/* ── Email ── */}
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email</FormLabel>
-                    <FormControl>
-                      <Input type="email" placeholder="email@company.com" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {/* Email */}
+              <FormField control={form.control} name="email" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl><Input type="email" placeholder="email@company.com" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
 
-              {/* ── Phone ── */}
-              <FormField
-                control={form.control}
-                name="phone"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Phone</FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g. 016285116" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {/* Phone */}
+              <FormField control={form.control} name="phone" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Phone</FormLabel>
+                  <FormControl><Input placeholder="e.g. 016285116" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
 
-              {/* ── Manager ── */}
-              <FormField
-                control={form.control}
-                name="manager"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Manager</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Manager name or email" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {/* Manager */}
+              <FormField control={form.control} name="manager" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Manager</FormLabel>
+                  <FormControl><Input placeholder="Manager name or email" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
 
-              {/* ── Department ── */}
-              <FormField
-                control={form.control}
-                name="department"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel>Department</FormLabel>
-                    <Popover modal={true}>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant="outline"
-                            role="combobox"
-                            className={cn("justify-between", !field.value && "text-muted-foreground")}
-                          >
-                            {field.value
-                              ? orgDepartments.find((d) => d.label === field.value)?.label
-                              : "Select a department"}
-                            <PiCaretUpDownBold className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[220px] p-0">
-                        <Command>
-                          <CommandInput placeholder="Search department…" />
-                          <CommandEmpty>No department found.</CommandEmpty>
-                          <CommandGroup>
-                            {orgDepartments.map((dpt) => (
-                              <CommandItem
-                                value={dpt.label}
-                                key={dpt.id}
-                                onSelect={() => form.setValue("department", dpt.label)}
-                              >
-                                <BsCheckLg className={cn("mr-2 h-4 w-4", dpt.label === field.value ? "opacity-100" : "opacity-0")} />
-                                {dpt.label}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                  </FormItem>
-                )}
-              />
+              {/* ✅ Department — from DB */}
+              <FormField control={form.control} name="department" render={({ field }) => (
+                <FormItem className="flex flex-col">
+                  <FormLabel>Department</FormLabel>
+                  <Popover modal={true}>
+                    <PopoverTrigger asChild>
+                      <FormControl>
+                        <Button variant="outline" role="combobox"
+                          className={cn("justify-between", !field.value && "text-muted-foreground")}>
+                          {field.value || "Select a department"}
+                          <PiCaretUpDownBold className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </FormControl>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[220px] p-0">
+                      <Command>
+                        <CommandInput placeholder="Search department…" />
+                        <CommandEmpty>No department found.</CommandEmpty>
+                        <CommandGroup>
+                          {departments.map((d) => (
+                            <CommandItem key={d.id} value={d.label}
+                              onSelect={() => form.setValue("department", d.label)}>
+                              <BsCheckLg className={cn("mr-2 h-4 w-4",
+                                d.label === field.value ? "opacity-100" : "opacity-0")} />
+                              {d.label}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                  <FormMessage />
+                </FormItem>
+              )} />
 
-              {/* ── Title ── */}
-              <FormField
-                control={form.control}
-                name="title"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel>Job Title</FormLabel>
-                    <Popover modal={true}>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant="outline"
-                            role="combobox"
-                            className={cn("justify-between", !field.value && "text-muted-foreground")}
-                          >
-                            {field.value
-                              ? orgTitles.find((t) => t.label === field.value)?.label
-                              : "Select a title"}
-                            <PiCaretUpDownBold className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[220px] p-0">
-                        <Command>
-                          <CommandInput placeholder="Search title…" />
-                          <CommandEmpty>No title found.</CommandEmpty>
-                          <CommandGroup>
-                            {orgTitles.map((title) => (
-                              <CommandItem
-                                value={title.label}
-                                key={title.id}
-                                onSelect={() => form.setValue("title", title.label)}
-                              >
-                                <BsCheckLg className={cn("mr-2 h-4 w-4", title.label === field.value ? "opacity-100" : "opacity-0")} />
-                                {title.label}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                  </FormItem>
-                )}
-              />
+              {/* ✅ Job Title — from DB */}
+              <FormField control={form.control} name="title" render={({ field }) => (
+                <FormItem className="flex flex-col">
+                  <FormLabel>Job Title</FormLabel>
+                  <Popover modal={true}>
+                    <PopoverTrigger asChild>
+                      <FormControl>
+                        <Button variant="outline" role="combobox"
+                          className={cn("justify-between", !field.value && "text-muted-foreground")}>
+                          {field.value || "Select a title"}
+                          <PiCaretUpDownBold className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </FormControl>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[220px] p-0">
+                      <Command>
+                        <CommandInput placeholder="Search title…" />
+                        <CommandEmpty>No title found.</CommandEmpty>
+                        <CommandGroup>
+                          {jobTitles.map((t) => (
+                            <CommandItem key={t.id} value={t.label}
+                              onSelect={() => form.setValue("title", t.label)}>
+                              <BsCheckLg className={cn("mr-2 h-4 w-4",
+                                t.label === field.value ? "opacity-100" : "opacity-0")} />
+                              {t.label}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                  <FormMessage />
+                </FormItem>
+              )} />
 
-              {/* ── Role ── */}
-              <FormField
-                control={form.control}
-                name="role"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel>Role</FormLabel>
-                    <Popover modal={true}>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant="outline"
-                            role="combobox"
-                            className={cn("justify-between", !field.value && "text-muted-foreground")}
-                          >
-                            {field.value ?? "Select a role"}
-                            <PiCaretUpDownBold className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[220px] p-0">
-                        <Command>
-                          <CommandInput placeholder="Search role…" />
-                          <CommandEmpty>No role found.</CommandEmpty>
-                          <CommandGroup>
-                            {(UserRoles as unknown as string[]).map((role, i) => (
-                              <CommandItem
-                                value={role}
-                                key={i}
-                                onSelect={() => form.setValue("role", role as FormValues["role"])}
-                              >
-                                <BsCheckLg className={cn("mr-2 h-4 w-4", role === field.value ? "opacity-100" : "opacity-0")} />
-                                {role}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {/* ✅ Role — from DB */}
+              <FormField control={form.control} name="role" render={({ field }) => (
+                <FormItem className="flex flex-col">
+                  <FormLabel>Role</FormLabel>
+                  <Popover modal={true}>
+                    <PopoverTrigger asChild>
+                      <FormControl>
+                        <Button variant="outline" role="combobox"
+                          className={cn("justify-between", !field.value && "text-muted-foreground")}>
+                          {field.value || "Select a role"}
+                          <PiCaretUpDownBold className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </FormControl>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[220px] p-0">
+                      <Command>
+                        <CommandInput placeholder="Search role…" />
+                        <CommandEmpty>No role found.</CommandEmpty>
+                        <CommandGroup>
+                          {roles.map((r) => (
+                            <CommandItem key={r.id} value={r.label}
+                              onSelect={() => form.setValue("role", r.label)}>
+                              <BsCheckLg className={cn("mr-2 h-4 w-4",
+                                r.label === field.value ? "opacity-100" : "opacity-0")} />
+                              {r.label}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                  <FormMessage />
+                </FormItem>
+              )} />
 
-              {/* ── Password Section ── */}
+              {/* Password Section */}
               <div className="rounded-lg border border-dashed border-muted-foreground/40 bg-muted/30 p-4 space-y-4">
                 <div className="flex items-center gap-2">
                   <KeyRound className="h-4 w-4 text-muted-foreground" />
@@ -422,75 +350,50 @@ const EditUser = ({ user }: EditUserProps) => {
                 <p className="text-xs text-muted-foreground -mt-2">
                   {hasPassword
                     ? "Leave blank to keep the existing password."
-                    : "This user signed in via Google or Telegram. Set a password to allow credentials login too."}
+                    : "Set a password to allow credentials login."}
                 </p>
 
-                {/* New Password */}
-                <FormField
-                  control={form.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs">New Password</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <Input
-                            type={showPassword ? "text" : "password"}
-                            placeholder="Min. 6 characters"
-                            {...field}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowPassword((v) => !v)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                            tabIndex={-1}
-                          >
-                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </button>
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <FormField control={form.control} name="password" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">New Password</FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <Input type={showPassword ? "text" : "password"}
+                          placeholder="Min. 6 characters" {...field} />
+                        <button type="button" tabIndex={-1}
+                          onClick={() => setShowPassword(v => !v)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
 
-                {/* Confirm Password */}
-                <FormField
-                  control={form.control}
-                  name="confirmPassword"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs">Confirm Password</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <Input
-                            type={showConfirm ? "text" : "password"}
-                            placeholder="Repeat password"
-                            {...field}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowConfirm((v) => !v)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                            tabIndex={-1}
-                          >
-                            {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </button>
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <FormField control={form.control} name="confirmPassword" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">Confirm Password</FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <Input type={showConfirm ? "text" : "password"}
+                          placeholder="Repeat password" {...field} />
+                        <button type="button" tabIndex={-1}
+                          onClick={() => setShowConfirm(v => !v)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                          {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
               </div>
 
-              <Button type="submit" className="w-full">
-                Save Changes
-              </Button>
+              <Button type="submit" className="w-full">Save Changes</Button>
 
             </form>
           </Form>
-
         </div>
       </DialogWrapper>
     </>
