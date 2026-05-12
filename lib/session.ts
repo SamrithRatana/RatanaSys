@@ -1,8 +1,12 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "./auth";
 import prisma from "@/lib/prisma";
+import { cache } from "react";
 
-export async function getCurrentUser() {
+// ✅ cache() deduplicates calls within the same request — 
+// no matter how many times getCurrentUser() is called, 
+// it only hits the DB once per page render.
+export const getCurrentUser = cache(async () => {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return null;
@@ -27,4 +31,4 @@ export async function getCurrentUser() {
     console.error("getCurrentUser error:", error);
     return null;
   }
-}
+});

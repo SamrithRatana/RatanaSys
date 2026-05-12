@@ -18,24 +18,37 @@ export default async function AdminLeaves() {
     redirect("/dashboard");
   }
 
-  const [allLeaves, myLeaves] = await Promise.all([
-    getAllLeaveDays(),
-    getUserLeaveDays(),
-  ]);
+  let allLeaves: Leave[] | null = null;
+  let myLeaves: Leave[] = [];
 
-  if (allLeaves === null) {
-    return <Container>No Leaves found...</Container>;
+  try {
+    [allLeaves, myLeaves] = await Promise.all([
+      getAllLeaveDays(),
+      getUserLeaveDays(),
+    ]) as [Leave[], Leave[]];
+  } catch (error) {
+    console.error("Failed to load leaves:", error);
+  }
+
+  if (!allLeaves) {
+    return (
+      <Container>
+        <p className="text-center text-red-500 mt-10">
+          Failed to load leaves. Please refresh the page.
+        </p>
+      </Container>
+    );
   }
 
   return (
     <Container>
       <TableWrapper title="All Leaves">
         <LeavesTable
-          leaves={allLeaves as Leave[]}
+          leaves={allLeaves}
           currentUserRole={loggedInUser.role}
           currentUserName={loggedInUser.name ?? ""}
           currentUserEmail={loggedInUser.email ?? ""}
-          myLeaves={(myLeaves ?? []) as Leave[]}
+          myLeaves={myLeaves}
         />
       </TableWrapper>
     </Container>
