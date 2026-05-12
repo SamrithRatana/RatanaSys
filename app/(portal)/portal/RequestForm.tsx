@@ -11,7 +11,7 @@ import {
   Form, FormControl, FormDescription,
   FormField, FormItem, FormLabel, FormMessage,
 } from "@/components/ui/form";
-import { format, differenceInMinutes, differenceInDays } from "date-fns";
+import { format, differenceInDays } from "date-fns";
 import {
   Command, CommandEmpty, CommandGroup,
   CommandInput, CommandItem,
@@ -22,15 +22,13 @@ import {
 import { leaveTypes } from "@/lib/dummy-data";
 import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Calendar } from "@/components/ui/calendar";
 import DialogWrapper from "@/components/Common/DialogWrapper";
 import { User } from "@prisma/client";
 import toast from "react-hot-toast";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
 const leaveKhmerLabels: Record<string, string> = {
   ANNUAL:    "ច្បាប់ប្រចាំឆ្នាំ-Annual Leave",
   SICK:      "ច្បាប់ឈឺផ្ទាល់ខ្លួន-Sick Leave",
@@ -39,40 +37,29 @@ const leaveKhmerLabels: Record<string, string> = {
   SPECIAL:   "ច្បាប់ពិសេស-Special Leave",
 };
 
-const MATERNITY_DAYS: Record<string, number> = { MALE: 7, FEMALE: 90 };
+const MATERNITY_DAYS: Record<string, number> = {
+  MALE:   7,
+  FEMALE: 90,
+};
 
-// Work-day time options  08:00 – 17:00 in 30-min steps
-const TIME_OPTIONS: string[] = [];
-for (let h = 8; h <= 17; h++) {
-  for (const m of [0, 30]) {
-    if (h === 17 && m === 30) break;
-    TIME_OPTIONS.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
-  }
-}
-
-const DEFAULT_START_TIME = "08:00";
-const DEFAULT_END_TIME   = "17:00";
-const WORK_HOURS_PER_DAY = 8; // for display only
+type Props = { user: User };
 
 const today = new Date();
 today.setHours(0, 0, 0, 0);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
+// Parse "HH:mm" → total minutes since midnight
 function timeToMinutes(t: string): number {
   const [h, m] = t.split(":").map(Number);
   return h * 60 + m;
 }
 
-function calcHoursFromTimes(startTime: string, endTime: string): number {
-  const diff = timeToMinutes(endTime) - timeToMinutes(startTime);
-  return Math.max(0, diff / 60);
+// Calculate personal leave hours from endTime (start is always 08:00)
+function calcPersonalHours(endTime: string): number {
+  const startMin = 8 * 60; // 08:00
+  const endMin   = timeToMinutes(endTime);
+  return Math.max(0, (endMin - startMin) / 60);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Schema
-// ─────────────────────────────────────────────────────────────────────────────
 const formSchema = z
   .object({
     notes:           z.string().min(1, "Notes are required.").max(500),
@@ -80,18 +67,12 @@ const formSchema = z
     maternityGender: z.enum(["MALE", "FEMALE"]).optional(),
     startDate:       z.date({ required_error: "A start date is required." }),
     endDate:         z.date().optional(),
-    // Personal leave unified fields
-    personalMode:    z.enum(["RANGE", "TIME"]).optional(), // RANGE = multi-day, TIME = partial day
-    startTime:       z.string().optional(),
-    endTime:         z.string().optional(),
+    // Personal leave: end time on same-day leave (default 17:00)
+    personalEndTime: z.string().optional(),
   })
   .superRefine((data, ctx) => {
-    const isPersonal  = data.leave === "PERSONAL";
-    const isMaternity = data.leave === "MATERNITY";
-    const isSpecial   = data.leave === "SPECIAL";
-
     // Maternity gender required
-    if (isMaternity && !data.maternityGender) {
+    if (data.leave === "MATERNITY" && !data.maternityGender) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Please select Male (Paternity) or Female (Maternity).",
@@ -99,8 +80,10 @@ const formSchema = z
       });
     }
 
-    // Personal: need an end date for RANGE mode
-    if (isPersonal && data.personalMode === "RANGE" && !data.endDate) {
+    const isPersonal = data.leave === "PERSONAL";
+
+    // Non-personal leaves always need an end date
+    if (!isPersonal && !data.endDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "An end date is required.",
@@ -108,34 +91,24 @@ const formSchema = z
       });
     }
 
-    // Personal: time mode — validate start < end
-    if (isPersonal && data.personalMode === "TIME") {
-      if (!data.startTime || !data.endTime) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Start and end times are required.",
-          path: ["startTime"],
-        });
-      } else if (timeToMinutes(data.startTime) >= timeToMinutes(data.endTime)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "End time must be after start time.",
-          path: ["endTime"],
-        });
+    // Personal: validate end time on same-day
+    if (isPersonal && data.startDate && data.endDate) {
+      const isSameDay =
+        differenceInDays(data.endDate, data.startDate) === 0;
+      if (isSameDay && data.personalEndTime) {
+        const hrs = calcPersonalHours(data.personalEndTime);
+        if (hrs <= 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "End time must be after 8:00 AM.",
+            path: ["personalEndTime"],
+          });
+        }
       }
     }
 
-    // Non-personal non-maternity: need end date
-    if (!isPersonal && !isMaternity && !data.endDate) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "An end date is required.",
-        path: ["endDate"],
-      });
-    }
-
-    // Special: 7-day advance notice
-    if (isSpecial && data.startDate) {
+    // 7-day advance notice for Special leave
+    if (data.leave === "SPECIAL" && data.startDate) {
       const minDate = new Date(today);
       minDate.setDate(minDate.getDate() + 7);
       if (data.startDate < minDate) {
@@ -148,59 +121,16 @@ const formSchema = z
     }
   });
 
-type FormValues = z.infer<typeof formSchema>;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TimeSelect — a simple styled select for time options
-// ─────────────────────────────────────────────────────────────────────────────
-function TimeSelect({
-  value,
-  onChange,
-  min,
-  label,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  min?: string;
-  label: string;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5 flex-1">
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
-      >
-        {TIME_OPTIONS.map((t) => {
-          const disabled = min ? timeToMinutes(t) <= timeToMinutes(min) : false;
-          return (
-            <option key={t} value={t} disabled={disabled}>
-              {t}
-            </option>
-          );
-        })}
-      </select>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Main Component
-// ─────────────────────────────────────────────────────────────────────────────
-type Props = { user: User };
-
 const RequestForm = ({ user }: Props) => {
   const [open,          setOpen]          = useState(false);
   const [openLeaveType, setOpenLeaveType] = useState(false);
   const [openStartDate, setOpenStartDate] = useState(false);
   const [openEndDate,   setOpenEndDate]   = useState(false);
 
-  const form = useForm<FormValues>({
+  const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      startTime: DEFAULT_START_TIME,
-      endTime:   DEFAULT_END_TIME,
+      personalEndTime: "17:00",
     },
   });
 
@@ -208,37 +138,47 @@ const RequestForm = ({ user }: Props) => {
   const maternityGender = form.watch("maternityGender");
   const startDateValue  = form.watch("startDate");
   const endDateValue    = form.watch("endDate");
-  const personalMode    = form.watch("personalMode");
-  const startTime       = form.watch("startTime") ?? DEFAULT_START_TIME;
-  const endTime         = form.watch("endTime")   ?? DEFAULT_END_TIME;
+  const personalEndTime = form.watch("personalEndTime") ?? "17:00";
 
   const isPersonal  = selectedLeave === "PERSONAL";
   const isMaternity = selectedLeave === "MATERNITY";
-  const isTimeMode  = isPersonal && personalMode === "TIME";
-  const isRangeMode = isPersonal && personalMode === "RANGE";
+
+  // Is personal leave a single-day selection?
+  const isSameDay =
+    isPersonal &&
+    !!startDateValue &&
+    !!endDateValue &&
+    differenceInDays(endDateValue, startDateValue) === 0;
+
+  // Computed summary for personal leave
+  const personalDays = isPersonal && startDateValue && endDateValue
+    ? differenceInDays(endDateValue, startDateValue) + 1
+    : 1;
+
+  const personalHours = isSameDay ? calcPersonalHours(personalEndTime) : null;
+
+  // Summary label shown under personal date picker
+  const personalSummary = (() => {
+    if (!isPersonal || !startDateValue || !endDateValue) return null;
+    if (isSameDay) {
+      if (!personalHours || personalHours <= 0) return null;
+      const h = +personalHours.toFixed(1);
+      return h >= 8
+        ? "1 ថ្ងៃ (8:00 – 17:00)"
+        : `${h} ម៉ោង (8:00 – ${personalEndTime})`;
+    }
+    return `${personalDays} ថ្ងៃ (${format(startDateValue, "dd MMM")} – ${format(endDateValue, "dd MMM yyyy")})`;
+  })();
 
   const currentYear = today.getFullYear();
 
-  // ── Computed summary values ─────────────────────────────────────────────
-  const calculatedHours = useMemo(() => {
-    if (!isTimeMode) return 0;
-    return calcHoursFromTimes(startTime, endTime);
-  }, [isTimeMode, startTime, endTime]);
-
-  const calculatedDays = useMemo(() => {
-    if (isTimeMode) return 0;
-    if (!startDateValue) return 0;
-    const end = isRangeMode ? endDateValue : startDateValue;
-    if (!end) return 0;
-    return differenceInDays(end, startDateValue) + 1;
-  }, [isTimeMode, isRangeMode, startDateValue, endDateValue]);
-
-  // ── Auto-set dates for Maternity / Special ──────────────────────────────
+  // Auto-set dates for Maternity / Special
   useEffect(() => {
-    if (isMaternity && maternityGender) {
+    if (selectedLeave === "MATERNITY" && maternityGender) {
       const autoStart = new Date(today);
-      const autoEnd   = new Date(today);
-      autoEnd.setDate(autoEnd.getDate() + MATERNITY_DAYS[maternityGender]);
+      const days      = MATERNITY_DAYS[maternityGender];
+      const autoEnd   = new Date(autoStart);
+      autoEnd.setDate(autoEnd.getDate() + days);
       form.setValue("startDate", autoStart, { shouldValidate: false });
       form.setValue("endDate",   autoEnd,   { shouldValidate: false });
     } else if (selectedLeave === "SPECIAL") {
@@ -251,12 +191,13 @@ const RequestForm = ({ user }: Props) => {
     }
   }, [selectedLeave, maternityGender]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Shift endDate when startDate changes (Maternity / Special)
+  // Shift endDate when startDate changes (Maternity / Special only)
   useEffect(() => {
     if (!startDateValue) return;
-    if (isMaternity && maternityGender) {
+    if (selectedLeave === "MATERNITY" && maternityGender) {
+      const days    = MATERNITY_DAYS[maternityGender];
       const autoEnd = new Date(startDateValue);
-      autoEnd.setDate(autoEnd.getDate() + MATERNITY_DAYS[maternityGender]);
+      autoEnd.setDate(autoEnd.getDate() + days);
       form.setValue("endDate", autoEnd, { shouldValidate: false });
     } else if (selectedLeave === "SPECIAL") {
       const autoEnd = new Date(startDateValue);
@@ -274,11 +215,22 @@ const RequestForm = ({ user }: Props) => {
     return today;
   };
 
-  // ── Submit ──────────────────────────────────────────────────────────────
-  async function onSubmit(values: FormValues) {
+  async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
-      const isShort = isPersonal && values.personalMode === "TIME";
-      const resolvedType = isShort ? "SHORT" : values.leave;
+      const isPersonalLeave = values.leave === "PERSONAL";
+      const sameDay = isPersonalLeave && values.endDate
+        ? differenceInDays(values.endDate, values.startDate) === 0
+        : false;
+
+      const hours = sameDay
+        ? calcPersonalHours(values.personalEndTime ?? "17:00")
+        : undefined;
+
+      const days = isPersonalLeave
+        ? sameDay
+          ? hours && hours >= 8 ? 1 : 0   // 0 = partial day, handled by hours
+          : differenceInDays(values.endDate!, values.startDate) + 1
+        : differenceInDays(values.endDate!, values.startDate) + 1;
 
       const effectiveEmail =
         user.email ??
@@ -287,17 +239,16 @@ const RequestForm = ({ user }: Props) => {
         `name-${user.name?.replace(/\s+/g, "-").toLowerCase()}`;
 
       const formattedValues = {
-        notes:           values.notes,
-        leave:           resolvedType,
-        type:            resolvedType,
+        notes:     values.notes,
+        leave:     values.leave,
+        type:      values.leave,
         maternityGender: values.maternityGender,
-        startDate:       format(values.startDate, "yyyy-MM-dd"),
-        endDate: isShort
-          ? format(values.startDate, "yyyy-MM-dd")
-          : format(values.endDate!, "yyyy-MM-dd"),
-        hours:     isShort ? calculatedHours : undefined,
-        startTime: isShort ? values.startTime : undefined,
-        endTime:   isShort ? values.endTime   : undefined,
+        startDate: format(values.startDate, "yyyy-MM-dd"),
+        endDate:   values.endDate
+          ? format(values.endDate, "yyyy-MM-dd")
+          : format(values.startDate, "yyyy-MM-dd"),
+        hours:  hours !== undefined ? +hours.toFixed(2) : undefined,
+        days,
         user: { ...user, email: effectiveEmail },
       };
 
@@ -309,10 +260,7 @@ const RequestForm = ({ user }: Props) => {
       if (res.ok) {
         toast.success("Leave Submitted", { duration: 4000 });
         setOpen(false);
-        form.reset({
-          startTime: DEFAULT_START_TIME,
-          endTime:   DEFAULT_END_TIME,
-        });
+        form.reset({ personalEndTime: "17:00" });
       } else {
         const data = await res.json();
         toast.error(`An error occurred: ${JSON.stringify(data)}`, { duration: 6000 });
@@ -322,12 +270,6 @@ const RequestForm = ({ user }: Props) => {
       toast.error("An unexpected error occurred");
     }
   }
-
-  // ── Show-date-fields logic ──────────────────────────────────────────────
-  const showDateFields =
-    !!selectedLeave &&
-    (!isPersonal || !!personalMode) &&
-    (!isMaternity || !!maternityGender);
 
   return (
     <DialogWrapper
@@ -339,9 +281,9 @@ const RequestForm = ({ user }: Props) => {
       setOpen={() => setOpen(!open)}
     >
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
 
-          {/* ── Leave Type ─────────────────────────────────────────────────── */}
+          {/* ── Leave Type ── */}
           <FormField
             control={form.control}
             name="leave"
@@ -374,12 +316,10 @@ const RequestForm = ({ user }: Props) => {
                             key={leave.value}
                             onSelect={() => {
                               form.setValue("leave", leave.value);
-                              form.resetField("personalMode");
                               form.resetField("maternityGender");
                               form.resetField("startDate");
                               form.resetField("endDate");
-                              form.setValue("startTime", DEFAULT_START_TIME);
-                              form.setValue("endTime",   DEFAULT_END_TIME);
+                              form.setValue("personalEndTime", "17:00");
                               setOpenLeaveType(false);
                             }}
                           >
@@ -396,7 +336,7 @@ const RequestForm = ({ user }: Props) => {
             )}
           />
 
-          {/* ── Special leave banner ───────────────────────────────────────── */}
+          {/* ── Special leave 7-day banner ── */}
           {selectedLeave === "SPECIAL" && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0">
@@ -410,7 +350,7 @@ const RequestForm = ({ user }: Props) => {
             </div>
           )}
 
-          {/* ── Maternity gender ───────────────────────────────────────────── */}
+          {/* ── Maternity Gender Selector ── */}
           {isMaternity && (
             <FormField
               control={form.control}
@@ -430,7 +370,9 @@ const RequestForm = ({ user }: Props) => {
                       )}
                     >
                       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="10" cy="14" r="5" /><line x1="19" y1="5" x2="14.14" y2="9.86" /><polyline points="15 5 19 5 19 9" />
+                        <circle cx="10" cy="14" r="5" />
+                        <line x1="19" y1="5" x2="14.14" y2="9.86" />
+                        <polyline points="15 5 19 5 19 9" />
                       </svg>
                       បុរស (Male)
                       <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900 rounded-full px-2 py-0.5">
@@ -448,7 +390,9 @@ const RequestForm = ({ user }: Props) => {
                       )}
                     >
                       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="8" r="5" /><line x1="12" y1="13" x2="12" y2="21" /><line x1="9" y1="18" x2="15" y2="18" />
+                        <circle cx="12" cy="8" r="5" />
+                        <line x1="12" y1="13" x2="12" y2="21" />
+                        <line x1="9"  y1="18" x2="15" y2="18" />
                       </svg>
                       ស្ត្រី (Female)
                       <span className="text-xs font-semibold text-pink-600 dark:text-pink-400 bg-pink-100 dark:bg-pink-900 rounded-full px-2 py-0.5">
@@ -462,380 +406,144 @@ const RequestForm = ({ user }: Props) => {
             />
           )}
 
-          {/* ── Personal Leave: unified date/time picker ───────────────────── */}
-          {isPersonal && (
-            <FormField
-              control={form.control}
-              name="personalMode"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Personal Leave Mode</FormLabel>
+          {/* ── Date Fields ── */}
+          {(!isMaternity || !!maternityGender) && (
+            <>
+              {/* Start Date */}
+              <FormField
+                control={form.control}
+                name="startDate"
+                render={({ field }) => (
+                  <FormItem className="flex flex-col">
+                    <FormLabel>
+                      {isPersonal ? "ថ្ងៃចាប់ផ្ដើម" : "Start Date"}
+                    </FormLabel>
+                    <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button
+                            variant="outline"
+                            className={cn("inline-flex justify-between", !field.value && "text-muted-foreground")}
+                          >
+                            {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                            <IoCalendarOutline className="h-4 w-4 opacity-50" />
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={field.value}
+                          onSelect={(date) => {
+                            field.onChange(date);
+                            // For personal leave: reset endDate to same day when start changes
+                            if (isPersonal) {
+                              form.setValue("endDate", date ?? undefined, { shouldValidate: false });
+                            }
+                            setOpenStartDate(false);
+                          }}
+                          disabled={(date: Date) => {
+                            const min = getMinStartDate();
+                            return date < today || date.getFullYear() > currentYear || date < min;
+                          }}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-                  {/* Mode toggle */}
-                  <div className="grid grid-cols-2 gap-3 mt-1">
-                    {/* Full Day(s) */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        field.onChange("RANGE");
-                        form.resetField("startDate");
-                        form.resetField("endDate");
-                        form.setValue("startTime", DEFAULT_START_TIME);
-                        form.setValue("endTime",   DEFAULT_END_TIME);
-                      }}
-                      className={cn(
-                        "flex flex-col items-center justify-center gap-1.5 rounded-xl border-2 p-4 text-sm font-medium transition-all cursor-pointer",
-                        field.value === "RANGE"
-                          ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-400"
-                          : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400"
-                      )}
-                    >
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                        <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
-                      </svg>
-                      ច្បាប់ពេញថ្ងៃ
-                      <span className="text-xs font-normal opacity-60">ជ្រើសរើសថ្ងៃចាប់ផ្ដើម → បញ្ចប់</span>
-                    </button>
+              {/* End Date */}
+              <FormField
+                control={form.control}
+                name="endDate"
+                render={({ field }) => (
+                  <FormItem className="flex flex-col">
+                    <FormLabel>
+                      {isPersonal ? "ថ្ងៃបញ្ចប់" : "End Date"}
+                    </FormLabel>
+                    <Popover modal={true} open={openEndDate} onOpenChange={setOpenEndDate}>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button
+                            variant="outline"
+                            className={cn("inline-flex justify-between", !field.value && "text-muted-foreground")}
+                          >
+                            {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                            <IoCalendarOutline className="h-4 w-4 opacity-50" />
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={field.value}
+                          onSelect={(date) => { field.onChange(date); setOpenEndDate(false); }}
+                          disabled={(date: Date) =>
+                            date < today ||
+                            (!!startDateValue && date < startDateValue)
+                          }
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-                    {/* Partial / Time-based */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        field.onChange("TIME");
-                        form.resetField("startDate");
-                        form.resetField("endDate");
-                        form.setValue("startTime", DEFAULT_START_TIME);
-                        form.setValue("endTime",   DEFAULT_END_TIME);
-                      }}
-                      className={cn(
-                        "flex flex-col items-center justify-center gap-1.5 rounded-xl border-2 p-4 text-sm font-medium transition-all cursor-pointer",
-                        field.value === "TIME"
-                          ? "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-400"
-                          : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400"
-                      )}
-                    >
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 15" />
-                      </svg>
-                      ច្បាប់រយៈពេលខ្លី
-                      <span className="text-xs font-normal opacity-60">ជ្រើសម៉ោង · កាត់ច្បាប់ផ្ទាល់ខ្លួន</span>
-                    </button>
-                  </div>
-                  <FormMessage />
-                </FormItem>
+              {/* ── Personal: same-day end time picker ── */}
+              {isPersonal && isSameDay && (
+                <FormField
+                  control={form.control}
+                  name="personalEndTime"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>ម៉ោងបញ្ចប់ (End Time)</FormLabel>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm text-muted-foreground bg-muted px-3 py-2 rounded-md">
+                          8:00 AM
+                        </span>
+                        <span className="text-muted-foreground">→</span>
+                        <FormControl>
+                          <Input
+                            type="time"
+                            min="08:01"
+                            max="17:00"
+                            className="w-36"
+                            {...field}
+                          />
+                        </FormControl>
+                      </div>
+                      <FormDescription>
+                        ចាប់ពី 8:00 AM · កំណត់ម៉ោងបញ្ចប់ (max 17:00)
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               )}
-            />
+
+              {/* ── Personal leave summary ── */}
+              {isPersonal && personalSummary && (
+                <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                  </svg>
+                  <span>
+                    ច្បាប់ស្នើសុំ: <strong>{personalSummary}</strong>
+                    {isSameDay && personalHours && personalHours < 8 && (
+                      <> · កាត់ <strong>{+personalHours.toFixed(1)} ម៉ោង</strong> ពីច្បាប់ផ្ទាល់ខ្លួន</>
+                    )}
+                  </span>
+                </div>
+              )}
+            </>
           )}
 
-          {/* ── Date fields (all leave types) ─────────────────────────────── */}
-          {showDateFields && (
-            <div className="space-y-4">
-
-              {/* ── PERSONAL RANGE MODE: start + end date ── */}
-              {isRangeMode && (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    {/* Start date */}
-                    <FormField
-                      control={form.control}
-                      name="startDate"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-col">
-                          <FormLabel>ថ្ងៃចាប់ផ្ដើម</FormLabel>
-                          <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}>
-                            <PopoverTrigger asChild>
-                              <FormControl>
-                                <Button variant="outline" className={cn("justify-between", !field.value && "text-muted-foreground")}>
-                                  {field.value ? format(field.value, "dd MMM yyyy") : "ជ្រើសរើសថ្ងៃ"}
-                                  <IoCalendarOutline className="h-4 w-4 opacity-50" />
-                                </Button>
-                              </FormControl>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <Calendar
-                                mode="single"
-                                selected={field.value}
-                                onSelect={(date) => {
-                                  field.onChange(date);
-                                  // Reset end date if it's before new start
-                                  if (endDateValue && date && endDateValue < date) {
-                                    form.resetField("endDate");
-                                  }
-                                  setOpenStartDate(false);
-                                }}
-                                disabled={(date) => date < today || date.getFullYear() > currentYear}
-                                initialFocus
-                              />
-                            </PopoverContent>
-                          </Popover>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    {/* End date */}
-                    <FormField
-                      control={form.control}
-                      name="endDate"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-col">
-                          <FormLabel>ថ្ងៃបញ្ចប់</FormLabel>
-                          <Popover modal={true} open={openEndDate} onOpenChange={setOpenEndDate}>
-                            <PopoverTrigger asChild>
-                              <FormControl>
-                                <Button variant="outline" className={cn("justify-between", !field.value && "text-muted-foreground")}>
-                                  {field.value ? format(field.value, "dd MMM yyyy") : "ជ្រើសរើសថ្ងៃ"}
-                                  <IoCalendarOutline className="h-4 w-4 opacity-50" />
-                                </Button>
-                              </FormControl>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <Calendar
-                                mode="single"
-                                selected={field.value}
-                                onSelect={(date) => { field.onChange(date); setOpenEndDate(false); }}
-                                disabled={(date) =>
-                                  date < today ||
-                                  (startDateValue ? date < startDateValue : false)
-                                }
-                                initialFocus
-                              />
-                            </PopoverContent>
-                          </Popover>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  {/* Duration summary */}
-                  {startDateValue && endDateValue && (
-                    <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
-                      <IoCalendarOutline className="h-4 w-4 shrink-0" />
-                      <span>
-                        រយៈពេល: <strong>{calculatedDays} ថ្ងៃ</strong>
-                        {" · "}
-                        {format(startDateValue, "dd MMM")} → {format(endDateValue, "dd MMM yyyy")}
-                      </span>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* ── PERSONAL TIME MODE: single date + time range ── */}
-              {isTimeMode && (
-                <>
-                  {/* Date picker */}
-                  <FormField
-                    control={form.control}
-                    name="startDate"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-col">
-                        <FormLabel>ថ្ងៃ</FormLabel>
-                        <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}>
-                          <PopoverTrigger asChild>
-                            <FormControl>
-                              <Button variant="outline" className={cn("justify-between", !field.value && "text-muted-foreground")}>
-                                {field.value ? format(field.value, "EEEE, dd MMM yyyy") : "ជ្រើសរើសថ្ងៃ"}
-                                <IoCalendarOutline className="h-4 w-4 opacity-50" />
-                              </Button>
-                            </FormControl>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={field.value}
-                              onSelect={(date) => { field.onChange(date); setOpenStartDate(false); }}
-                              disabled={(date) => date < today || date.getFullYear() > currentYear}
-                              initialFocus
-                            />
-                          </PopoverContent>
-                        </Popover>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  {/* Time range */}
-                  <div>
-                    <FormLabel className="mb-1.5 block">ម៉ោងធ្វើការ (ម៉ោងចាប់ផ្ដើម → ម៉ោងបញ្ចប់)</FormLabel>
-                    <div className="flex items-end gap-3">
-                      <FormField
-                        control={form.control}
-                        name="startTime"
-                        render={({ field }) => (
-                          <FormItem className="flex-1 m-0">
-                            <FormControl>
-                              <TimeSelect
-                                label="ចាប់ពី"
-                                value={field.value ?? DEFAULT_START_TIME}
-                                onChange={(v) => {
-                                  field.onChange(v);
-                                  // Push endTime forward if needed
-                                  if (timeToMinutes(v) >= timeToMinutes(endTime)) {
-                                    const idx = TIME_OPTIONS.indexOf(v);
-                                    const next = TIME_OPTIONS[idx + 1] ?? DEFAULT_END_TIME;
-                                    form.setValue("endTime", next);
-                                  }
-                                }}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <span className="pb-2 text-muted-foreground font-medium">→</span>
-
-                      <FormField
-                        control={form.control}
-                        name="endTime"
-                        render={({ field }) => (
-                          <FormItem className="flex-1 m-0">
-                            <FormControl>
-                              <TimeSelect
-                                label="ដល់"
-                                value={field.value ?? DEFAULT_END_TIME}
-                                onChange={field.onChange}
-                                min={startTime}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Hours summary */}
-                  {calculatedHours > 0 && (
-                    <div className={cn(
-                      "flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm",
-                      calculatedHours >= WORK_HOURS_PER_DAY
-                        ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
-                        : "border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
-                    )}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 15" />
-                      </svg>
-                      <span>
-                        រយៈពេល: <strong>{calculatedHours} ម៉ោង</strong>
-                        {" · "}
-                        {startTime} → {endTime}
-                        {calculatedHours >= WORK_HOURS_PER_DAY && (
-                          <span className="ml-1 opacity-75">(គ្រប់ 1 ថ្ងៃការ — ពិចារណាប្រើ ច្បាប់ពេញថ្ងៃ)</span>
-                        )}
-                      </span>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* ── NON-PERSONAL LEAVES: standard start + end date ── */}
-              {!isPersonal && (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <FormField
-                      control={form.control}
-                      name="startDate"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-col">
-                          <FormLabel>ថ្ងៃចាប់ផ្ដើម</FormLabel>
-                          <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}>
-                            <PopoverTrigger asChild>
-                              <FormControl>
-                                <Button variant="outline" className={cn("justify-between", !field.value && "text-muted-foreground")}>
-                                  {field.value ? format(field.value, "dd MMM yyyy") : "ជ្រើសរើសថ្ងៃ"}
-                                  <IoCalendarOutline className="h-4 w-4 opacity-50" />
-                                </Button>
-                              </FormControl>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <Calendar
-                                mode="single"
-                                selected={field.value}
-                                onSelect={(date) => { field.onChange(date); setOpenStartDate(false); }}
-                                disabled={(date) => {
-                                  const minDate = getMinStartDate();
-                                  return date < today || date.getFullYear() > currentYear || date < minDate;
-                                }}
-                                initialFocus
-                              />
-                            </PopoverContent>
-                          </Popover>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    {!isMaternity && (
-                      <FormField
-                        control={form.control}
-                        name="endDate"
-                        render={({ field }) => (
-                          <FormItem className="flex flex-col">
-                            <FormLabel>ថ្ងៃបញ្ចប់</FormLabel>
-                            <Popover modal={true} open={openEndDate} onOpenChange={setOpenEndDate}>
-                              <PopoverTrigger asChild>
-                                <FormControl>
-                                  <Button variant="outline" className={cn("justify-between", !field.value && "text-muted-foreground")}>
-                                    {field.value ? format(field.value, "dd MMM yyyy") : "ជ្រើសរើសថ្ងៃ"}
-                                    <IoCalendarOutline className="h-4 w-4 opacity-50" />
-                                  </Button>
-                                </FormControl>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-auto p-0" align="start">
-                                <Calendar
-                                  mode="single"
-                                  selected={field.value}
-                                  onSelect={(date) => { field.onChange(date); setOpenEndDate(false); }}
-                                  disabled={(date) =>
-                                    date < today ||
-                                    (startDateValue ? date < startDateValue : false)
-                                  }
-                                  initialFocus
-                                />
-                              </PopoverContent>
-                            </Popover>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    )}
-                  </div>
-
-                  {/* Maternity auto-end info */}
-                  {isMaternity && startDateValue && endDateValue && (
-                    <div className="flex items-center gap-2 rounded-lg border border-pink-200 bg-pink-50 px-4 py-2.5 text-sm text-pink-700 dark:border-pink-800 dark:bg-pink-950 dark:text-pink-300">
-                      <IoCalendarOutline className="h-4 w-4 shrink-0" />
-                      <span>
-                        ថ្ងៃបញ្ចប់ស្វ័យប្រវត្តិ:{" "}
-                        <strong>{format(endDateValue, "dd MMM yyyy")}</strong>
-                        {" · "}
-                        {MATERNITY_DAYS[maternityGender!]} ថ្ងៃ
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Duration summary for non-maternity */}
-                  {!isMaternity && startDateValue && endDateValue && (
-                    <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
-                      <IoCalendarOutline className="h-4 w-4 shrink-0" />
-                      <span>
-                        រយៈពេល: <strong>{calculatedDays} ថ្ងៃ</strong>
-                        {" · "}
-                        {format(startDateValue, "dd MMM")} → {format(endDateValue, "dd MMM yyyy")}
-                      </span>
-                    </div>
-                  )}
-                </>
-              )}
-
-            </div>
-          )}
-
-          {/* ── Notes ─────────────────────────────────────────────────────── */}
+          {/* ── Notes ── */}
           <FormField
             control={form.control}
             name="notes"
@@ -851,7 +559,7 @@ const RequestForm = ({ user }: Props) => {
             )}
           />
 
-          <Button type="submit" className="w-full">Submit</Button>
+          <Button type="submit">Submit</Button>
         </form>
       </Form>
     </DialogWrapper>
