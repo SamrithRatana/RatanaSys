@@ -64,13 +64,18 @@ function minutesToTime(min: number): string {
   return `${h}:${m}`;
 }
 
-// Format a minute count into a human-readable Khmer string
 function formatDuration(totalMinutes: number): string {
   const hPart = Math.floor(totalMinutes / 60);
   const mPart = totalMinutes % 60;
   if (hPart === 0) return `${mPart} នាទី`;
   if (mPart === 0) return `${hPart} ម៉ោង`;
   return `${hPart} ម៉ោង ${mPart} នាទី`;
+}
+
+function blockFloatKeys(e: React.KeyboardEvent<HTMLInputElement>) {
+  if ([".", ",", "-", "e", "E", "+"].includes(e.key)) {
+    e.preventDefault();
+  }
 }
 
 const formSchema = z
@@ -167,7 +172,6 @@ const RequestForm = ({ user }: Props) => {
     ? calcPersonalHours(personalStartTime, personalEndTime)
     : null;
 
-  // Human-readable summary label
   const personalSummary = (() => {
     if (!isPersonal || !startDateValue || !endDateValue) return null;
     if (isSameDay) {
@@ -182,7 +186,6 @@ const RequestForm = ({ user }: Props) => {
 
   const currentYear = today.getFullYear();
 
-  // Auto-set dates for Maternity / Special
   useEffect(() => {
     if (selectedLeave === "MATERNITY" && maternityGender) {
       const autoStart = new Date(today);
@@ -450,7 +453,12 @@ const RequestForm = ({ user }: Props) => {
                           onSelect={(date) => {
                             field.onChange(date);
                             if (isPersonal) {
-                              form.setValue("endDate", date ?? undefined, { shouldValidate: false });
+                              // ── Reset end date to same day and restore
+                              //    default times so the summary shows
+                              //    "1 ថ្ងៃ (08:00 – 17:00)" immediately ──
+                              form.setValue("endDate",           date ?? undefined, { shouldValidate: false });
+                              form.setValue("personalStartTime", "08:00",           { shouldValidate: false });
+                              form.setValue("personalEndTime",   "17:00",           { shouldValidate: false });
                             }
                             setOpenStartDate(false);
                           }}
@@ -559,7 +567,6 @@ const RequestForm = ({ user }: Props) => {
 
                   {/* ── Hours + Minutes shortcut inputs ── */}
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
-                    {/* Hours input */}
                     <Input
                       type="number"
                       min={0}
@@ -567,8 +574,9 @@ const RequestForm = ({ user }: Props) => {
                       step={1}
                       placeholder="h"
                       className="w-14 text-center"
+                      onKeyDown={blockFloatKeys}
                       onChange={(e) => {
-                        const h = parseFloat(e.target.value);
+                        const h = parseInt(e.target.value);
                         if (isNaN(h) || h < 0) return;
                         const startMin   = timeToMinutes(form.getValues("personalStartTime") ?? "08:00");
                         const curEnd     = timeToMinutes(form.getValues("personalEndTime")   ?? "17:00");
@@ -579,7 +587,6 @@ const RequestForm = ({ user }: Props) => {
                     />
                     <span className="text-sm text-muted-foreground">ម៉ោង</span>
 
-                    {/* Minutes input */}
                     <Input
                       type="number"
                       min={0}
@@ -587,6 +594,7 @@ const RequestForm = ({ user }: Props) => {
                       step={5}
                       placeholder="m"
                       className="w-14 text-center"
+                      onKeyDown={blockFloatKeys}
                       onChange={(e) => {
                         const m = parseInt(e.target.value);
                         if (isNaN(m) || m < 0) return;
