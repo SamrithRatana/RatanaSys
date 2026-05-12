@@ -24,6 +24,25 @@ type Props = {
   currentUserName: string;
 };
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Human-readable leave type label.
+ * SHORT is stored in the DB but displayed as Personal (Short) since
+ * the request form now combines them into one unified Personal Leave picker.
+ */
+function leaveTypeLabel(type: string): string {
+  const map: Record<string, string> = {
+    ANNUAL:    "ច្បាប់ប្រចាំឆ្នាំ (Annual)",
+    SICK:      "ច្បាប់ឈឺ (Sick)",
+    PERSONAL:  "ច្បាប់ផ្ទាល់ខ្លួន (Personal)",
+    SHORT:     "ច្បាប់ផ្ទាល់ខ្លួន · រយៈពេលខ្លី (Personal – Short)",
+    MATERNITY: "ច្បាប់មាតុភាព (Maternity)",
+    SPECIAL:   "ច្បាប់ពិសេស (Special)",
+  };
+  return map[type?.toUpperCase()] ?? type;
+}
+
 function StatusBadge({ status }: { status: LeaveStatus }) {
   const map: Record<LeaveStatus, { label: string; className: string }> = {
     APPROVED:     { label: "បានអនុម័ត",    className: "bg-green-500 text-white" },
@@ -35,7 +54,15 @@ function StatusBadge({ status }: { status: LeaveStatus }) {
   return <Badge className={className}>{label}</Badge>;
 }
 
-function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: React.ReactNode }) {
+function InfoRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: React.ReactNode;
+}) {
   return (
     <div className="flex items-start gap-3 py-2">
       <span className="text-muted-foreground mt-0.5">{icon}</span>
@@ -47,6 +74,8 @@ function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string;
   );
 }
 
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export default function LeaveDetail({ leave, currentUserRole, currentUserName }: Props) {
   const router = useRouter();
   const [notes, setNotes]     = useState("");
@@ -56,23 +85,19 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
   const isRejected = leave.status === LeaveStatus.REJECTED;
   const isDone     = isApproved || isRejected;
 
-  // Step flags — based on DB state
   const isStep1 = !leave.headDepartmentApproved;
   const isStep2 = leave.headDepartmentApproved && !leave.managerApproved && !isDone;
 
-  // ── Role-based action permissions ──────────────────────────────────────────
-  // MODERATOR: Step 1 (head dept) ONLY — never Step 2
-  const canActAsModerator = currentUserRole === "MODERATOR" && isStep1 && !isDone;
+  // MODERATOR: Step 1 only
+  const canActAsModerator  = currentUserRole === "MODERATOR" && isStep1 && !isDone;
 
-  // ADMIN: Step 1 OR Step 2 (whichever is pending)
+  // ADMIN: Step 1 or Step 2
   const canActAsAdminStep1 = currentUserRole === "ADMIN" && isStep1 && !isDone;
   const canActAsAdminStep2 = currentUserRole === "ADMIN" && isStep2 && !isDone;
   const canActAsAdmin      = canActAsAdminStep1 || canActAsAdminStep2;
 
-  // Combined: can this user act at all?
   const canAct = canActAsModerator || canActAsAdmin;
 
-  // Label shown in the action card header
   const actionLabel = canActAsAdminStep2
     ? "សេចក្តីសម្រេចរបស់អ្នកគ្រប់គ្រង"
     : canActAsAdminStep1
@@ -119,6 +144,8 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
     }
   }
 
+  const isShortLeave = leave.type === "SHORT";
+
   return (
     <div className="max-w-3xl mx-auto space-y-6 py-6">
 
@@ -142,7 +169,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         <StatusBadge status={leave.status} />
       </div>
 
-      {/* កាតព័ត៌មានការឈប់សម្រាក */}
+      {/* ព័ត៌មានការឈប់សម្រាក */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -151,27 +178,37 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
           </CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+
           <InfoRow
             icon={<User className="h-4 w-4" />}
             label="បុគ្គលិក"
             value={leave.userName ?? "—"}
           />
+
+          {/* ✅ SHORT → shown as Personal (Short) */}
           <InfoRow
             icon={<Briefcase className="h-4 w-4" />}
             label="ប្រភេទការឈប់សម្រាក"
-            value={leave.type}
+            value={leaveTypeLabel(leave.type)}
           />
+
           <InfoRow
             icon={<CalendarDays className="h-4 w-4" />}
             label="កាលបរិច្ឆេទ"
             value={
-              <span>
-                {dayjs(leave.startDate).format("DD MMM YYYY")}
-                {" → "}
-                {dayjs(leave.endDate).format("DD MMM YYYY")}
-              </span>
+              isShortLeave ? (
+                // Short leave is always a single day
+                dayjs(leave.startDate).format("DD MMM YYYY")
+              ) : (
+                <span>
+                  {dayjs(leave.startDate).format("DD MMM YYYY")}
+                  {" → "}
+                  {dayjs(leave.endDate).format("DD MMM YYYY")}
+                </span>
+              )
             }
           />
+
           <InfoRow
             icon={<Clock className="h-4 w-4" />}
             label="រយៈពេល"
@@ -181,20 +218,23 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
                 : `${leave.days} ថ្ងៃ`
             }
           />
+
           <InfoRow
             icon={<Clock className="h-4 w-4" />}
             label="បានស្នើនៅ"
             value={dayjs(leave.createdAt).format("DD MMM YYYY HH:mm")}
           />
+
           <InfoRow
             icon={<FileText className="h-4 w-4" />}
             label="មូលហេតុ"
             value={leave.userNote ?? "—"}
           />
+
         </CardContent>
       </Card>
 
-      {/* កាតនៃដំណើរការអនុម័ត */}
+      {/* ដំណើរការអនុម័ត */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -281,7 +321,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
                 <p className="text-sm text-gray-400">
                   {leave.headDepartmentApproved
                     ? "⏳ កំពុងរង់ចាំការអនុម័តពីអ្នកគ្រប់គ្រង"
-                    : "— រង់ចាំប្រធានផ្នែកជាមុនសិន"}
+                    : "— រង់ចាំប្រធានផ្នែកអនុម័ត"}
                 </p>
               )}
             </div>
@@ -290,7 +330,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         </CardContent>
       </Card>
 
-      {/* ── កាតសកម្មភាព — shown only when this user has something to do ── */}
+      {/* កាតសកម្មភាព */}
       {canAct && (
         <Card className="border-blue-200 bg-blue-50/50 dark:bg-blue-950/10">
           <CardHeader>
@@ -301,18 +341,15 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
           </CardHeader>
           <CardContent className="space-y-4">
 
-            {/* Context banner explaining current step & role */}
             <div className="rounded-md bg-muted p-3 text-sm">
               {canActAsModerator && (
                 <p className="text-amber-600 font-medium">
-                  📋 ជំហានទី ១ ក្នុង ២ — អ្នកកំពុងអនុម័តក្នុងតួនាទី{" "}
-                  <strong>ប្រធានផ្នែក</strong>
+                  📋 ជំហានទី ១ ក្នុង ២ — អ្នកកំពុងអនុម័តក្នុងតួនាទី <strong>ប្រធានផ្នែក</strong>
                 </p>
               )}
               {canActAsAdminStep1 && (
                 <p className="text-amber-600 font-medium">
-                  📋 ជំហានទី ១ ក្នុង ២ — អ្នកកំពុងអនុម័តក្នុងតួនាទី{" "}
-                  <strong>ប្រធានផ្នែក</strong> (Admin)
+                  📋 ជំហានទី ១ ក្នុង ២ — អ្នកកំពុងអនុម័តក្នុងតួនាទី <strong>ប្រធានផ្នែក</strong> (Admin)
                 </p>
               )}
               {canActAsAdminStep2 && (
@@ -324,7 +361,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="notes">កំណត់ចំណាំ (ស្រេចចិត្ត)</Label>
+              <Label htmlFor="notes">កំណត់ចំណាំ</Label>
               <Textarea
                 id="notes"
                 placeholder="បន្ថែមកំណត់ចំណាំសម្រាប់សេចក្តីសម្រេចរបស់អ្នក..."
@@ -362,19 +399,19 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         </Card>
       )}
 
-      {/* ── MODERATOR info banner — Step 2 is pending, but they can't act ── */}
+      {/* MODERATOR — Step 2 pending, their job is done */}
       {currentUserRole === "MODERATOR" && isStep2 && (
         <Card className="border-amber-200 bg-amber-50/50 dark:bg-amber-950/10">
           <CardContent className="py-4 text-center">
             <p className="text-amber-700 dark:text-amber-400 text-sm font-medium">
-              ⏳ ច្បាប់នេះកំពុងរង់ចាំការអនុម័តពី <strong>អ្នកគ្រប់គ្រង (Admin)</strong>។
+              ⏳ ច្បាប់នេះកំពុងរង់ចាំការអនុម័តពី <strong>អ្នកគ្រប់គ្រង (Admin)</strong>។{" "}
               តួនាទីរបស់អ្នក (Moderator) ត្រូវបានបញ្ចប់នៅជំហានទី ១ រួចហើយ។
             </p>
           </CardContent>
         </Card>
       )}
 
-      {/* ── Fully done banner ── */}
+      {/* Fully done */}
       {isDone && (
         <Card className={`border ${isApproved ? "border-green-200 bg-green-50/50" : "border-red-200 bg-red-50/50"}`}>
           <CardContent className="py-4 text-center">
