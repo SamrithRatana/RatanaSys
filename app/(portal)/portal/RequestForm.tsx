@@ -140,6 +140,10 @@ const RequestForm = ({ user }: Props) => {
   const [openStartDate, setOpenStartDate] = useState(false);
   const [openEndDate,   setOpenEndDate]   = useState(false);
 
+  // ── Controlled shortcut inputs (default 0) ──
+  const [shortcutH, setShortcutH] = useState<number>(0);
+  const [shortcutM, setShortcutM] = useState<number>(0);
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -185,6 +189,12 @@ const RequestForm = ({ user }: Props) => {
   })();
 
   const currentYear = today.getFullYear();
+
+  // helper to reset shortcut inputs
+  const resetShortcuts = () => {
+    setShortcutH(0);
+    setShortcutM(0);
+  };
 
   useEffect(() => {
     if (selectedLeave === "MATERNITY" && maternityGender) {
@@ -276,6 +286,7 @@ const RequestForm = ({ user }: Props) => {
         toast.success("Leave Submitted", { duration: 4000 });
         setOpen(false);
         form.reset({ personalStartTime: "08:00", personalEndTime: "17:00" });
+        resetShortcuts();
       } else {
         const data = await res.json();
         toast.error(`An error occurred: ${JSON.stringify(data)}`, { duration: 6000 });
@@ -336,6 +347,7 @@ const RequestForm = ({ user }: Props) => {
                               form.resetField("endDate");
                               form.setValue("personalStartTime", "08:00");
                               form.setValue("personalEndTime",   "17:00");
+                              resetShortcuts(); // ← reset on leave type change
                               setOpenLeaveType(false);
                             }}
                           >
@@ -453,12 +465,10 @@ const RequestForm = ({ user }: Props) => {
                           onSelect={(date) => {
                             field.onChange(date);
                             if (isPersonal) {
-                              // ── Reset end date to same day and restore
-                              //    default times so the summary shows
-                              //    "1 ថ្ងៃ (08:00 – 17:00)" immediately ──
                               form.setValue("endDate",           date ?? undefined, { shouldValidate: false });
                               form.setValue("personalStartTime", "08:00",           { shouldValidate: false });
                               form.setValue("personalEndTime",   "17:00",           { shouldValidate: false });
+                              resetShortcuts(); // ← reset on date change
                             }
                             setOpenStartDate(false);
                           }}
@@ -500,7 +510,11 @@ const RequestForm = ({ user }: Props) => {
                         <Calendar
                           mode="single"
                           selected={field.value}
-                          onSelect={(date) => { field.onChange(date); setOpenEndDate(false); }}
+                          onSelect={(date) => {
+                            field.onChange(date);
+                            resetShortcuts(); // ← reset on end date change too
+                            setOpenEndDate(false);
+                          }}
                           disabled={(date: Date) =>
                             date < today ||
                             (!!startDateValue && date < startDateValue)
@@ -540,6 +554,7 @@ const RequestForm = ({ user }: Props) => {
                                 const pushed = Math.min(timeToMinutes(newStart) + 60, 17 * 60);
                                 form.setValue("personalEndTime", minutesToTime(pushed));
                               }
+                              resetShortcuts(); // ← reset shortcuts when start time changes manually
                             }}
                           />
                         </FormControl>
@@ -565,7 +580,7 @@ const RequestForm = ({ user }: Props) => {
                     />
                   </div>
 
-                  {/* ── Hours + Minutes shortcut inputs ── */}
+                  {/* ── Hours + Minutes shortcut inputs (controlled, default 0) ── */}
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <Input
                       type="number"
@@ -574,15 +589,14 @@ const RequestForm = ({ user }: Props) => {
                       step={1}
                       placeholder="h"
                       className="w-14 text-center"
+                      value={shortcutH}
                       onKeyDown={blockFloatKeys}
                       onChange={(e) => {
-                        const h = parseInt(e.target.value);
-                        if (isNaN(h) || h < 0) return;
-                        const startMin   = timeToMinutes(form.getValues("personalStartTime") ?? "08:00");
-                        const curEnd     = timeToMinutes(form.getValues("personalEndTime")   ?? "17:00");
-                        const curMinPart = (curEnd - startMin) % 60;
-                        const endMin     = Math.min(startMin + h * 60 + curMinPart, 17 * 60);
-                        form.setValue("personalEndTime", minutesToTime(endMin));
+                        const h = Math.max(0, parseInt(e.target.value) || 0);
+                        setShortcutH(h);
+                        const startMin = timeToMinutes(form.getValues("personalStartTime") ?? "08:00");
+                        const endMin   = Math.min(startMin + h * 60 + shortcutM, 17 * 60);
+                        form.setValue("personalEndTime", minutesToTime(endMin), { shouldValidate: true });
                       }}
                     />
                     <span className="text-sm text-muted-foreground">ម៉ោង</span>
@@ -594,15 +608,14 @@ const RequestForm = ({ user }: Props) => {
                       step={5}
                       placeholder="m"
                       className="w-14 text-center"
+                      value={shortcutM}
                       onKeyDown={blockFloatKeys}
                       onChange={(e) => {
-                        const m = parseInt(e.target.value);
-                        if (isNaN(m) || m < 0) return;
-                        const startMin  = timeToMinutes(form.getValues("personalStartTime") ?? "08:00");
-                        const curEnd    = timeToMinutes(form.getValues("personalEndTime")   ?? "17:00");
-                        const curHrPart = Math.floor((curEnd - startMin) / 60);
-                        const endMin    = Math.min(startMin + curHrPart * 60 + m, 17 * 60);
-                        form.setValue("personalEndTime", minutesToTime(endMin));
+                        const m = Math.max(0, parseInt(e.target.value) || 0);
+                        setShortcutM(m);
+                        const startMin = timeToMinutes(form.getValues("personalStartTime") ?? "08:00");
+                        const endMin   = Math.min(startMin + shortcutH * 60 + m, 17 * 60);
+                        form.setValue("personalEndTime", minutesToTime(endMin), { shouldValidate: true });
                       }}
                     />
                     <span className="text-sm text-muted-foreground">នាទី</span>
