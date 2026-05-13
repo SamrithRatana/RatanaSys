@@ -1,11 +1,6 @@
-import {
-  HiOutlineUserGroup,
-  HiOutlineSquares2X2,
-  HiMiniComputerDesktop,
-  HiOutlineBuildingOffice2,
-  HiOutlineBriefcase,
-  HiOutlineShieldCheck,
-} from "react-icons/hi2";
+import { HiOutlineUserGroup, HiOutlineSquares2X2, HiMiniComputerDesktop,
+  HiOutlineBuildingOffice2, HiOutlineBriefcase, HiOutlineShieldCheck,
+  HiOutlineUsers } from "react-icons/hi2";
 import { TbListCheck } from "react-icons/tb";
 import { MdOutlineBalance, MdOutlineEvent } from "react-icons/md";
 
@@ -15,7 +10,8 @@ export const AdminRoutes = [
   { title: "Balances",     url: "/dashboard/balances",             icon: MdOutlineBalance },
   { title: "Leaves",       url: "/dashboard/leaves",               icon: TbListCheck },
   { title: "Users",        url: "/dashboard/users",                icon: HiOutlineUserGroup },
-  { title: "Events",       url: "/dashboard/settings",             icon: MdOutlineEvent }, // ✅ reverted
+  { title: "Teams",        url: "/dashboard/teams",                icon: HiOutlineUsers }, // ✅ new
+  { title: "Events",       url: "/dashboard/settings",             icon: MdOutlineEvent },
   { title: "Departments",  url: "/dashboard/settings/departments", icon: HiOutlineBuildingOffice2 },
   { title: "Job Titles",   url: "/dashboard/settings/jobtitles",   icon: HiOutlineBriefcase },
   { title: "Roles",        url: "/dashboard/settings/roles",       icon: HiOutlineShieldCheck },
@@ -30,7 +26,8 @@ export const ModeratorRoutes = [
   { title: "Portal",       url: "/portal",                         icon: HiMiniComputerDesktop },
   { title: "Balances",     url: "/dashboard/balances",             icon: MdOutlineBalance },
   { title: "Leaves",       url: "/dashboard/leaves",               icon: TbListCheck },
-  { title: "Events",       url: "/dashboard/settings",             icon: MdOutlineEvent }, // ✅ reverted
+  { title: "Teams",        url: "/dashboard/teams",                icon: HiOutlineUsers }, // ✅ new
+  { title: "Events",       url: "/dashboard/settings",             icon: MdOutlineEvent },
   { title: "Departments",  url: "/dashboard/settings/departments", icon: HiOutlineBuildingOffice2 },
   { title: "Job Titles",   url: "/dashboard/settings/jobtitles",   icon: HiOutlineBriefcase },
 ];
