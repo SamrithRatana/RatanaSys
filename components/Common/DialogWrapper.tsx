@@ -11,14 +11,14 @@ import {
 import { ReactNode } from "react";
 
 type DialogProps = {
-  children: ReactNode;
+  children:  ReactNode;
   btnTitle?: string;
-  title?: string;
-  descr?: string;
-  isBtn: boolean;
-  icon?: IconType;
-  open?: boolean;
-  setOpen?: () => void;
+  title?:    string;
+  descr?:    string;
+  isBtn:     boolean;
+  icon?:     IconType;
+  open?:     boolean;
+  setOpen?:  () => void;
 };
 
 const DialogWrapper = ({
@@ -41,14 +41,14 @@ const DialogWrapper = ({
         )}
       </DialogTrigger>
 
-      {/* ✅ max-h + overflow so keyboard doesn't hide content on mobile */}
       <DialogContent className="sm:max-w-[425px] max-h-[90vh] flex flex-col p-0">
         <DialogHeader className="px-6 pt-6 pb-2 shrink-0">
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{descr}</DialogDescription>
+          {/* ✅ always render DialogTitle — fallback to empty string prevents Radix warning */}
+          <DialogTitle>{title ?? ""}</DialogTitle>
+          {/* ✅ always render DialogDescription — fallback to empty string */}
+          <DialogDescription>{descr ?? ""}</DialogDescription>
         </DialogHeader>
 
-        {/* ✅ Scrollable body */}
         <div className="overflow-y-auto flex-1 px-6 pb-6">
           {children}
         </div>
