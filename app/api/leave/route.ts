@@ -11,8 +11,8 @@ type SubmittedLeave = {
   maternityGender?: "MALE" | "FEMALE";
   startDate:        string;
   endDate:          string;
-  hours?:           number;   // only set for personal same-day (partial hours)
-  days?:            number;   // pre-computed by frontend
+  hours?:           number;
+  days?:            number;
   user: {
     email: string;
     image: string;
@@ -49,6 +49,16 @@ function safeFormat(isoString: string, fmt: string): string {
   return format(safeParse(isoString), fmt);
 }
 
+// ✅ Convert decimal hours → readable Khmer duration
+function formatHourLabel(h: number): string {
+  const totalMin = Math.round(h * 60);
+  if (totalMin < 60) return `${totalMin} នាទី`;
+  if (totalMin % 60 === 0) return `${totalMin / 60} ម៉ោង`;
+  const hrs = Math.floor(totalMin / 60);
+  const min = totalMin % 60;
+  return `${hrs} ម៉ោង ${min} នាទី`;
+}
+
 export async function POST(req: NextRequest) {
   const loggedInUser = await getCurrentUser();
   if (!loggedInUser) {
@@ -59,27 +69,23 @@ export async function POST(req: NextRequest) {
     const body: SubmittedLeave = await req.json();
     const { startDate, endDate, notes, hours, days: frontendDays, user, maternityGender } = body;
 
-    const leaveType    = (body.type ?? body.leave ?? "").toUpperCase();
-    const isMaternity  = leaveType === "MATERNITY";
-    const isPersonal   = leaveType === "PERSONAL";
+    const leaveType   = (body.type ?? body.leave ?? "").toUpperCase();
+    const isMaternity = leaveType === "MATERNITY";
+    const isPersonal  = leaveType === "PERSONAL";
 
     const startDateObj = safeParse(startDate);
     const endDateObj   = safeParse(endDate);
     const year         = startDateObj.getFullYear().toString();
 
-    // ── Determine if this is a partial-hour personal leave ───────────────────
-    // hours is set by frontend only when: personal leave, same day, endTime < 17:00
     const isPersonalHours = isPersonal && !!hours && hours > 0;
-    const isSameDay       = differenceInDays(endDateObj, startDateObj) === 0;
 
-    let calcDays: number;
+    let calcDays:  number;
     let calcHours: number;
 
     if (isMaternity && maternityGender) {
       calcDays  = MATERNITY_DAYS[maternityGender] ?? 90;
       calcHours = 0;
     } else if (isPersonalHours) {
-      // partial personal leave: store hours, days = 0 (handled separately in balance)
       calcDays  = 0;
       calcHours = Number(hours);
     } else {
@@ -138,9 +144,8 @@ export async function POST(req: NextRequest) {
     // ── Build human-readable duration string ─────────────────────────────────
     const dateRange = (() => {
       if (isPersonalHours) {
-        // e.g. "12 មីនា 2026 (3 ម៉ោង)"
-        const h = +calcHours.toFixed(1);
-        return `${safeFormat(startDate, "dd MMM yyyy")} (${h} ម៉ោង)`;
+        // ✅ e.g. "13 May 2026 (20 នាទី)" instead of "0.3 ម៉ោង"
+        return `${safeFormat(startDate, "dd MMM yyyy")} (${formatHourLabel(calcHours)})`;
       }
       if (isMaternity && maternityGender) {
         return `${safeFormat(startDate, "dd MMM yyyy")} → ${safeFormat(endDate, "dd MMM yyyy")} (${calcDays} ថ្ងៃ)`;
@@ -152,8 +157,9 @@ export async function POST(req: NextRequest) {
     })();
 
     // ── Duration label for Telegram ──────────────────────────────────────────
+    // ✅ Now shows "20 នាទី" instead of "0.3 ម៉ោង"
     const durationLabel = isPersonalHours
-      ? `${+calcHours.toFixed(1)} ម៉ោង`
+      ? formatHourLabel(calcHours)
       : `${calcDays} ថ្ងៃ`;
 
     // ── Send Telegram notification ────────────────────────────────────────────
