@@ -14,9 +14,4 @@ if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
 }
 
-// Reconnect on connection loss
-prisma.$connect().catch((e) => {
-  console.error("Prisma failed to connect:", e);
-});
-
 export default prisma;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Pencil, Trash2, Plus, X, Check, Loader2 } from "lucide-react";
+import { Pencil, Trash2, Plus, X, Check, Loader2, RefreshCw } from "lucide-react";
 
 type Item = { id: string; label: string; description?: string | null };
 
@@ -19,50 +19,92 @@ export default function DynamicTable({ title, apiPath }: Props) {
   const [newForm, setNewForm]     = useState({ label: "", description: "" });
   const [showAdd, setShowAdd]     = useState(false);
   const [error, setError]         = useState("");
+  const [fetchError, setFetchError] = useState(false); // ✅ track load failure
 
-  // ✅ wrap in useCallback so useEffect dependency is stable
-  const load = useCallback(() => {
-    fetch(apiPath)
-      .then(r => r.json())
-      .then(d => { setItems(d); setLoading(false); });
+  const load = useCallback(async (retryCount = 0) => {
+    setLoading(true);
+    setFetchError(false);
+    try {
+      const res = await fetch(apiPath);
+      if (!res.ok) throw new Error("Failed to fetch");
+      const d = await res.json();
+      setItems(d);
+      setFetchError(false);
+    } catch (err) {
+      // ✅ Auto-retry up to 3 times with delay
+      if (retryCount < 3) {
+        setTimeout(() => load(retryCount + 1), 1000 * (retryCount + 1));
+      } else {
+        setFetchError(true);
+      }
+    } finally {
+      setLoading(false);
+    }
   }, [apiPath]);
 
-  useEffect(() => { load(); }, [load]); // ✅ no more warning
+  useEffect(() => { load(); }, [load]);
 
   const handleAdd = async () => {
     if (!newForm.label.trim()) { setError("Label is required"); return; }
     setSaving(true);
-    await fetch(apiPath, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(newForm),
-    });
-    setNewForm({ label: "", description: "" });
-    setShowAdd(false);
-    setError("");
-    setSaving(false);
-    load();
+    try {
+      await fetch(apiPath, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newForm),
+      });
+      setNewForm({ label: "", description: "" });
+      setShowAdd(false);
+      setError("");
+      load();
+    } catch {
+      setError("Failed to save. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleEdit = async (id: string) => {
     if (!editForm.label.trim()) { setError("Label is required"); return; }
     setSaving(true);
-    await fetch(`${apiPath}/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(editForm),
-    });
-    setEditingId(null);
-    setError("");
-    setSaving(false);
-    load();
+    try {
+      await fetch(`${apiPath}/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editForm),
+      });
+      setEditingId(null);
+      setError("");
+      load();
+    } catch {
+      setError("Failed to update. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm(`Delete this ${title.toLowerCase()}?`)) return;
-    await fetch(`${apiPath}/${id}`, { method: "DELETE" });
-    load();
+    try {
+      await fetch(`${apiPath}/${id}`, { method: "DELETE" });
+      load();
+    } catch {
+      setError("Failed to delete. Please try again.");
+    }
   };
+
+  // ✅ Show retry button on fetch failure
+  if (fetchError) return (
+    <div className="flex flex-col items-center justify-center py-20 gap-4">
+      <p className="text-red-500 text-sm">Failed to load {title.toLowerCase()}. Connection issue.</p>
+      <button
+        onClick={() => load()}
+        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm"
+      >
+        <RefreshCw size={16} /> Try Again
+      </button>
+    </div>
+  );
 
   if (loading) return (
     <div className="flex items-center justify-center py-20">
