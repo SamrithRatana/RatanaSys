@@ -16,7 +16,6 @@ const TeamsPage = async () => {
     orderBy: { name: "asc" },
   });
 
-  // ✅ Fetch departments from DB
   const departments = await prisma.department.findMany({
     orderBy: { label: "asc" },
     select: { id: true, label: true },
@@ -30,7 +29,12 @@ const TeamsPage = async () => {
           <CreateTeamModal allUsers={allUsers} departments={departments} />
         )}
       </div>
-      <TeamsTable teams={teams} currentUserRole={user?.role ?? ""} />
+      {/* ✅ pass allUsers to TeamsTable for edit modal */}
+      <TeamsTable
+        teams={teams}
+        currentUserRole={user?.role ?? ""}
+        allUsers={allUsers}
+      />
     </Container>
   );
 };
