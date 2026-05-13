@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-export default function GlobalError({
+export default function Error({
   error,
   reset,
 }: {
@@ -10,12 +10,11 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    // Auto-retry after 2 seconds
     const timer = setTimeout(() => {
-      reset();
-    }, 2000);
+      window.location.reload();
+    }, 1500);
     return () => clearTimeout(timer);
-  }, [reset]);
+  }, []);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen gap-4">
