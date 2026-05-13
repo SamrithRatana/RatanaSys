@@ -20,8 +20,7 @@ export function RenderIconsRoutes({ routes }: Props) {
   return (
     <>
       {routes.map((route, index) => {
-        const isActive =
-          pathname === route.url || pathname.startsWith(route.url + "/");
+        const isActive = pathname === route.url;
 
         return (
           <Link href={route.url} key={index} className="my-3">
@@ -58,8 +57,9 @@ export function RenderRoutes({ routes }: Props) {
   return (
     <>
       {routes.map((route, index) => {
-        // ✅ Exact match only — no startsWith to avoid parent/child conflicts
-        const isActive = pathname === route.url || pathname === route.url.replace(/\/$/, "");
+        // ✅ Always exact match — no startsWith so /dashboard/settings
+        // won't highlight when on /dashboard/settings/departments
+        const isActive = pathname === route.url;
 
         return (
           <Link
@@ -74,17 +74,12 @@ export function RenderRoutes({ routes }: Props) {
               }
             `}
           >
-            {/* Icon */}
             <span className={`shrink-0 ${isActive ? "text-blue-600 dark:text-blue-400" : "text-current"}`}>
               {React.createElement(route.icon, { size: 20 })}
             </span>
-
-            {/* Title */}
             <span className="flex-1 text-sm font-medium truncate">
               {route.title}
             </span>
-
-            {/* ✅ Vertical bar removed */}
           </Link>
         );
       })}

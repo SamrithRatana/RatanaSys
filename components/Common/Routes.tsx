@@ -15,7 +15,7 @@ export const AdminRoutes = [
   { title: "Balances",     url: "/dashboard/balances",             icon: MdOutlineBalance },
   { title: "Leaves",       url: "/dashboard/leaves",               icon: TbListCheck },
   { title: "Users",        url: "/dashboard/users",                icon: HiOutlineUserGroup },
-  { title: "Events",       url: "/dashboard/events",               icon: MdOutlineEvent }, // ✅ fixed
+  { title: "Events",       url: "/dashboard/settings",             icon: MdOutlineEvent }, // ✅ reverted
   { title: "Departments",  url: "/dashboard/settings/departments", icon: HiOutlineBuildingOffice2 },
   { title: "Job Titles",   url: "/dashboard/settings/jobtitles",   icon: HiOutlineBriefcase },
   { title: "Roles",        url: "/dashboard/settings/roles",       icon: HiOutlineShieldCheck },
@@ -30,7 +30,7 @@ export const ModeratorRoutes = [
   { title: "Portal",       url: "/portal",                         icon: HiMiniComputerDesktop },
   { title: "Balances",     url: "/dashboard/balances",             icon: MdOutlineBalance },
   { title: "Leaves",       url: "/dashboard/leaves",               icon: TbListCheck },
-  { title: "Events",       url: "/dashboard/events",               icon: MdOutlineEvent }, // ✅ fixed
+  { title: "Events",       url: "/dashboard/settings",             icon: MdOutlineEvent }, // ✅ reverted
   { title: "Departments",  url: "/dashboard/settings/departments", icon: HiOutlineBuildingOffice2 },
   { title: "Job Titles",   url: "/dashboard/settings/jobtitles",   icon: HiOutlineBriefcase },
 ];
