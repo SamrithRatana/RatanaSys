@@ -30,9 +30,9 @@ export default function RootLayout({
           content="width=device-width, initial-scale=1, viewport-fit=cover"
         />
         <meta name="theme-color" content="#0088cc" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="LMS App" />
+        {/* ✅ REMOVED apple-mobile-web-app-capable — handled by metadata.appleWebApp */}
+        {/* ✅ REMOVED apple-mobile-web-app-status-bar-style — handled by metadata.appleWebApp */}
+        {/* ✅ REMOVED apple-mobile-web-app-title — handled by metadata.appleWebApp */}
         <link rel="apple-touch-icon" href="/icon-192x192.png" />
         <meta name="msapplication-TileColor" content="#0088cc" />
         <meta name="msapplication-TileImage" content="/icon-192x192.png" />
