@@ -2,15 +2,22 @@ import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
 
-// PATCH — update team members
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const user = await getCurrentUser();
+  const sessionUser = await getCurrentUser();
+  if (!sessionUser) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const user = await prisma.user.findUnique({
+    where: { id: sessionUser.id },
+    select: { role: true },
+  });
   if (!user || user.role !== "ADMIN")
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const { name, department, moderatorId, memberEmails } = await req.json();
+  const body = await req.json();
+  const name         = body.name         as string;
+  const department   = body.department   as string;
+  const memberEmails = body.memberEmails as string[];
 
-  // Delete old members and re-insert
   await prisma.teamMember.deleteMany({ where: { teamId: params.id } });
 
   const team = await prisma.team.update({
@@ -18,9 +25,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     data: {
       name,
       department,
-      moderatorId,
       members: {
-        create: (memberEmails as string[]).map((email) => ({ userEmail: email })),
+        create: memberEmails.map((email: string) => ({ userEmail: email })),
       },
     },
     include: { members: true },
@@ -29,9 +35,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   return NextResponse.json(team);
 }
 
-// DELETE — delete team
 export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
-  const user = await getCurrentUser();
+  const sessionUser = await getCurrentUser();
+  if (!sessionUser) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const user = await prisma.user.findUnique({
+    where: { id: sessionUser.id },
+    select: { role: true },
+  });
   if (!user || user.role !== "ADMIN")
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 

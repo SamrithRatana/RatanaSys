@@ -29,11 +29,11 @@ const TeamsPage = async () => {
           <CreateTeamModal allUsers={allUsers} departments={departments} />
         )}
       </div>
-      {/* ✅ pass allUsers to TeamsTable for edit modal */}
       <TeamsTable
         teams={teams}
         currentUserRole={user?.role ?? ""}
         allUsers={allUsers}
+        departments={departments}
       />
     </Container>
   );

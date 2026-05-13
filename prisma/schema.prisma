@@ -191,7 +191,6 @@ model Team {
   id          String       @id @default(cuid())
   name        String
   department  String       // matches Department.label
-  moderatorId String       // User.id of the moderator
   members     TeamMember[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt

@@ -5,12 +5,10 @@ export async function getTeamsData() {
   const sessionUser = await getCurrentUser();
   if (!sessionUser) return [];
 
-  // ✅ Fetch full user from DB
   const user = await prisma.user.findUnique({
     where: { id: sessionUser.id },
     select: { role: true, department: true },
   });
-
   if (!user) return [];
 
   const year = new Date().getFullYear().toString();
@@ -23,9 +21,10 @@ export async function getTeamsData() {
 
   const result = await Promise.all(
     teams.map(async (team) => {
-      const moderator = await prisma.user.findUnique({
-        where: { id: team.moderatorId },
-        select: { name: true, email: true, image: true, department: true },
+      // ✅ Auto-query moderators by department — no extra table
+      const moderators = await prisma.user.findMany({
+        where: { role: "MODERATOR", department: team.department },
+        select: { id: true, name: true, email: true, image: true },
       });
 
       const members = await Promise.all(
@@ -41,7 +40,7 @@ export async function getTeamsData() {
         })
       );
 
-      return { ...team, moderator, members };
+      return { ...team, moderators, members };
     })
   );
 
