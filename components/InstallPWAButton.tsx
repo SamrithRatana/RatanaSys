@@ -14,7 +14,7 @@ declare global {
         ) => void;
         platform: string;
         version: string;
-        initData: string;
+   
       };
     };
     __pwaInstallPrompt: any;
