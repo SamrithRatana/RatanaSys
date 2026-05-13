@@ -13,7 +13,6 @@ export default function Error({
   const [showError, setShowError] = useState(false);
   const maxRetries = 3;
 
-  // ✅ Wrap reset in useCallback to stabilize the reference
   const stableReset = useCallback(() => reset(), [reset]);
 
   useEffect(() => {
@@ -27,18 +26,26 @@ export default function Error({
 
       return () => clearTimeout(timer);
     } else {
-      setShowError(true);
-    }
-  }, [error, retryCount, stableReset]); // ✅ no more eslint warning
+      // ✅ After all retries failed — hard reload automatically
+      const reloadTimer = setTimeout(() => {
+        window.location.reload();
+      }, 1000);
 
+      return () => clearTimeout(reloadTimer);
+    }
+  }, [error, retryCount, stableReset]);
+
+  // Still show spinner during retries AND during final reload wait
   if (!showError) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-3">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
         <p className="text-sm text-gray-500">
-          {retryCount === 0
-            ? "Connecting..."
-            : `Retrying... (${retryCount}/${maxRetries})`}
+          {retryCount < maxRetries
+            ? retryCount === 0
+              ? "Connecting..."
+              : `Retrying... (${retryCount}/${maxRetries})`
+            : "Reloading page..."}
         </p>
       </div>
     );
@@ -53,10 +60,6 @@ export default function Error({
         <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
           Something went wrong
         </h2>
-        <div className="text-xs bg-red-50 text-red-600 p-3 rounded max-w-sm overflow-auto break-all border border-red-200">
-          <p><strong>Error:</strong> {error.message}</p>
-          {error.digest && <p><strong>Digest:</strong> {error.digest}</p>}
-        </div>
       </div>
       <button
         onClick={() => {
