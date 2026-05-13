@@ -62,7 +62,12 @@ export default function TeamsTable({
   departments = [],
 }: Props) {
   const router = useRouter();
-  const [expanded, setExpanded] = useState<string | null>(null);
+
+  // ✅ All teams expanded by default
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(
+    () => new Set(teams.map((t) => t.id))
+  );
+
   const [editTeam, setEditTeam] = useState<Team | null>(null);
   const [editDepartment, setEditDepartment] = useState("");
   const [memberEmails, setMemberEmails] = useState<string[]>([]);
@@ -71,10 +76,17 @@ export default function TeamsTable({
 
   const regularUsers = allUsers.filter((u) => u.role === "USER");
 
-  // ✅ Auto moderators for edit modal
   const editAutoModerators = allUsers.filter(
     (u) => u.role === "MODERATOR" && u.department === editDepartment
   );
+
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
 
   function openEdit(team: Team) {
     setEditTeam(team);
@@ -159,7 +171,7 @@ export default function TeamsTable({
               <div className="flex items-center justify-between">
                 <div
                   className="flex items-center gap-3 cursor-pointer flex-1"
-                  onClick={() => setExpanded(expanded === team.id ? null : team.id)}
+                  onClick={() => toggleExpand(team.id)}
                 >
                   <CardTitle className="text-lg">{team.name}</CardTitle>
                   <Badge variant="outline">{team.department}</Badge>
@@ -187,16 +199,16 @@ export default function TeamsTable({
                   )}
                   <Button
                     variant="ghost" size="icon" className="h-8 w-8"
-                    onClick={() => setExpanded(expanded === team.id ? null : team.id)}
+                    onClick={() => toggleExpand(team.id)}
                   >
-                    {expanded === team.id
+                    {expandedIds.has(team.id)
                       ? <ChevronUp className="h-5 w-5" />
                       : <ChevronDown className="h-5 w-5" />}
                   </Button>
                 </div>
               </div>
 
-              {/* ✅ Show all moderators */}
+              {/* ✅ All moderators */}
               <div className="flex flex-wrap items-center gap-2 mt-2">
                 {team.moderators.length > 0 ? (
                   team.moderators.map((mod) => (
@@ -207,8 +219,8 @@ export default function TeamsTable({
                       </Avatar>
                       <span className="text-sm text-muted-foreground">
                         <strong>{mod.name}</strong>
-                        <Badge className="ml-1 text-xs bg-indigo-100 text-indigo-700">Moderator</Badge>
                       </span>
+                      <Badge className="text-xs bg-indigo-100 text-indigo-700">Moderator</Badge>
                     </div>
                   ))
                 ) : (
@@ -217,8 +229,8 @@ export default function TeamsTable({
               </div>
             </CardHeader>
 
-            {/* Members table */}
-            {expanded === team.id && (
+            {/* ✅ Members table — expanded by default */}
+            {expandedIds.has(team.id) && (
               <CardContent className="pt-0">
                 <div className="rounded-lg border overflow-hidden">
                   <table className="w-full text-sm">
@@ -283,7 +295,6 @@ export default function TeamsTable({
           </DialogHeader>
           <div className="space-y-4 pt-2">
 
-            {/* Department select */}
             <div className="space-y-1">
               <Label>ផ្នែក (Department)</Label>
               <select
@@ -301,19 +312,19 @@ export default function TeamsTable({
               </select>
             </div>
 
-            {/* Auto moderators */}
             <div className="rounded-md bg-muted px-3 py-2 text-sm space-y-1">
               <p className="font-medium text-muted-foreground">👤 Moderator (Auto)</p>
               {editAutoModerators.length > 0 ? (
-                editAutoModerators.map((m) => (
-                  <Badge key={m.id} className="bg-blue-600 text-white mr-1">{m.name}</Badge>
-                ))
+                <div className="flex flex-wrap gap-1">
+                  {editAutoModerators.map((m) => (
+                    <Badge key={m.id} className="bg-blue-600 text-white">{m.name}</Badge>
+                  ))}
+                </div>
               ) : (
                 <p className="text-amber-500 text-xs">⚠️ មិនទាន់មាន Moderator</p>
               )}
             </div>
 
-            {/* Members */}
             <div className="space-y-2">
               <Label>សមាជិក (Members)</Label>
 
