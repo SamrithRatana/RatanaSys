@@ -10,42 +10,48 @@ export default function Error({
   reset: () => void;
 }) {
   const [retryCount, setRetryCount] = useState(0);
-  const [showError, setShowError] = useState(false);
-  const maxRetries = 3;
+  const maxRetries = 2; // ✅ reduced — no infinite loop
 
   const stableReset = useCallback(() => reset(), [reset]);
 
   useEffect(() => {
     console.error("App error:", error.message, error?.digest);
 
-    if (retryCount < maxRetries) {
+    // ✅ Only retry if it's a connection error
+    const isConnectionError =
+      error.message?.includes("Connection closed") ||
+      error.message?.includes("fetch") ||
+      error.message?.includes("network") ||
+      error.message?.includes("Failed to load");
+
+    if (isConnectionError && retryCount < maxRetries) {
       const timer = setTimeout(() => {
         setRetryCount((prev) => prev + 1);
         stableReset();
-      }, 1500 * (retryCount + 1));
+      }, 2000 * (retryCount + 1)); // 2s, 4s
 
       return () => clearTimeout(timer);
-    } else {
-      // ✅ After all retries failed — hard reload automatically
-      const reloadTimer = setTimeout(() => {
+    } else if (isConnectionError && retryCount >= maxRetries) {
+      // ✅ After retries — ONE hard reload, then stop
+      const timer = setTimeout(() => {
         window.location.reload();
       }, 1000);
-
-      return () => clearTimeout(reloadTimer);
+      return () => clearTimeout(timer);
     }
+    // ✅ Non-connection errors — just show error immediately, no retry loop
   }, [error, retryCount, stableReset]);
 
-  // Still show spinner during retries AND during final reload wait
-  if (!showError) {
+  const isRetrying =
+    (error.message?.includes("Connection closed") ||
+      error.message?.includes("fetch")) &&
+    retryCount < maxRetries;
+
+  if (isRetrying) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-3">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
         <p className="text-sm text-gray-500">
-          {retryCount < maxRetries
-            ? retryCount === 0
-              ? "Connecting..."
-              : `Retrying... (${retryCount}/${maxRetries})`
-            : "Reloading page..."}
+          {retryCount === 0 ? "Connecting..." : `Retrying... (${retryCount}/${maxRetries})`}
         </p>
       </div>
     );
@@ -60,13 +66,10 @@ export default function Error({
         <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
           Something went wrong
         </h2>
+        <p className="text-xs text-gray-400">{error.message}</p>
       </div>
       <button
-        onClick={() => {
-          setRetryCount(0);
-          setShowError(false);
-          stableReset();
-        }}
+        onClick={() => { setRetryCount(0); stableReset(); }}
         className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
       >
         Try again
