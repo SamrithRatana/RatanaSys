@@ -58,11 +58,8 @@ export function RenderRoutes({ routes }: Props) {
   return (
     <>
       {routes.map((route, index) => {
-        // ✅ Special case: /dashboard/ should only match exactly
-        const isActive =
-          route.url === "/dashboard/"
-            ? pathname === "/dashboard" || pathname === "/dashboard/"
-            : pathname === route.url || pathname.startsWith(route.url + "/");
+        // ✅ Exact match only — no startsWith to avoid parent/child conflicts
+        const isActive = pathname === route.url || pathname === route.url.replace(/\/$/, "");
 
         return (
           <Link
@@ -78,13 +75,7 @@ export function RenderRoutes({ routes }: Props) {
             `}
           >
             {/* Icon */}
-            <span
-              className={`shrink-0 ${
-                isActive
-                  ? "text-blue-600 dark:text-blue-400"
-                  : "text-current"
-              }`}
-            >
+            <span className={`shrink-0 ${isActive ? "text-blue-600 dark:text-blue-400" : "text-current"}`}>
               {React.createElement(route.icon, { size: 20 })}
             </span>
 
@@ -93,10 +84,7 @@ export function RenderRoutes({ routes }: Props) {
               {route.title}
             </span>
 
-            {/* ✅ Active indicator bar on the left */}
-            {isActive && (
-              <span className="ml-auto w-1 h-5 rounded-full bg-blue-600 dark:bg-blue-400" />
-            )}
+            {/* ✅ Vertical bar removed */}
           </Link>
         );
       })}
