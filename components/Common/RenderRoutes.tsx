@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
 import React from "react";
+import { usePathname } from "next/navigation";
 import {
   Tooltip,
   TooltipContent,
@@ -12,48 +15,91 @@ type Props = {
 };
 
 export function RenderIconsRoutes({ routes }: Props) {
+  const pathname = usePathname();
+
   return (
     <>
-      {routes.map((route, index) => (
-        <Link href={route.url} key={index} className="my-3">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button className="bg-slate-50 p-2 text-slate-500 rounded-md dark:bg-black">
-                  {React.createElement(route.icon, { size: 24 })}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{route.title}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </Link>
-      ))}
+      {routes.map((route, index) => {
+        const isActive =
+          pathname === route.url || pathname.startsWith(route.url + "/");
+
+        return (
+          <Link href={route.url} key={index} className="my-3">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className={`p-2 rounded-md transition-colors
+                      ${
+                        isActive
+                          ? "bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400"
+                          : "bg-slate-50 text-slate-500 dark:bg-black hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950"
+                      }
+                    `}
+                  >
+                    {React.createElement(route.icon, { size: 24 })}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{route.title}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </Link>
+        );
+      })}
     </>
   );
 }
 
 export function RenderRoutes({ routes }: Props) {
+  const pathname = usePathname();
+
   return (
     <>
-      {routes.map((route, index) => (
-        <Link
-          href={route.url}
-          key={index}
-          className="flex items-center gap-3 w-full px-2 py-2.5 my-0.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-950 hover:text-blue-600 transition-colors"
-        >
-          {/* Icon — fixed size, never shrinks */}
-          <span className="shrink-0 text-current">
-            {React.createElement(route.icon, { size: 20 })}
-          </span>
+      {routes.map((route, index) => {
+        // ✅ Special case: /dashboard/ should only match exactly
+        const isActive =
+          route.url === "/dashboard/"
+            ? pathname === "/dashboard" || pathname === "/dashboard/"
+            : pathname === route.url || pathname.startsWith(route.url + "/");
 
-          {/* Title — takes remaining space, truncates if needed */}
-          <span className="flex-1 text-sm font-medium truncate">
-            {route.title}
-          </span>
-        </Link>
-      ))}
+        return (
+          <Link
+            href={route.url}
+            key={index}
+            className={`
+              flex items-center gap-3 w-full px-2 py-2.5 my-0.5 rounded-md transition-colors
+              ${
+                isActive
+                  ? "bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400"
+                  : "hover:bg-blue-50 dark:hover:bg-blue-950 hover:text-blue-600"
+              }
+            `}
+          >
+            {/* Icon */}
+            <span
+              className={`shrink-0 ${
+                isActive
+                  ? "text-blue-600 dark:text-blue-400"
+                  : "text-current"
+              }`}
+            >
+              {React.createElement(route.icon, { size: 20 })}
+            </span>
+
+            {/* Title */}
+            <span className="flex-1 text-sm font-medium truncate">
+              {route.title}
+            </span>
+
+            {/* ✅ Active indicator bar on the left */}
+            {isActive && (
+              <span className="ml-auto w-1 h-5 rounded-full bg-blue-600 dark:bg-blue-400" />
+            )}
+          </Link>
+        );
+      })}
     </>
   );
 }
