@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader,
@@ -21,19 +20,37 @@ type UserOption = {
   department: string | null;
 };
 
-type Props = { allUsers: UserOption[] };
+type Department = {
+  id: string;
+  label: string;
+};
 
-export default function CreateTeamModal({ allUsers }: Props) {
+type Props = {
+  allUsers: UserOption[];
+  departments: Department[];
+};
+
+export default function CreateTeamModal({ allUsers, departments }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [name, setName] = useState("");
   const [department, setDepartment] = useState("");
-  const [moderatorId, setModeratorId] = useState("");
   const [memberEmails, setMemberEmails] = useState<string[]>([]);
 
-  const moderators = allUsers.filter((u) => u.role === "MODERATOR");
-  const regularUsers = allUsers.filter((u) => u.role === "USER");
+  // ✅ Auto-find moderator for selected department
+  const moderator = allUsers.find(
+    (u) => u.role === "MODERATOR" && u.department === department
+  );
+
+  // ✅ Show all users in selected department (excluding moderator)
+  const availableMembers = allUsers.filter(
+    (u) => u.role === "USER" && u.department === department
+  );
+
+  // ✅ Also allow adding users from other departments
+  const otherUsers = allUsers.filter(
+    (u) => u.role === "USER" && u.department !== department
+  );
 
   const toggleMember = (email: string) => {
     setMemberEmails((prev) =>
@@ -41,9 +58,15 @@ export default function CreateTeamModal({ allUsers }: Props) {
     );
   };
 
+  // Reset members when department changes
+  const handleDepartmentChange = (val: string) => {
+    setDepartment(val);
+    setMemberEmails([]);
+  };
+
   async function handleSubmit() {
-    if (!name || !department || !moderatorId) {
-      toast.error("សូមបំពេញព័ត៌មានទាំងអស់");
+    if (!department || !moderator) {
+      toast.error("សូមជ្រើស Department ដែលមាន Moderator");
       return;
     }
     setLoading(true);
@@ -51,15 +74,22 @@ export default function CreateTeamModal({ allUsers }: Props) {
       const res = await fetch("/api/teams", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, department, moderatorId, memberEmails }),
+        body: JSON.stringify({
+          name: `${department} Team`,
+          department,
+          moderatorId: moderator.id,
+          memberEmails,
+        }),
       });
       if (res.ok) {
         toast.success("បង្កើតក្រុមបានជោគជ័យ!");
         setOpen(false);
-        setName(""); setDepartment(""); setModeratorId(""); setMemberEmails([]);
+        setDepartment("");
+        setMemberEmails([]);
         router.refresh();
       } else {
-        toast.error("មានបញ្ហាកើតឡើង");
+        const err = await res.json();
+        toast.error(err.error ?? "មានបញ្ហាកើតឡើង");
       }
     } finally {
       setLoading(false);
@@ -77,71 +107,111 @@ export default function CreateTeamModal({ allUsers }: Props) {
         </DialogHeader>
         <div className="space-y-4 pt-2">
 
-          <div className="space-y-1">
-            <Label>ឈ្មោះក្រុម</Label>
-            <Input placeholder="e.g. IT Team" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-
+          {/* ✅ Department select from DB */}
           <div className="space-y-1">
             <Label>ផ្នែក (Department)</Label>
-            <Input placeholder="e.g. IT" value={department} onChange={(e) => setDepartment(e.target.value)} />
-          </div>
-
-          {/* ✅ Native select — no shadcn/ui Select needed */}
-          <div className="space-y-1">
-            <Label>Moderator (ប្រធានផ្នែក)</Label>
             <select
-              value={moderatorId}
-              onChange={(e) => setModeratorId(e.target.value)}
+              value={department}
+              onChange={(e) => handleDepartmentChange(e.target.value)}
               className="w-full border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring"
             >
-              <option value="">ជ្រើសរើស Moderator</option>
-              {moderators.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name} — {u.department ?? "គ្មានផ្នែក"}
-                </option>
+              <option value="">ជ្រើសរើស Department</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.label}>{d.label}</option>
               ))}
             </select>
           </div>
 
-          <div className="space-y-2">
-            <Label>សមាជិក (Members)</Label>
-            <div className="border rounded-md p-3 max-h-48 overflow-y-auto space-y-1">
-              {regularUsers.map((u) => (
-                <div
-                  key={u.id}
-                  onClick={() => toggleMember(u.email ?? "")}
-                  className={`flex items-center justify-between px-2 py-1.5 rounded cursor-pointer transition-colors
-                    ${memberEmails.includes(u.email ?? "")
-                      ? "bg-blue-50 dark:bg-blue-900/30"
-                      : "hover:bg-muted"}`}
-                >
-                  <span className="text-sm">
-                    {u.name}{" "}
-                    <span className="text-muted-foreground text-xs">({u.department ?? "—"})</span>
-                  </span>
-                  {memberEmails.includes(u.email ?? "") && (
-                    <Badge className="bg-blue-600 text-white text-xs">✓</Badge>
-                  )}
-                </div>
-              ))}
+          {/* ✅ Auto show moderator */}
+          {department && (
+            <div className="rounded-md bg-muted px-3 py-2 text-sm">
+              {moderator ? (
+                <p>👤 <strong>Moderator:</strong> {moderator.name}
+                  <Badge className="ml-2 bg-blue-600 text-white text-xs">Auto</Badge>
+                </p>
+              ) : (
+                <p className="text-amber-500">⚠️ មិនទាន់មាន Moderator សម្រាប់ {department} ទេ</p>
+              )}
             </div>
-            {memberEmails.length > 0 && (
-              <div className="flex flex-wrap gap-1">
-                {memberEmails.map((email) => {
-                  const u = regularUsers.find((u) => u.email === email);
-                  return (
-                    <Badge key={email} variant="outline" className="gap-1">
-                      {u?.name ?? email}
-                      <X className="h-3 w-3 cursor-pointer" onClick={() => toggleMember(email)} />
-                    </Badge>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          )}
 
-          <Button className="w-full" onClick={handleSubmit} disabled={loading}>
+          {/* ✅ Members from same department first */}
+          {department && (
+            <div className="space-y-2">
+              <Label>សមាជិក (Members)</Label>
+
+              {availableMembers.length > 0 && (
+                <>
+                  <p className="text-xs text-muted-foreground">ក្នុង {department}</p>
+                  <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-1">
+                    {availableMembers.map((u) => (
+                      <div
+                        key={u.id}
+                        onClick={() => toggleMember(u.email ?? "")}
+                        className={`flex items-center justify-between px-2 py-1.5 rounded cursor-pointer transition-colors
+                          ${memberEmails.includes(u.email ?? "")
+                            ? "bg-blue-50 dark:bg-blue-900/30"
+                            : "hover:bg-muted"}`}
+                      >
+                        <span className="text-sm">{u.name}</span>
+                        {memberEmails.includes(u.email ?? "") && (
+                          <Badge className="bg-blue-600 text-white text-xs">✓</Badge>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* Other department users */}
+              {otherUsers.length > 0 && (
+                <>
+                  <p className="text-xs text-muted-foreground mt-2">ផ្នែកផ្សេង</p>
+                  <div className="border rounded-md p-3 max-h-32 overflow-y-auto space-y-1">
+                    {otherUsers.map((u) => (
+                      <div
+                        key={u.id}
+                        onClick={() => toggleMember(u.email ?? "")}
+                        className={`flex items-center justify-between px-2 py-1.5 rounded cursor-pointer transition-colors
+                          ${memberEmails.includes(u.email ?? "")
+                            ? "bg-blue-50 dark:bg-blue-900/30"
+                            : "hover:bg-muted"}`}
+                      >
+                        <span className="text-sm">
+                          {u.name}
+                          <span className="text-xs text-muted-foreground ml-1">({u.department ?? "—"})</span>
+                        </span>
+                        {memberEmails.includes(u.email ?? "") && (
+                          <Badge className="bg-blue-600 text-white text-xs">✓</Badge>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* Selected badges */}
+              {memberEmails.length > 0 && (
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {memberEmails.map((email) => {
+                    const u = allUsers.find((u) => u.email === email);
+                    return (
+                      <Badge key={email} variant="outline" className="gap-1">
+                        {u?.name ?? email}
+                        <X className="h-3 w-3 cursor-pointer" onClick={() => toggleMember(email)} />
+                      </Badge>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          <Button
+            className="w-full"
+            onClick={handleSubmit}
+            disabled={loading || !department || !moderator}
+          >
             {loading ? "កំពុងបង្កើត..." : "បង្កើតក្រុម"}
           </Button>
         </div>

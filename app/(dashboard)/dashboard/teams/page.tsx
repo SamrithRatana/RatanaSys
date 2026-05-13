@@ -10,16 +10,25 @@ import prisma from "@/lib/prisma";
 const TeamsPage = async () => {
   const user = await getCurrentUser();
   const teams = await getTeamsData();
+
   const allUsers = await prisma.user.findMany({
     select: { id: true, name: true, email: true, role: true, department: true },
     orderBy: { name: "asc" },
+  });
+
+  // ✅ Fetch departments from DB
+  const departments = await prisma.department.findMany({
+    orderBy: { label: "asc" },
+    select: { id: true, label: true },
   });
 
   return (
     <Container>
       <div className="flex flex-col md:flex-row py-6 items-center justify-between">
         <h2 className="text-3xl font-bold tracking-tight">Teams</h2>
-        {user?.role === "ADMIN" && <CreateTeamModal allUsers={allUsers} />}
+        {user?.role === "ADMIN" && (
+          <CreateTeamModal allUsers={allUsers} departments={departments} />
+        )}
       </div>
       <TeamsTable teams={teams} currentUserRole={user?.role ?? ""} />
     </Container>
