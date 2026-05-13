@@ -10,14 +10,13 @@ export default function Error({
   reset: () => void;
 }) {
   const [retryCount, setRetryCount] = useState(0);
-  const maxRetries = 2; // ✅ reduced — no infinite loop
+  const maxRetries = 2;
 
   const stableReset = useCallback(() => reset(), [reset]);
 
   useEffect(() => {
     console.error("App error:", error.message, error?.digest);
 
-    // ✅ Only retry if it's a connection error
     const isConnectionError =
       error.message?.includes("Connection closed") ||
       error.message?.includes("fetch") ||
@@ -28,18 +27,24 @@ export default function Error({
       const timer = setTimeout(() => {
         setRetryCount((prev) => prev + 1);
         stableReset();
-      }, 2000 * (retryCount + 1)); // 2s, 4s
+      }, 2000 * (retryCount + 1));
 
       return () => clearTimeout(timer);
     } else if (isConnectionError && retryCount >= maxRetries) {
-      // ✅ After retries — ONE hard reload, then stop
       const timer = setTimeout(() => {
         window.location.reload();
       }, 1000);
       return () => clearTimeout(timer);
     }
-    // ✅ Non-connection errors — just show error immediately, no retry loop
   }, [error, retryCount, stableReset]);
+
+  // ✅ NEW: Auto-reload if stuck on "Connecting..." screen after 8 seconds
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      window.location.reload();
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, []); // runs once on mount — cleans up if component unmounts before firing
 
   const isRetrying =
     (error.message?.includes("Connection closed") ||
