@@ -1,7 +1,7 @@
 import { HiOutlineUserGroup, HiOutlineSquares2X2, HiMiniComputerDesktop,
   HiOutlineBuildingOffice2, HiOutlineBriefcase, HiOutlineShieldCheck,
   HiOutlineUsers } from "react-icons/hi2";
-import { TbListCheck } from "react-icons/tb";
+import { TbListCheck, TbSitemap } from "react-icons/tb";
 import { MdOutlineBalance, MdOutlineEvent } from "react-icons/md";
 
 export const AdminRoutes = [
@@ -12,7 +12,7 @@ export const AdminRoutes = [
   { title: "Users",        url: "/dashboard/users",                icon: HiOutlineUserGroup },
   // { title: "Teams",        url: "/dashboard/teams",                icon: HiOutlineUsers }, // ✅ new
   { title: "Events",       url: "/dashboard/settings",             icon: MdOutlineEvent },
-  { title: "Departments",  url: "/dashboard/settings/departments", icon: HiOutlineBuildingOffice2 },
+  { title: "Departments",  url: "/dashboard/settings/departments", icon: TbSitemap },
   // { title: "Job Titles",   url: "/dashboard/settings/jobtitles",   icon: HiOutlineBriefcase },
   { title: "Roles",        url: "/dashboard/settings/roles",       icon: HiOutlineShieldCheck },
 ];
@@ -28,6 +28,6 @@ export const ModeratorRoutes = [
   { title: "Leaves",       url: "/dashboard/leaves",               icon: TbListCheck },
   // { title: "Teams",        url: "/dashboard/teams",                icon: HiOutlineUsers }, // ✅ new
   { title: "Events",       url: "/dashboard/settings",             icon: MdOutlineEvent },
-  { title: "Departments",  url: "/dashboard/settings/departments", icon: HiOutlineBuildingOffice2 },
+  { title: "Departments",  url: "/dashboard/settings/departments", icon: TbSitemap },
   // { title: "Job Titles",   url: "/dashboard/settings/jobtitles",   icon: HiOutlineBriefcase },
 ];

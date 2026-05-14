@@ -15,7 +15,7 @@ import toast from "react-hot-toast";
 import {
   ArrowLeft, CheckCircle2, XCircle,
   Clock, User, CalendarDays, FileText,
-  Building2, Briefcase,
+  Building2, Briefcase, Zap,
 } from "lucide-react";
 
 type Props = {
@@ -36,7 +36,6 @@ function leaveTypeLabel(type: string): string {
   return map[type?.toUpperCase()] ?? type;
 }
 
-// ✅ Same logic as Telegram — convert decimal hours to readable Khmer
 function formatHourLabel(h: number): string {
   const totalMin = Math.round(h * 60);
   if (totalMin < 60) return `${totalMin} នាទី`;
@@ -89,17 +88,17 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
   const isStep1 = !leave.headDepartmentApproved;
   const isStep2 = leave.headDepartmentApproved && !leave.managerApproved && !isDone;
 
-  const canActAsModerator  = currentUserRole === "MODERATOR" && isStep1 && !isDone;
-  const canActAsAdminStep1 = currentUserRole === "ADMIN" && isStep1 && !isDone;
-  const canActAsAdminStep2 = currentUserRole === "ADMIN" && isStep2 && !isDone;
-  const canActAsAdmin      = canActAsAdminStep1 || canActAsAdminStep2;
-  const canAct             = canActAsModerator || canActAsAdmin;
+  // ── MODERATOR: can only act on Step 1 (head dept approval) ───────────────
+  const canActAsModerator = currentUserRole === "MODERATOR" && isStep1 && !isDone;
 
-  const actionLabel = canActAsAdminStep2
-    ? "សេចក្តីសម្រេចរបស់អ្នកគ្រប់គ្រង"
-    : canActAsAdminStep1
-      ? "សេចក្តីសម្រេចរបស់ប្រធានផ្នែក / អ្នកគ្រប់គ្រង"
-      : "សេចក្តីសម្រេចរបស់ប្រធានផ្នែក";
+  // ── ADMIN: skips Step 1, goes straight to final — always available if not done
+  const canActAsAdmin = currentUserRole === "ADMIN" && !isDone;
+
+  const canAct = canActAsModerator || canActAsAdmin;
+
+  const actionLabel = canActAsAdmin
+    ? "សេចក្តីសម្រេចរបស់អ្នកគ្រប់គ្រង (Final)"
+    : "សេចក្តីសម្រេចរបស់ប្រធានផ្នែក";
 
   async function handleAction(status: "APPROVED" | "REJECTED") {
     setLoading(true);
@@ -123,8 +122,8 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
       if (res.ok) {
         toast.success(
           status === "APPROVED"
-            ? canActAsAdminStep2
-              ? "ការឈប់សម្រាកបានអនុម័តពេញលេញ! ✅"
+            ? canActAsAdmin
+              ? "ការឈប់សម្រាកបានអនុម័តចុងក្រោយ! ✅"
               : "ប្រធានផ្នែកបានអនុម័ត! កំពុងរង់ចាំអ្នកគ្រប់គ្រង ✅"
             : "ការឈប់សម្រាកបានបដិសេធ ❌",
           { duration: 4000 }
@@ -164,6 +163,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         <StatusBadge status={leave.status} />
       </div>
 
+      {/* ── Leave Info Card ── */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -179,7 +179,6 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
             value={leave.userName ?? "—"}
           />
 
-          {/* ✅ Full leave type name */}
           <InfoRow
             icon={<Briefcase className="h-4 w-4" />}
             label="ប្រភេទការឈប់សម្រាក"
@@ -202,7 +201,6 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
             }
           />
 
-          {/* ✅ Show minutes instead of decimal hours */}
           <InfoRow
             icon={<Clock className="h-4 w-4" />}
             label="រយៈពេល"
@@ -228,6 +226,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         </CardContent>
       </Card>
 
+      {/* ── Approval Progress Card ── */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -237,6 +236,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         </CardHeader>
         <CardContent className="space-y-4">
 
+          {/* Step 1 — Head Dept */}
           <div className="flex gap-4">
             <div className="flex flex-col items-center">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -272,6 +272,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
             </div>
           </div>
 
+          {/* Step 2 — Manager */}
           <div className="flex gap-4">
             <div className="flex flex-col items-center">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -321,6 +322,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         </CardContent>
       </Card>
 
+      {/* ── Action Card (shown to MODERATOR on Step 1, or ADMIN at any time) ── */}
       {canAct && (
         <Card className="border-blue-200 bg-blue-50/50 dark:bg-blue-950/10">
           <CardHeader>
@@ -337,15 +339,10 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
                   📋 ជំហានទី ១ ក្នុង ២ — អ្នកកំពុងអនុម័តក្នុងតួនាទី <strong>ប្រធានផ្នែក</strong>
                 </p>
               )}
-              {canActAsAdminStep1 && (
-                <p className="text-amber-600 font-medium">
-                  📋 ជំហានទី ១ ក្នុង ២ — អ្នកកំពុងអនុម័តក្នុងតួនាទី <strong>ប្រធានផ្នែក</strong> (Admin)
-                </p>
-              )}
-              {canActAsAdminStep2 && (
-                <p className="text-indigo-600 font-medium">
-                  ✅ ជំហានទី ២ ក្នុង ២ — ប្រធានផ្នែក ({leave.headDepartment}) បានអនុម័តរួចហើយ។{" "}
-                  អ្នកកំពុងអនុម័តក្នុងតួនាទី <strong>អ្នកគ្រប់គ្រង</strong>
+              {canActAsAdmin && (
+                <p className="text-indigo-600 font-medium flex items-center gap-1.5">
+                  <Zap className="h-4 w-4 inline-block" />
+                  Admin — អ្នកអាចអនុម័ត <strong>ចុងក្រោយដោយផ្ទាល់</strong> ដោយមិនចាំបាច់រង់ចាំប្រធានផ្នែក
                 </p>
               )}
             </div>
@@ -370,8 +367,8 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
                 onClick={() => handleAction("APPROVED")}
               >
                 <CheckCircle2 className="h-4 w-4" />
-                {canActAsAdminStep2
-                  ? "អនុម័តក្នុងតួនាទីអ្នកគ្រប់គ្រង"
+                {canActAsAdmin
+                  ? "អនុម័តចុងក្រោយ (Final Approve)"
                   : "អនុម័តក្នុងតួនាទីប្រធានផ្នែក"}
               </Button>
               <Button
@@ -389,6 +386,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         </Card>
       )}
 
+      {/* ── Moderator waiting notice (Step 2 — Admin's turn) ── */}
       {currentUserRole === "MODERATOR" && isStep2 && (
         <Card className="border-amber-200 bg-amber-50/50 dark:bg-amber-950/10">
           <CardContent className="py-4 text-center">
@@ -400,6 +398,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         </Card>
       )}
 
+      {/* ── Done notice ── */}
       {isDone && (
         <Card className={`border ${isApproved ? "border-green-200 bg-green-50/50" : "border-red-200 bg-red-50/50"}`}>
           <CardContent className="py-4 text-center">

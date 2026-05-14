@@ -88,16 +88,24 @@ export async function PATCH(req: Request) {
     // ── អនុម័ត ────────────────────────────────────────────────────────────────
     if (status === LeaveStatus.APPROVED) {
 
+      // ── Step 1: MODERATOR only ───────────────────────────────────────────────
+      // Admin no longer participates in Step 1 — they skip directly to final
       const canDoStep1 =
-        (actorRole === "MODERATOR" || actorRole === "ADMIN") &&
+        actorRole === "MODERATOR" &&
         !leave.headDepartmentApproved;
 
-      const canDoStep2 =
+      // ── Final approval: ADMIN skips straight here regardless of Step 1 ───────
+      // MODERATOR can only reach here after Step 1 is done (headDepartmentApproved)
+      const canDoAdminFinal =
         actorRole === "ADMIN" &&
+        !leave.managerApproved;
+
+      const canDoModeratorFinal =
+        actorRole === "MODERATOR" &&
         leave.headDepartmentApproved &&
         !leave.managerApproved;
 
-      // ── Step 1 ───────────────────────────────────────────────────────────────
+      // ── Step 1: Moderator approves as Head Dept ──────────────────────────────
       if (canDoStep1) {
         await prisma.leave.update({
           where: { id },
@@ -130,30 +138,21 @@ export async function PATCH(req: Request) {
         );
       }
 
-      // ── Step 2 ───────────────────────────────────────────────────────────────
-      if (canDoStep2) {
-        // Read hours from the DB record (source of truth), not from body
+      // ── Final: Admin (bypass) OR Moderator (after Step 1) ───────────────────
+      if (canDoAdminFinal || canDoModeratorFinal) {
         const hoursFromDb = Number(leave.hours ?? 0);
 
-        // ── Determine the correct value to pass to calculateAndUpdateBalances ──
-        //
-        // SHORT:            pass raw hours → calculateAndUpdateBalances divides by 8 itself
-        // PERSONAL partial: days = 0, hours > 0 → convert hours → fractional days (÷ 8)
-        //   e.g. 10 min = 0.167 hrs → 0.167 / 8 = 0.0208 days deducted
-        //   e.g. 3 hrs              → 3.0   / 8 = 0.375  days deducted
-        // Everything else:  use full days as-is
         const isPartialPersonal =
           type === "PERSONAL" && hoursFromDb > 0 && (days === 0 || days == null);
 
         const effectiveValue = isShortLeave
-          ? hoursFromDb          // SHORT: calculateAndUpdateBalances handles /8
+          ? hoursFromDb
           : isPartialPersonal
-            ? hoursFromDb / 8    // PERSONAL partial hours → fractional days
-            : days;              // full-day leaves (annual, sick, special, maternity, etc.)
+            ? hoursFromDb / 8
+            : days;
 
         await calculateAndUpdateBalances(email, year, type, effectiveValue);
 
-        // Duration label for event + Telegram
         const durationLabel = isShortLeave
           ? `${hoursFromDb} ម៉ោង`
           : isPartialPersonal
@@ -173,10 +172,20 @@ export async function PATCH(req: Request) {
           },
         });
 
+        // Admin bypassed Step 1 — fill both head dept + manager fields at once
+        const adminBypassed = canDoAdminFinal && !leave.headDepartmentApproved;
+
         await prisma.leave.update({
           where: { id },
           data: {
-            status:          LeaveStatus.APPROVED,
+            status: LeaveStatus.APPROVED,
+            // If Admin bypassed Step 1, populate head dept fields too
+            ...(adminBypassed && {
+              headDepartment:         actorName,
+              headDepartmentNote:     notes,
+              headDepartmentApproved: true,
+              headDepartmentAt:       new Date(),
+            }),
             manager:         actorName,
             managerNote:     notes,
             managerApproved: true,
@@ -185,6 +194,9 @@ export async function PATCH(req: Request) {
           },
         });
 
+        // ── Telegram: send ONE final message only ─────────────────────────────
+        // If Admin bypassed Step 1 → no middle "head dept" message was ever sent
+        // so this is the only notification the group sees
         await sendTelegramMessage(
           [
             `🎉 <b>ច្បាប់ត្រូវបានអនុម័តទាំងស្រុង!</b>`,
@@ -193,13 +205,18 @@ export async function PATCH(req: Request) {
             `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
             `📅 <b>រយៈពេល៖</b> ${durationLabel}`,
             `✅ <b>អនុម័តដោយ៖</b> ${actorName} (អ្នកគ្រប់គ្រង)`,
+            // Show different context depending on whether Step 1 was bypassed
+            ...(adminBypassed
+              ? [`⚡ <i>រំលង Head Dept — អនុម័តដោយផ្ទាល់ដោយ Admin</i>`]
+              : [`👍 <b>ប្រធានផ្នែក៖</b> ${leave.headDepartment}`]
+            ),
             `📝 <b>កំណត់ចំណាំ៖</b> ${notes || "—"}`,
           ].join("\n"),
           [{ text: "📋 មើលច្បាប់ →", url: leaveUrl }]
         );
 
         return NextResponse.json(
-          { message: "Manager approved. Leave fully approved!" },
+          { message: "Leave fully approved!" },
           { status: 200 }
         );
       }
