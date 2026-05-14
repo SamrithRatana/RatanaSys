@@ -2,6 +2,9 @@
 
 import { useEffect, useState, useCallback } from "react";
 
+const RETRY_KEY = "app_error_retry_count";
+const maxRetries = 2;
+
 export default function Error({
   error,
   reset,
@@ -9,47 +12,47 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  const [retryCount, setRetryCount] = useState(0);
-  const maxRetries = 2;
+  const [retryCount, setRetryCount] = useState<number>(() => {
+    // Read persisted count so remounts don't reset it
+    const stored = sessionStorage.getItem(RETRY_KEY);
+    return stored ? parseInt(stored, 10) : 0;
+  });
 
   const stableReset = useCallback(() => reset(), [reset]);
+
+  const isConnectionError =
+    error.message?.includes("Connection closed") ||
+    error.message?.includes("fetch") ||
+    error.message?.includes("network") ||
+    error.message?.includes("Failed to load");
 
   useEffect(() => {
     console.error("App error:", error.message, error?.digest);
 
-    const isConnectionError =
-      error.message?.includes("Connection closed") ||
-      error.message?.includes("fetch") ||
-      error.message?.includes("network") ||
-      error.message?.includes("Failed to load");
+    if (isConnectionError) {
+      if (retryCount < maxRetries) {
+        const nextCount = retryCount + 1;
+        const delay = 2000 * nextCount;
 
-    if (isConnectionError && retryCount < maxRetries) {
-      const timer = setTimeout(() => {
-        setRetryCount((prev) => prev + 1);
-        stableReset();
-      }, 2000 * (retryCount + 1));
+        const timer = setTimeout(() => {
+          sessionStorage.setItem(RETRY_KEY, String(nextCount));
+          setRetryCount(nextCount);
+          stableReset();
+        }, delay);
 
-      return () => clearTimeout(timer);
-    } else if (isConnectionError && retryCount >= maxRetries) {
-      const timer = setTimeout(() => {
-        window.location.reload();
-      }, 1000);
-      return () => clearTimeout(timer);
+        return () => clearTimeout(timer);
+      } else {
+        // Exhausted retries — hard reload and clear counter
+        const timer = setTimeout(() => {
+          sessionStorage.removeItem(RETRY_KEY);
+          window.location.reload();
+        }, 1000);
+        return () => clearTimeout(timer);
+      }
     }
-  }, [error, retryCount, stableReset]);
+  }, [error, retryCount, stableReset, isConnectionError]);
 
-  // ✅ NEW: Auto-reload if stuck on "Connecting..." screen after 8 seconds
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      window.location.reload();
-    }, 8000);
-    return () => clearTimeout(timer);
-  }, []); // runs once on mount — cleans up if component unmounts before firing
-
-  const isRetrying =
-    (error.message?.includes("Connection closed") ||
-      error.message?.includes("fetch")) &&
-    retryCount < maxRetries;
+  const isRetrying = isConnectionError && retryCount < maxRetries;
 
   if (isRetrying) {
     return (
@@ -74,13 +77,20 @@ export default function Error({
         <p className="text-xs text-gray-400">{error.message}</p>
       </div>
       <button
-        onClick={() => { setRetryCount(0); stableReset(); }}
+        onClick={() => {
+          sessionStorage.removeItem(RETRY_KEY);
+          setRetryCount(0);
+          stableReset();
+        }}
         className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
       >
         Try again
       </button>
       <button
-        onClick={() => window.location.reload()}
+        onClick={() => {
+          sessionStorage.removeItem(RETRY_KEY);
+          window.location.reload();
+        }}
         className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
       >
         Reload page
