@@ -176,12 +176,12 @@ export function AuthForm() {
           <Button type="submit" disabled={loading}>
             {loading ? "Signing in…" : "Sign in"}
           </Button>
-          <p className="text-center text-sm text-muted-foreground">
-            No account yet?{" "}
-            <Link href="/register" className="underline underline-offset-4 hover:text-primary">
-              Create one
-            </Link>
-          </p>
+          {/* <p className="text-center text-sm text-muted-foreground"> */}
+            {/* No account yet?{" "} */}
+            {/* <Link href="/register" className="underline underline-offset-4 hover:text-primary"> */}
+              {/* Create one */}
+            {/* </Link> */}
+          {/* </p> */}
         </form>
       )}
 
