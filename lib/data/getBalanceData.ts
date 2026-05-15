@@ -19,7 +19,7 @@ export async function getUserBalances() {
 export async function getAllBalances() {
   try {
     const loggedInUser = await getCurrentUser();
-    if (!loggedInUser || loggedInUser.role !== "ADMIN") return [];
+    if (!loggedInUser || !["ADMIN", "MODERATOR"].includes(loggedInUser.role as string)) return [];
 
     const balances = await prisma.balances.findMany({
       orderBy: [{ year: "desc" }],
