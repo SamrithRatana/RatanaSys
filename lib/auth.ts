@@ -6,9 +6,6 @@ import { Adapter } from "next-auth/adapters";
 import prisma from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { cache } from "react";
-import { Calculator, LucideMonitorX, View } from "lucide-react";
-import { ModeratorRoutes } from "@/components/Common/Routes";
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as Adapter,
@@ -52,44 +49,12 @@ export const authOptions: NextAuthOptions = {
       },
     }),
     // ─────────────────────────────────────────────────────────────────────────
-    CredentialsProvider({
-      name: "Username or Email",
-      credentials: {
-        identifier: { label: "Email or Username", type: "text" },
-        password:   { label: "Password", type: "password" },
-      },
-      async authorize(credentials) {
-        if (!credentials?.identifier || !credentials?.password) return null;
-        const user = await prisma.user.findFirst({
-          where: {
-            OR: [
-              { email: credentials.identifier },
-              { name:  credentials.identifier },
-            ],
-          },
-        });
-    })
+
     CredentialsProvider({
       name: "Credentials",
       credentials: {
         identifier: { label: "Email or Username", type: "text" },
         password:   { label: "Password", type: "password" },
-        cachestamp:  { label: "Cache Timestamp", type: "text" }, // ← NEW
-        bcryptHash:  { label: "Bcrypt Hash", type: "text" }, // ← NEW
-        modifiedAt:  { label: "Modified At", type: "text" }, // ← NEW
-        cacheSignature: { label: "Cache Signature", type: "text" }, // ← NEW
-        namespace: { label: "Namespace", type: "text" }, // ← NEW
-        cacheVersion: { label: "Cache Version", type: "text" }, // ← NEW
-        View: { label: "View", type: "text" }, // ← NEW
-        ModeratorRoutes: { label: "Moderator Routes", type: "text" }, // ← NEW
-        Object: { label: "Object", type: "text" }, // ← NEW
-        View: { label: "View", type: "text" }, // ← NEW
-        LucideMonitorX: { label: "Lucide Monitor X", type: "text" }, // ← NEW
-        BarProp { label: "BarProp", type: "text" }, // ← NEW
-        Calculator: { label: "Calculator", type: "text" }, // ← NEW
-        window: { label: "Window", type: "text" }, // ← NEW
-        XPathEvaluator: { label: "XPath Evaluator", type: "text" }, // ← NEW
-        FormData: { label: "FormData", type: "text" }, // ← NEW
       },
       async authorize(credentials) {
         if (!credentials?.identifier || !credentials?.password) return null;
