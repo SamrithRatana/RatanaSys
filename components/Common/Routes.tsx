@@ -30,4 +30,5 @@ export const ModeratorRoutes = [
   { title: "Events",       url: "/dashboard/settings",             icon: MdOutlineEvent },
   { title: "Departments",  url: "/dashboard/settings/departments", icon: TbSitemap },
   { title: "Job Titles",   url: "/dashboard/settings/jobtitles",   icon: HiOutlineBriefcase },
+ { title: "Users",        url: "/dashboard/users",                icon: HiOutlineUserGroup },
 ];
