@@ -47,7 +47,7 @@ const Portal = async () => {
           ) : (
             <div className="my-4">
               <h2 className="text-xl text-center font-extrabold leading-tight lg:text-2xl">
-                Current Year Balances
+                Current Year Balances (1 day = 8 hours)
               </h2>
               <TotalBalanceSummary balances={CurrentYearBalances as Balances} />
             </div>
