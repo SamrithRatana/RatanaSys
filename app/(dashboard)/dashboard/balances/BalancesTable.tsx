@@ -45,7 +45,7 @@ const BalancesTable = ({ balances }: BalanceProps) => {
   };
 
   return (
-    <TableWrapper title="All User Balances">
+    <TableWrapper title="All Employee Balances">
       {/* Toggle */}
       <div className="flex items-center gap-2 justify-end px-4 pb-2">
         <Label htmlFor="hours-toggle" className="text-sm text-muted-foreground">
