@@ -1,20 +1,23 @@
 FROM node:18-alpine AS base
-# ✅ Add these — required for Prisma on Alpine
-RUN apk add --no-cache openssl libc6-compat
+RUN apk add --no-cache openssl libc6-compat python3 make g++
+
 FROM base AS deps
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+# Skip native module compilation here — just resolve the dependency tree
+RUN npm install --ignore-scripts --prefer-offline || npm install --ignore-scripts
+
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm install sharp
+# Run scripts now (native compilation happens here with full context)
+RUN npm rebuild
+RUN npm install sharp --ignore-scripts=false
 ENV NEXT_TELEMETRY_DISABLED=1
-# ✅ Generate Prisma client BEFORE build — separately
 RUN npx prisma generate
-# ✅ Build without prisma generate in package.json script
 RUN npx next build
+
 FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
@@ -25,7 +28,6 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/node_modules/sharp ./node_modules/sharp
 COPY --from=builder /app/node_modules/@img ./node_modules/@img
-# ✅ Copy prisma client
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 EXPOSE 3000
