@@ -1,6 +1,5 @@
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 const HOURS_PER_DAY = 8;
@@ -48,6 +47,11 @@ function detectMaternityGender(credit: number, used: number): "MALE" | "FEMALE" 
   return null;
 }
 
+function usagePercent(used: number, credit: number): number {
+  if (credit === 0) return 0;
+  return Math.min(100, Math.round((used / credit) * 100));
+}
+
 const LeaveCard = ({
   year,
   leaveType,
@@ -59,82 +63,78 @@ const LeaveCard = ({
   if (!VISIBLE_TYPES.includes(leaveType)) return null;
 
   const isMaternity = leaveType === "MATERNITY";
-  const creditVal   = credit ?? 0;
-  const usedVal     = used   ?? 0;
+  const creditVal   = credit  ?? 0;
+  const usedVal     = used    ?? 0;
+  const balanceVal  = balance ?? 0;
 
-  // Infer gender — works for both new records (credit set) and legacy records
-  // (credit=0 but used>0 because admin never manually added maternity credit)
   const gender     = isMaternity ? detectMaternityGender(creditVal, usedVal) : null;
-
-  // Only truly "not applied" when both credit and used are zero
   const notApplied = isMaternity && creditVal === 0 && usedVal === 0;
+  const pct        = usagePercent(usedVal, creditVal);
 
   return (
-    <Card>
-      <CardContent className="flex flex-col p-3 space-y-2">
+    <tr className="border-b border-border/40 last:border-0 hover:bg-muted/30 transition-colors">
 
-        {/* Header row */}
-        <div className="flex items-center justify-between p-2 bg-blue-50 rounded-md dark:bg-slate-900">
-          <h4 className="font-semibold">{year}</h4>
-          <h4 className="font-semibold">{leaveKhmerLabels[leaveType] ?? leaveType}</h4>
-        </div>
-
-        {/* Maternity gender badge */}
-        {isMaternity && (
-          <div className="flex justify-center">
-            {notApplied ? (
-              <Badge
-                variant="outline"
-                className="text-[11px] text-gray-500 border-gray-300 bg-gray-50 px-2 py-0.5"
-              >
-                ⏳ អត់ទាន់ស្នើ · Credit អនុវត្តតាមភេទ
+      {/* Leave type */}
+      <td className="py-3 pl-4 pr-4">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm font-medium text-foreground">
+            {leaveKhmerLabels[leaveType] ?? leaveType}
+          </span>
+          {isMaternity && (
+            notApplied ? (
+              <Badge variant="outline" className="w-fit text-[10px] text-muted-foreground border-border px-1.5 py-0">
+                អត់ទាន់ស្នើ · តាមភេទ
               </Badge>
             ) : gender === "MALE" ? (
-              <Badge
-                variant="outline"
-                className="text-[11px] text-blue-600 border-blue-300 bg-blue-50 px-2 py-0.5"
-              >
-                👨 បុរស · Paternity · 7 ថ្ងៃ
+              <Badge variant="outline" className="w-fit text-[10px] text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-950 px-1.5 py-0">
+                បុរស · Paternity · 7 ថ្ងៃ
               </Badge>
             ) : gender === "FEMALE" ? (
-              <Badge
-                variant="outline"
-                className="text-[11px] text-pink-600 border-pink-300 bg-pink-50 px-2 py-0.5"
-              >
-                👩 ស្ត្រី · Maternity · 90 ថ្ងៃ
+              <Badge variant="outline" className="w-fit text-[10px] text-pink-600 border-pink-200 bg-pink-50 dark:bg-pink-950 px-1.5 py-0">
+                ស្ត្រី · Maternity · 90 ថ្ងៃ
               </Badge>
-            ) : null}
+            ) : null
+          )}
+        </div>
+      </td>
+
+      {/* Credit */}
+      <td className="py-3 px-4 text-right">
+        {notApplied
+          ? <span className="text-sm text-muted-foreground italic">—</span>
+          : <span className="text-sm text-foreground">{formatValue(creditVal, isHours)}</span>
+        }
+      </td>
+
+      {/* Used */}
+      <td className="py-3 px-4 text-right">
+        <span className="text-sm text-muted-foreground">{formatValue(usedVal, isHours)}</span>
+      </td>
+
+      {/* Balance */}
+      <td className="py-3 px-4 text-right">
+        {notApplied
+          ? <span className="text-sm text-muted-foreground italic">—</span>
+          : <span className="text-sm font-medium text-green-700 dark:text-green-400">{formatValue(balanceVal, isHours)}</span>
+        }
+      </td>
+
+      {/* Progress */}
+      <td className="py-3 pl-4 pr-4 w-28 hidden sm:table-cell">
+        {!notApplied && creditVal > 0 && (
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full bg-green-500 transition-all"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <span className="text-[11px] text-muted-foreground w-7 text-right">{pct}%</span>
           </div>
         )}
+      </td>
 
-        {/* Credit */}
-        <div className="flex items-center justify-between">
-          <h4 className="text-sm text-muted-foreground">Credit</h4>
-          {notApplied ? (
-            <span className="text-sm text-gray-400 italic">— មិនទាន់អនុវត្ត</span>
-          ) : (
-            <h4 className="text-sm font-medium">{formatValue(creditVal, isHours)}</h4>
-          )}
-        </div>
-
-        {/* Used */}
-        <div className="flex items-center justify-between">
-          <h4 className="text-sm text-muted-foreground">Used</h4>
-          <h4 className="text-sm font-medium">{formatValue(usedVal, isHours)}</h4>
-        </div>
-
-        {/* Balance */}
-        <div className="flex items-center justify-between">
-          <h4 className="text-sm text-muted-foreground">Balance</h4>
-          {notApplied ? (
-            <span className="text-sm text-gray-400 italic">— មិនទាន់អនុវត្ត</span>
-          ) : (
-            <h4 className="text-sm font-medium">{formatValue(balance ?? 0, isHours)}</h4>
-          )}
-        </div>
-
-      </CardContent>
-    </Card>
+    </tr>
   );
 };
 

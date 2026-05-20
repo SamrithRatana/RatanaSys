@@ -1,4 +1,4 @@
-"use client";  // ← required for useState
+"use client";
 
 import { useState } from "react";
 import Container from "@/components/Common/Container";
@@ -12,44 +12,67 @@ type Props = {
 const UserBalances = ({ balances }: Props) => {
   const [isHours, setIsHours] = useState(true);
 
+  const rows = [
+    { leaveType: "ANNUAL",    credit: balances?.annualCredit,    used: balances?.annualUsed,    balance: balances?.annualAvailable    },
+    { leaveType: "SICK",      credit: balances?.sickCredit,      used: balances?.sickUsed,      balance: balances?.sickAvailable      },
+    { leaveType: "PERSONAL",  credit: balances?.personalCredit,  used: balances?.personalUsed,  balance: balances?.personalAvailable  },
+    { leaveType: "MATERNITY", credit: balances?.maternityCredit, used: balances?.maternityUsed, balance: balances?.maternityAvailable },
+    { leaveType: "SPECIAL",   credit: balances?.specialCredit,   used: balances?.specialUsed,   balance: balances?.specialAvailable   },
+  ];
+
   return (
     <Container>
-      {/* Title + Global Toggle */}
-      <div className="flex items-center justify-between my-6">
-        <h2 className="text-lg font-bold">Current Year Balances</h2>
+      {/* Header */}
+      <div className="flex items-center justify-between mt-6 mb-3">
+        <h2 className="text-base font-semibold text-foreground">Current Year Balances</h2>
+
+        {/* Days / Hours toggle */}
         <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">
-            {isHours ? "Hours" : "Days"}
-          </span>
+          <span className="text-xs text-muted-foreground">Days</span>
           <button
             onClick={() => setIsHours(!isHours)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none ${
-              isHours ? "bg-blue-500" : "bg-gray-300"
+            aria-label="Toggle hours or days"
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+              isHours ? "bg-blue-500" : "bg-muted-foreground/40"
             }`}
           >
             <span
-              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform duration-200 ${
-                isHours ? "translate-x-5" : "translate-x-1"
+              className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${
+                isHours ? "translate-x-4" : "translate-x-0.5"
               }`}
             />
           </button>
+          <span className="text-xs text-muted-foreground">Hours</span>
         </div>
       </div>
 
-      <section className="grid grid-cols-1 gap-4 mb-10 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-        <LeaveCard year={balances?.year} leaveType={"ANNUAL"}    isHours={isHours} credit={balances?.annualCredit as number}    used={balances?.annualUsed as number}    balance={balances?.annualAvailable as number} />
-        <LeaveCard year={balances?.year} leaveType={"SICK"}      isHours={isHours} credit={balances?.sickCredit as number}      used={balances?.sickUsed as number}      balance={balances?.sickAvailable as number} />
-        <LeaveCard year={balances?.year} leaveType={"PERSONAL"}  isHours={isHours} credit={balances?.personalCredit as number}  used={balances?.personalUsed as number}  balance={balances?.personalAvailable as number} />
-        <LeaveCard year={balances?.year} leaveType={"MATERNITY"} isHours={isHours} credit={balances?.maternityCredit as number} used={balances?.maternityUsed as number} balance={balances?.maternityAvailable as number} />
-        <LeaveCard year={balances?.year} leaveType={"SPECIAL"}   isHours={isHours} credit={balances?.specialCredit as number}   used={balances?.specialUsed as number}   balance={balances?.specialAvailable as number} />
-      <LeaveCard
-  year={balances?.year}
-  leaveType={"SHORT"}
-  isHours={isHours}
-  // credit and balance intentionally omitted — unlimited
-  used={balances?.shortUsed as number}
-/>
-      </section>
+      {/* Table */}
+      <div className="rounded-lg border border-border/50 overflow-hidden mb-10">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-muted/40 border-b border-border/50">
+              <th className="py-2.5 pl-4 pr-4 text-left text-xs font-medium text-muted-foreground">ប្រភេទច្បាប់</th>
+              <th className="py-2.5 px-4 text-right text-xs font-medium text-muted-foreground">ផ្តល់</th>
+              <th className="py-2.5 px-4 text-right text-xs font-medium text-muted-foreground">បានប្រើ</th>
+              <th className="py-2.5 px-4 text-right text-xs font-medium text-muted-foreground">នៅសល់</th>
+              <th className="py-2.5 pl-4 pr-4 text-left text-xs font-medium text-muted-foreground hidden sm:table-cell">ការប្រើប្រាស់</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/30 bg-background">
+            {rows.map((row) => (
+              <LeaveCard
+                key={row.leaveType}
+                year={balances?.year}
+                leaveType={row.leaveType}
+                credit={row.credit as number}
+                used={row.used as number}
+                balance={row.balance as number}
+                isHours={isHours}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
     </Container>
   );
 };
