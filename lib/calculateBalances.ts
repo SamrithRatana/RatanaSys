@@ -8,16 +8,15 @@ const MATERNITY_DAYS: Record<string, number> = {
 
 function inferMaternityCredit(used: number, currentCredit: number): number {
   if (currentCredit > 0) return currentCredit;
-  // Legacy record: credit was never set — infer from used amount
-  if (used <= 7)  return 7;   // Paternity
-  return 90;                   // Maternity
+  if (used <= 7)  return 7;
+  return 90;
 }
 
 export default async function calculateAndUpdateBalances(
   email: string,
-  year: string,
-  type: string,
-  days: number  // for SHORT this value is hours
+  year:  string,
+  type:  string,
+  days:  number  // for SHORT and SICK_SHORT this value is hours
 ): Promise<void> {
   const balance = await prisma.balances.findFirst({
     where: { email, year },
@@ -44,6 +43,17 @@ export default async function calculateAndUpdateBalances(
       };
       break;
 
+    // Partial-day sick leave — `days` param carries hours, deduct as fraction
+    case "SICK_SHORT": {
+      const dayFraction  = days / 8;
+      const newSickUsed  = (balance.sickUsed as number) + dayFraction;
+      balanceUpdate = {
+        sickUsed:      newSickUsed,
+        sickAvailable: (balance.sickCredit as number) - newSickUsed,
+      };
+      break;
+    }
+
     case "PERSONAL":
       balanceUpdate = {
         personalUsed:      (balance.personalUsed as number) + days,
@@ -52,10 +62,6 @@ export default async function calculateAndUpdateBalances(
       break;
 
     case "MATERNITY": {
-      // ── Auto-heal legacy records where credit was never set ───────────────
-      // If maternityCredit is still 0, infer the correct credit from the
-      // days being approved (7 = paternity, 90 = maternity) so balance
-      // never goes negative.
       const existingCredit = balance.maternityCredit as number;
       const existingUsed   = balance.maternityUsed   as number;
       const healedCredit   = inferMaternityCredit(existingUsed + days, existingCredit);
@@ -64,9 +70,9 @@ export default async function calculateAndUpdateBalances(
       const newAvailable = healedCredit - newUsed;
 
       balanceUpdate = {
-        maternityCredit:    healedCredit,   // fix the credit if it was 0
+        maternityCredit:    healedCredit,
         maternityUsed:      newUsed,
-        maternityAvailable: Math.max(0, newAvailable), // floor at 0, never negative
+        maternityAvailable: Math.max(0, newAvailable),
       };
       break;
     }
@@ -94,6 +100,6 @@ export default async function calculateAndUpdateBalances(
 
   await prisma.balances.update({
     where: { id: balance.id },
-    data: balanceUpdate,
+    data:  balanceUpdate,
   });
 }

@@ -101,9 +101,9 @@ const formSchema = z
       });
     }
 
-    const isPersonal = data.leave === "PERSONAL";
+    const isHourly = data.leave === "PERSONAL" || data.leave === "SICK";
 
-    if (!isPersonal && !data.endDate) {
+    if (!isHourly && !data.endDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "An end date is required.",
@@ -111,7 +111,7 @@ const formSchema = z
       });
     }
 
-    if (isPersonal && data.startDate && data.endDate) {
+    if (isHourly && data.startDate && data.endDate) {
       const isSameDay = differenceInDays(data.endDate, data.startDate) === 0;
       if (isSameDay && data.personalStartTime && data.personalEndTime) {
         const hrs = calcPersonalHours(data.personalStartTime, data.personalEndTime);
@@ -163,32 +163,35 @@ const RequestForm = ({ user }: Props) => {
   const personalEndTime   = form.watch("personalEndTime")   ?? "17:00";
 
   const isPersonal  = selectedLeave === "PERSONAL";
+  const isSick      = selectedLeave === "SICK";
   const isMaternity = selectedLeave === "MATERNITY";
+  const isHourly    = isPersonal || isSick;
 
   const isSameDay =
-    isPersonal &&
+    isHourly &&
     !!startDateValue &&
     !!endDateValue &&
     differenceInDays(endDateValue, startDateValue) === 0;
 
-  const personalDays = isPersonal && startDateValue && endDateValue
+  const leaveDays = isHourly && startDateValue && endDateValue
     ? differenceInDays(endDateValue, startDateValue) + 1
     : 1;
 
-  const personalHours = isSameDay
+  const leaveHours = isSameDay
     ? calcPersonalHours(personalStartTime, personalEndTime)
     : null;
 
-  const personalSummary = (() => {
-    if (!isPersonal || !startDateValue || !endDateValue) return null;
+  // ── Summary banner text (shared for PERSONAL and SICK) ──────────────────
+  const leaveSummary = (() => {
+    if (!isHourly || !startDateValue || !endDateValue) return null;
     if (isSameDay) {
-      if (!personalHours || personalHours <= 0) return null;
-      const totalMin = Math.round(personalHours * 60);
-      return personalHours >= 8
+      if (!leaveHours || leaveHours <= 0) return null;
+      const totalMin = Math.round(leaveHours * 60);
+      return leaveHours >= 8
         ? `1 ថ្ងៃ (${personalStartTime} – ${personalEndTime})`
         : `${formatDuration(totalMin)} (${personalStartTime} – ${personalEndTime})`;
     }
-    return `${personalDays} ថ្ងៃ (${format(startDateValue, "dd MMM")} – ${format(endDateValue, "dd MMM yyyy")})`;
+    return `${leaveDays} ថ្ងៃ (${format(startDateValue, "dd MMM")} – ${format(endDateValue, "dd MMM yyyy")})`;
   })();
 
   const currentYear = today.getFullYear();
@@ -242,7 +245,10 @@ const RequestForm = ({ user }: Props) => {
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
       const isPersonalLeave = values.leave === "PERSONAL";
-      const sameDay = isPersonalLeave && values.endDate
+      const isSickLeave     = values.leave === "SICK";
+      const isHourlyLeave   = isPersonalLeave || isSickLeave;
+
+      const sameDay = isHourlyLeave && values.endDate
         ? differenceInDays(values.endDate, values.startDate) === 0
         : false;
 
@@ -253,7 +259,7 @@ const RequestForm = ({ user }: Props) => {
           )
         : undefined;
 
-      const days = isPersonalLeave
+      const days = isHourlyLeave
         ? sameDay
           ? hours && hours >= 8 ? 1 : 0
           : differenceInDays(values.endDate!, values.startDate) + 1
@@ -299,10 +305,110 @@ const RequestForm = ({ user }: Props) => {
     }
   }
 
+  // ── Shared time-picker block (used for both PERSONAL and SICK same-day) ──
+  const TimePicker = () => (
+    <FormItem>
+      <FormLabel style={khmerFont}>ម៉ោង (Time)</FormLabel>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <FormField
+          control={form.control}
+          name="personalStartTime"
+          render={({ field }) => (
+            <FormControl>
+              <Input
+                type="time"
+                min="06:00"
+                max="16:59"
+                className="w-32"
+                {...field}
+                onChange={(e) => {
+                  field.onChange(e);
+                  const newStart = e.target.value;
+                  const curEnd   = form.getValues("personalEndTime") ?? "17:00";
+                  if (timeToMinutes(curEnd) <= timeToMinutes(newStart)) {
+                    const pushed = Math.min(timeToMinutes(newStart) + 60, 17 * 60);
+                    form.setValue("personalEndTime", minutesToTime(pushed));
+                  }
+                  resetShortcuts();
+                }}
+              />
+            </FormControl>
+          )}
+        />
+
+        <span className="text-muted-foreground text-sm">→</span>
+
+        <FormField
+          control={form.control}
+          name="personalEndTime"
+          render={({ field }) => (
+            <FormControl>
+              <Input
+                type="time"
+                min="06:01"
+                max="17:00"
+                className="w-32"
+                {...field}
+              />
+            </FormControl>
+          )}
+        />
+      </div>
+
+      <div className="flex items-center gap-2 mt-2 flex-wrap">
+        <Input
+          type="number"
+          min={0}
+          max={9}
+          step={1}
+          placeholder="h"
+          className="w-14 text-center"
+          value={shortcutH}
+          onKeyDown={blockFloatKeys}
+          onFocus={(e) => e.target.select()}
+          onChange={(e) => {
+            const h = Math.max(0, parseInt(e.target.value) || 0);
+            setShortcutH(h);
+            const startMin = timeToMinutes(form.getValues("personalStartTime") ?? "08:00");
+            const endMin   = Math.min(startMin + h * 60 + shortcutM, 17 * 60);
+            form.setValue("personalEndTime", minutesToTime(endMin), { shouldValidate: true });
+          }}
+        />
+        <span style={khmerFont} className="text-[13px] text-muted-foreground">ម៉ោង</span>
+
+        <Input
+          type="number"
+          min={0}
+          max={59}
+          step={5}
+          placeholder="m"
+          className="w-14 text-center"
+          value={shortcutM}
+          onKeyDown={blockFloatKeys}
+          onFocus={(e) => e.target.select()}
+          onChange={(e) => {
+            const m = Math.max(0, parseInt(e.target.value) || 0);
+            setShortcutM(m);
+            const startMin = timeToMinutes(form.getValues("personalStartTime") ?? "08:00");
+            const endMin   = Math.min(startMin + shortcutH * 60 + m, 17 * 60);
+            form.setValue("personalEndTime", minutesToTime(endMin), { shouldValidate: true });
+          }}
+        />
+        <span style={khmerFont} className="text-[13px] text-muted-foreground">នាទី</span>
+      </div>
+
+      <FormDescription style={khmerFont} className="mt-1 text-[12px]">
+        វាយម៉ោង និងនាទី ដើម្បីគណនាម៉ោងបញ្ចប់ស្វ័យប្រវត្តិ
+      </FormDescription>
+      <FormMessage />
+    </FormItem>
+  );
+
   return (
     <DialogWrapper
       btnTitle="ចុចដើម្បីស្នើសុំច្បាប់"
-      btnStyle={khmerFont}                      
+      btnStyle={khmerFont}
       title="Submit your Leave Application"
       descr="ត្រូវប្រាកដថាអ្នកជ្រើសរើសកាលបរិច្ឆេទត្រឹមត្រូវសម្រាប់ការសុំច្បាប់"
       descrStyle={khmerFont}
@@ -451,7 +557,7 @@ const RequestForm = ({ user }: Props) => {
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
                     <FormLabel style={khmerFont}>
-                      {isPersonal ? "ថ្ងៃចាប់ផ្ដើម" : "Start Date"}
+                      {isHourly ? "ថ្ងៃចាប់ផ្ដើម" : "Start Date"}
                     </FormLabel>
                     <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}>
                       <PopoverTrigger asChild>
@@ -472,7 +578,7 @@ const RequestForm = ({ user }: Props) => {
                           selected={field.value}
                           onSelect={(date) => {
                             field.onChange(date);
-                            if (isPersonal) {
+                            if (isHourly) {
                               form.setValue("endDate",           date ?? undefined, { shouldValidate: false });
                               form.setValue("personalStartTime", "08:00",           { shouldValidate: false });
                               form.setValue("personalEndTime",   "17:00",           { shouldValidate: false });
@@ -500,7 +606,7 @@ const RequestForm = ({ user }: Props) => {
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
                     <FormLabel style={khmerFont}>
-                      {isPersonal ? "ថ្ងៃបញ្ចប់" : "End Date"}
+                      {isHourly ? "ថ្ងៃបញ្ចប់" : "End Date"}
                     </FormLabel>
                     <Popover modal={true} open={openEndDate} onOpenChange={setOpenEndDate}>
                       <PopoverTrigger asChild>
@@ -537,118 +643,27 @@ const RequestForm = ({ user }: Props) => {
                 )}
               />
 
-              {/* ── Personal: same-day time pickers ── */}
-              {isPersonal && isSameDay && (
-                <FormItem>
-                  <FormLabel style={khmerFont}>ម៉ោង (Time)</FormLabel>
+              {/* ── Same-day time picker (PERSONAL or SICK) ── */}
+              {isHourly && isSameDay && <TimePicker />}
 
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <FormField
-                      control={form.control}
-                      name="personalStartTime"
-                      render={({ field }) => (
-                        <FormControl>
-                          <Input
-                            type="time"
-                            min="06:00"
-                            max="16:59"
-                            className="w-32"
-                            {...field}
-                            onChange={(e) => {
-                              field.onChange(e);
-                              const newStart = e.target.value;
-                              const curEnd   = form.getValues("personalEndTime") ?? "17:00";
-                              if (timeToMinutes(curEnd) <= timeToMinutes(newStart)) {
-                                const pushed = Math.min(timeToMinutes(newStart) + 60, 17 * 60);
-                                form.setValue("personalEndTime", minutesToTime(pushed));
-                              }
-                              resetShortcuts();
-                            }}
-                          />
-                        </FormControl>
-                      )}
-                    />
-
-                    <span className="text-muted-foreground text-sm">→</span>
-
-                    <FormField
-                      control={form.control}
-                      name="personalEndTime"
-                      render={({ field }) => (
-                        <FormControl>
-                          <Input
-                            type="time"
-                            min="06:01"
-                            max="17:00"
-                            className="w-32"
-                            {...field}
-                          />
-                        </FormControl>
-                      )}
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-2 mt-2 flex-wrap">
-                    <Input
-                      type="number"
-                      min={0}
-                      max={9}
-                      step={1}
-                      placeholder="h"
-                      className="w-14 text-center"
-                      value={shortcutH}
-                      onKeyDown={blockFloatKeys}
-                      onFocus={(e) => e.target.select()}
-                      onChange={(e) => {
-                        const h = Math.max(0, parseInt(e.target.value) || 0);
-                        setShortcutH(h);
-                        const startMin = timeToMinutes(form.getValues("personalStartTime") ?? "08:00");
-                        const endMin   = Math.min(startMin + h * 60 + shortcutM, 17 * 60);
-                        form.setValue("personalEndTime", minutesToTime(endMin), { shouldValidate: true });
-                      }}
-                    />
-                    <span style={khmerFont} className="text-[13px] text-muted-foreground">ម៉ោង</span>
-
-                    <Input
-                      type="number"
-                      min={0}
-                      max={59}
-                      step={5}
-                      placeholder="m"
-                      className="w-14 text-center"
-                      value={shortcutM}
-                      onKeyDown={blockFloatKeys}
-                      onFocus={(e) => e.target.select()}
-                      onChange={(e) => {
-                        const m = Math.max(0, parseInt(e.target.value) || 0);
-                        setShortcutM(m);
-                        const startMin = timeToMinutes(form.getValues("personalStartTime") ?? "08:00");
-                        const endMin   = Math.min(startMin + shortcutH * 60 + m, 17 * 60);
-                        form.setValue("personalEndTime", minutesToTime(endMin), { shouldValidate: true });
-                      }}
-                    />
-                    <span style={khmerFont} className="text-[13px] text-muted-foreground">នាទី</span>
-                  </div>
-
-                  <FormDescription style={khmerFont} className="mt-1 text-[12px]">
-                    វាយម៉ោង និងនាទី ដើម្បីគណនាម៉ោងបញ្ចប់ស្វ័យប្រវត្តិ
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-
-              {/* ── Personal leave summary banner ── */}
-              {isPersonal && personalSummary && (
-                <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
+              {/* ── Leave summary banner ── */}
+              {isHourly && leaveSummary && (
+                <div className={cn(
+                  "flex items-center gap-2 rounded-lg border px-4 py-3 text-sm",
+                  isSick
+                    ? "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+                    : "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300"
+                )}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
                     <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
                   </svg>
                   <span style={khmerFont} className="text-[13px]">
-                    ច្បាប់ស្នើសុំ: <strong>{personalSummary}</strong>
-                    {isSameDay && personalHours != null && personalHours > 0 && personalHours < 8 && (() => {
-                      const totalMin = Math.round(personalHours * 60);
+                    ច្បាប់ស្នើសុំ: <strong>{leaveSummary}</strong>
+                    {isSameDay && leaveHours != null && leaveHours > 0 && leaveHours < 8 && (() => {
+                      const totalMin = Math.round(leaveHours * 60);
+                      const label    = isSick ? "ច្បាប់ឈឺ" : "ច្បាប់ផ្ទាល់ខ្លួន";
                       return (
-                        <> · កាត់ <strong>{formatDuration(totalMin)}</strong> ពីច្បាប់ផ្ទាល់ខ្លួន</>
+                        <> · កាត់ <strong>{formatDuration(totalMin)}</strong> ពី{label}</>
                       );
                     })()}
                   </span>
