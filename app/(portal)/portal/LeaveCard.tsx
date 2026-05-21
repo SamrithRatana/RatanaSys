@@ -69,7 +69,7 @@ const LeaveCard = ({
       {/* Leave type */}
       <td className="py-3 pl-3 pr-2">
         <div className="flex flex-col gap-0.5">
-          <span className="text-[13px] font-medium text-foreground leading-tight">
+          <span className="text-[13px] font-bold text-foreground leading-tight">
             {leaveKhmerLabels[leaveType] ?? leaveType}
           </span>
           {isMaternity && (
