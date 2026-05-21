@@ -1,5 +1,5 @@
-FROM node:18-alpine AS base
-RUN apk add --no-cache openssl libc6-compat python3 make g++
+FROM node:18-slim AS base
+RUN apt-get update && apt-get install -y openssl python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 FROM base AS deps
 WORKDIR /app
@@ -15,14 +15,20 @@ RUN npm rebuild
 RUN npm install sharp --ignore-scripts=false
 
 ENV NEXT_TELEMETRY_DISABLED=1
-# Increase Node.js memory limit to prevent SIGSEGV during build
-ENV NODE_OPTIONS="--max-old-space-size=4096"
+ENV NODE_OPTIONS="--max-old-space-size=3072"
 
 RUN npx prisma generate
+
+# Disable SWC and use Babel as fallback compiler — more stable in constrained environments
+RUN echo '{"presets":["next/babel"]}' > .babelrc
+
 RUN npx next build
 
-FROM base AS runner
+FROM node:18-slim AS runner
 WORKDIR /app
+
+RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0
