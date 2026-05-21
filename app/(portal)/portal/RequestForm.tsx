@@ -112,8 +112,8 @@ const formSchema = z
     }
 
     if (isHourly && data.startDate && data.endDate) {
-      const isSameDay = differenceInDays(data.endDate, data.startDate) === 0;
-      if (isSameDay && data.personalStartTime && data.personalEndTime) {
+      const same = differenceInDays(data.endDate, data.startDate) === 0;
+      if (same && data.personalStartTime && data.personalEndTime) {
         const hrs = calcPersonalHours(data.personalStartTime, data.personalEndTime);
         if (hrs <= 0) {
           ctx.addIssue({
@@ -167,31 +167,49 @@ const RequestForm = ({ user }: Props) => {
   const isMaternity = selectedLeave === "MATERNITY";
   const isHourly    = isPersonal || isSick;
 
+  // same-day only applies to hourly leave types
   const isSameDay =
     isHourly &&
     !!startDateValue &&
     !!endDateValue &&
     differenceInDays(endDateValue, startDateValue) === 0;
 
-  const leaveDays = isHourly && startDateValue && endDateValue
-    ? differenceInDays(endDateValue, startDateValue) + 1
-    : 1;
-
   const leaveHours = isSameDay
     ? calcPersonalHours(personalStartTime, personalEndTime)
     : null;
 
-  // ── Summary banner text (shared for PERSONAL and SICK) ──────────────────
+  // ── Universal duration calculation (all leave types) ──────────────────────
+  // Rule: same start & end date = 1 ថ្ងៃ (differenceInDays returns 0, +1 = 1)
+  const totalDays: number | null = (() => {
+    if (!startDateValue || !endDateValue) return null;
+    // Hourly same-day with partial hours: count as fractional, show ម៉ោង instead
+    if (isSameDay && leaveHours !== null && leaveHours > 0 && leaveHours < 8) return null;
+    return differenceInDays(endDateValue, startDateValue) + 1;
+  })();
+
+  // ── Summary text for the banner ───────────────────────────────────────────
   const leaveSummary = (() => {
-    if (!isHourly || !startDateValue || !endDateValue) return null;
+    if (!startDateValue || !endDateValue) return null;
+
     if (isSameDay) {
       if (!leaveHours || leaveHours <= 0) return null;
       const totalMin = Math.round(leaveHours * 60);
-      return leaveHours >= 8
-        ? `1 ថ្ងៃ (${personalStartTime} – ${personalEndTime})`
-        : `${formatDuration(totalMin)} (${personalStartTime} – ${personalEndTime})`;
+      if (leaveHours >= 8) {
+        return `1 ថ្ងៃ (${personalStartTime} – ${personalEndTime})`;
+      }
+      return `${formatDuration(totalMin)} (${personalStartTime} – ${personalEndTime})`;
     }
-    return `${leaveDays} ថ្ងៃ (${format(startDateValue, "dd MMM")} – ${format(endDateValue, "dd MMM yyyy")})`;
+
+    // Multi-day or non-hourly types
+    const days = differenceInDays(endDateValue, startDateValue) + 1;
+    const startFmt = format(startDateValue, "dd MMM");
+    const endFmt   = format(endDateValue,   "dd MMM yyyy");
+
+    // Same calendar date (start === end, 1 day)
+    if (days === 1) {
+      return `1 ថ្ងៃ (${format(startDateValue, "dd MMM yyyy")})`;
+    }
+    return `${days} ថ្ងៃ (${startFmt} – ${endFmt})`;
   })();
 
   const currentYear = today.getFullYear();
@@ -305,7 +323,7 @@ const RequestForm = ({ user }: Props) => {
     }
   }
 
-  // ── Shared time-picker block (used for both PERSONAL and SICK same-day) ──
+  // ── Shared time-picker (PERSONAL + SICK same-day) ─────────────────────────
   const TimePicker = () => (
     <FormItem>
       <FormLabel style={khmerFont}>ម៉ោង (Time)</FormLabel>
@@ -404,6 +422,39 @@ const RequestForm = ({ user }: Props) => {
       <FormMessage />
     </FormItem>
   );
+
+  // ── Universal summary banner (all leave types) ────────────────────────────
+  const SummaryBanner = () => {
+    if (!leaveSummary) return null;
+
+    const isSickBanner     = isSick;
+    const isPartialHourly  = isSameDay && leaveHours !== null && leaveHours > 0 && leaveHours < 8;
+    const leaveLabel       = isSick ? "ច្បាប់ឈឺ" : "ច្បាប់ផ្ទាល់ខ្លួន";
+
+    return (
+      <div className={cn(
+        "flex items-center gap-2 rounded-lg border px-4 py-3 text-sm",
+        isSickBanner
+          ? "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+          : "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300"
+      )}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="16" x2="12" y2="12"/>
+          <line x1="12" y1="8"  x2="12.01" y2="8"/>
+        </svg>
+        <span style={khmerFont} className="text-[13px]">
+          រយៈពេល: <strong>{leaveSummary}</strong>
+          {isPartialHourly && leaveHours !== null && (() => {
+            const totalMin = Math.round(leaveHours * 60);
+            return (
+              <> · កាត់ <strong>{formatDuration(totalMin)}</strong> ពី{leaveLabel}</>
+            );
+          })()}
+        </span>
+      </div>
+    );
+  };
 
   return (
     <DialogWrapper
@@ -643,32 +694,11 @@ const RequestForm = ({ user }: Props) => {
                 )}
               />
 
-              {/* ── Same-day time picker (PERSONAL or SICK) ── */}
+              {/* ── Same-day time picker (PERSONAL or SICK only) ── */}
               {isHourly && isSameDay && <TimePicker />}
 
-              {/* ── Leave summary banner ── */}
-              {isHourly && leaveSummary && (
-                <div className={cn(
-                  "flex items-center gap-2 rounded-lg border px-4 py-3 text-sm",
-                  isSick
-                    ? "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
-                    : "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300"
-                )}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
-                  </svg>
-                  <span style={khmerFont} className="text-[13px]">
-                    ច្បាប់ស្នើសុំ: <strong>{leaveSummary}</strong>
-                    {isSameDay && leaveHours != null && leaveHours > 0 && leaveHours < 8 && (() => {
-                      const totalMin = Math.round(leaveHours * 60);
-                      const label    = isSick ? "ច្បាប់ឈឺ" : "ច្បាប់ផ្ទាល់ខ្លួន";
-                      return (
-                        <> · កាត់ <strong>{formatDuration(totalMin)}</strong> ពី{label}</>
-                      );
-                    })()}
-                  </span>
-                </div>
-              )}
+              {/* ── Universal duration banner (all leave types) ── */}
+              <SummaryBanner />
             </>
           )}
 
