@@ -17,7 +17,7 @@ const VISIBLE_TYPES = ["ANNUAL", "SICK", "PERSONAL", "MATERNITY", "SPECIAL"];
 
 const leaveKhmerLabels: Record<string, string> = {
   ANNUAL:    "ច្បាប់ប្រចាំឆ្នាំ",
-  SICK:      "ច្បាប់លើឆ្មាំឆ្នន",
+  SICK:      "ច្បាប់ឈឺ",
   PERSONAL:  "ច្បាប់ផ្ទាល់ខ្លួន",
   MATERNITY: "ច្បាប់មាតុភាព",
   SPECIAL:   "ច្បាប់ពិសេស",

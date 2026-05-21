@@ -29,6 +29,10 @@ import { User } from "@prisma/client";
 import toast from "react-hot-toast";
 import { useState, useEffect } from "react";
 
+const khmerFont: React.CSSProperties = {
+  fontFamily: "'Battambang', serif",
+};
+
 const leaveKhmerLabels: Record<string, string> = {
   ANNUAL:    "ច្បាប់ប្រចាំឆ្នាំ-Annual Leave",
   SICK:      "ច្បាប់ឈឺផ្ទាល់ខ្លួន-Sick Leave",
@@ -140,7 +144,6 @@ const RequestForm = ({ user }: Props) => {
   const [openStartDate, setOpenStartDate] = useState(false);
   const [openEndDate,   setOpenEndDate]   = useState(false);
 
-  // ── Controlled shortcut inputs (default 0) ──
   const [shortcutH, setShortcutH] = useState<number>(0);
   const [shortcutM, setShortcutM] = useState<number>(0);
 
@@ -299,8 +302,10 @@ const RequestForm = ({ user }: Props) => {
   return (
     <DialogWrapper
       btnTitle="ចុចដើម្បីស្នើសុំច្បាប់"
+      btnStyle={khmerFont}                      
       title="Submit your Leave Application"
       descr="ត្រូវប្រាកដថាអ្នកជ្រើសរើសកាលបរិច្ឆេទត្រឹមត្រូវសម្រាប់ការសុំច្បាប់"
+      descrStyle={khmerFont}
       isBtn={true}
       open={open}
       setOpen={() => setOpen(!open)}
@@ -321,7 +326,8 @@ const RequestForm = ({ user }: Props) => {
                       <Button
                         variant="outline"
                         role="combobox"
-                        className={cn("justify-between", !field.value && "text-muted-foreground")}
+                        style={khmerFont}
+                        className={cn("justify-between text-[13px]", !field.value && "text-muted-foreground")}
                       >
                         {field.value
                           ? leaveKhmerLabels[field.value] ?? leaveTypes.find((l) => l.value === field.value)?.label
@@ -330,15 +336,17 @@ const RequestForm = ({ user }: Props) => {
                       </Button>
                     </FormControl>
                   </PopoverTrigger>
-                  <PopoverContent className="w-[200px] p-0">
+                  <PopoverContent className="w-[260px] p-0">
                     <Command>
-                      <CommandInput placeholder="ស្វែងរកប្រភេទច្បាប់..." />
-                      <CommandEmpty>រកមិនឃើញប្រភេទច្បាប់។</CommandEmpty>
+                      <CommandInput placeholder="ស្វែងរកប្រភេទច្បាប់..." style={khmerFont} className="text-[13px]" />
+                      <CommandEmpty style={khmerFont} className="text-[13px] py-3 text-center">រកមិនឃើញប្រភេទច្បាប់។</CommandEmpty>
                       <CommandGroup>
                         {leaveTypes.map((leave) => (
                           <CommandItem
                             value={leaveKhmerLabels[leave.value] ?? leave.label}
                             key={leave.value}
+                            style={khmerFont}
+                            className="text-[13px] py-2.5"
                             onSelect={() => {
                               form.setValue("leave", leave.value);
                               form.resetField("maternityGender");
@@ -350,7 +358,7 @@ const RequestForm = ({ user }: Props) => {
                               setOpenLeaveType(false);
                             }}
                           >
-                            <BsCheckLg className={cn("mr-2 h-4 w-4", leave.value === field.value ? "opacity-100" : "opacity-0")} />
+                            <BsCheckLg className={cn("mr-2 h-4 w-4 shrink-0", leave.value === field.value ? "opacity-100" : "opacity-0")} />
                             {leaveKhmerLabels[leave.value] ?? leave.label}
                           </CommandItem>
                         ))}
@@ -370,7 +378,7 @@ const RequestForm = ({ user }: Props) => {
                 <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
                 <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
               </svg>
-              <span>
+              <span style={khmerFont} className="text-[13px]">
                 <strong>7-day advance notice required.</strong> ច្បាប់ប្រភេទនេះត្រូវតែស្នើសុំ
                 យ៉ាងហោចណាស់ <strong>7 ថ្ងៃ</strong> មុនពេលចូលច្បាប់។
               </span>
@@ -384,7 +392,7 @@ const RequestForm = ({ user }: Props) => {
               name="maternityGender"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>សូមជ្រើសរើសភេទ (Select Gender)</FormLabel>
+                  <FormLabel style={khmerFont}>សូមជ្រើសរើសភេទ (Select Gender)</FormLabel>
                   <div className="grid grid-cols-2 gap-3 mt-1">
                     <button
                       type="button"
@@ -401,8 +409,8 @@ const RequestForm = ({ user }: Props) => {
                         <line x1="19" y1="5" x2="14.14" y2="9.86" />
                         <polyline points="15 5 19 5 19 9" />
                       </svg>
-                      បុរស (Male)
-                      <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900 rounded-full px-2 py-0.5">
+                      <span style={khmerFont} className="text-[13px]">បុរស (Male)</span>
+                      <span style={khmerFont} className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900 rounded-full px-2 py-0.5">
                         Paternity · 7 ថ្ងៃ
                       </span>
                     </button>
@@ -421,8 +429,8 @@ const RequestForm = ({ user }: Props) => {
                         <line x1="12" y1="13" x2="12" y2="21" />
                         <line x1="9"  y1="18" x2="15" y2="18" />
                       </svg>
-                      ស្ត្រី (Female)
-                      <span className="text-xs font-semibold text-pink-600 dark:text-pink-400 bg-pink-100 dark:bg-pink-900 rounded-full px-2 py-0.5">
+                      <span style={khmerFont} className="text-[13px]">ស្ត្រី (Female)</span>
+                      <span style={khmerFont} className="text-[11px] font-semibold text-pink-600 dark:text-pink-400 bg-pink-100 dark:bg-pink-900 rounded-full px-2 py-0.5">
                         Maternity · 90 ថ្ងៃ
                       </span>
                     </button>
@@ -442,7 +450,7 @@ const RequestForm = ({ user }: Props) => {
                 name="startDate"
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
-                    <FormLabel>
+                    <FormLabel style={khmerFont}>
                       {isPersonal ? "ថ្ងៃចាប់ផ្ដើម" : "Start Date"}
                     </FormLabel>
                     <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}>
@@ -450,7 +458,8 @@ const RequestForm = ({ user }: Props) => {
                         <FormControl>
                           <Button
                             variant="outline"
-                            className={cn("inline-flex justify-between", !field.value && "text-muted-foreground")}
+                            style={khmerFont}
+                            className={cn("inline-flex justify-between text-[13px]", !field.value && "text-muted-foreground")}
                           >
                             {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
                             <IoCalendarOutline className="h-4 w-4 opacity-50" />
@@ -490,7 +499,7 @@ const RequestForm = ({ user }: Props) => {
                 name="endDate"
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
-                    <FormLabel>
+                    <FormLabel style={khmerFont}>
                       {isPersonal ? "ថ្ងៃបញ្ចប់" : "End Date"}
                     </FormLabel>
                     <Popover modal={true} open={openEndDate} onOpenChange={setOpenEndDate}>
@@ -498,7 +507,8 @@ const RequestForm = ({ user }: Props) => {
                         <FormControl>
                           <Button
                             variant="outline"
-                            className={cn("inline-flex justify-between", !field.value && "text-muted-foreground")}
+                            style={khmerFont}
+                            className={cn("inline-flex justify-between text-[13px]", !field.value && "text-muted-foreground")}
                           >
                             {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
                             <IoCalendarOutline className="h-4 w-4 opacity-50" />
@@ -530,9 +540,8 @@ const RequestForm = ({ user }: Props) => {
               {/* ── Personal: same-day time pickers ── */}
               {isPersonal && isSameDay && (
                 <FormItem>
-                  <FormLabel>ម៉ោង (Time)</FormLabel>
+                  <FormLabel style={khmerFont}>ម៉ោង (Time)</FormLabel>
 
-                  {/* Time range inputs */}
                   <div className="flex items-center gap-2 flex-wrap">
                     <FormField
                       control={form.control}
@@ -579,7 +588,6 @@ const RequestForm = ({ user }: Props) => {
                     />
                   </div>
 
-                  {/* ── Hours + Minutes shortcut inputs (controlled, default 0, auto-select on focus) ── */}
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <Input
                       type="number"
@@ -599,7 +607,7 @@ const RequestForm = ({ user }: Props) => {
                         form.setValue("personalEndTime", minutesToTime(endMin), { shouldValidate: true });
                       }}
                     />
-                    <span className="text-sm text-muted-foreground">ម៉ោង</span>
+                    <span style={khmerFont} className="text-[13px] text-muted-foreground">ម៉ោង</span>
 
                     <Input
                       type="number"
@@ -619,10 +627,10 @@ const RequestForm = ({ user }: Props) => {
                         form.setValue("personalEndTime", minutesToTime(endMin), { shouldValidate: true });
                       }}
                     />
-                    <span className="text-sm text-muted-foreground">នាទី</span>
+                    <span style={khmerFont} className="text-[13px] text-muted-foreground">នាទី</span>
                   </div>
 
-                  <FormDescription className="mt-1">
+                  <FormDescription style={khmerFont} className="mt-1 text-[12px]">
                     វាយម៉ោង និងនាទី ដើម្បីគណនាម៉ោងបញ្ចប់ស្វ័យប្រវត្តិ
                   </FormDescription>
                   <FormMessage />
@@ -635,7 +643,7 @@ const RequestForm = ({ user }: Props) => {
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
                     <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
                   </svg>
-                  <span>
+                  <span style={khmerFont} className="text-[13px]">
                     ច្បាប់ស្នើសុំ: <strong>{personalSummary}</strong>
                     {isSameDay && personalHours != null && personalHours > 0 && personalHours < 8 && (() => {
                       const totalMin = Math.round(personalHours * 60);
@@ -655,11 +663,11 @@ const RequestForm = ({ user }: Props) => {
             name="notes"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Reason (មូលហេតុ)</FormLabel>
+                <FormLabel style={khmerFont}>Reason (មូលហេតុ)</FormLabel>
                 <FormControl>
                   <Textarea placeholder="Reason" {...field} />
                 </FormControl>
-                <FormDescription>Add extra notes to support your request.</FormDescription>
+                <FormDescription className="text-[12px]">Add extra notes to support your request.</FormDescription>
                 <FormMessage />
               </FormItem>
             )}
