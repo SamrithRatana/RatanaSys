@@ -23,6 +23,10 @@ const leaveKhmerLabels: Record<string, string> = {
   SPECIAL:   "ច្បាប់ពិសេស",
 };
 
+const khmerFont: React.CSSProperties = {
+  fontFamily: "'Battambang', serif",
+};
+
 function formatValue(val: number, isHours: boolean): string {
   if (val === 0) return isHours ? "0 hrs" : "0 days";
 
@@ -69,20 +73,20 @@ const LeaveCard = ({
       {/* Leave type */}
       <td className="py-3 pl-3 pr-2">
         <div className="flex flex-col gap-0.5">
-          <span className="text-[13px] font-bold text-foreground leading-tight">
+          <span className="text-[13px] font-bold text-foreground leading-tight" style={khmerFont}>
             {leaveKhmerLabels[leaveType] ?? leaveType}
           </span>
           {isMaternity && (
             notApplied ? (
-              <Badge variant="outline" className="w-fit text-[10px] text-muted-foreground border-border px-1.5 py-0">
+              <Badge variant="outline" className="w-fit text-[10px] text-muted-foreground border-border px-1.5 py-0" style={khmerFont}>
                 អត់ទាន់ស្នើ · តាមភេទ
               </Badge>
             ) : gender === "MALE" ? (
-              <Badge variant="outline" className="w-fit text-[10px] text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-950 px-1.5 py-0">
+              <Badge variant="outline" className="w-fit text-[10px] text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-950 px-1.5 py-0" style={khmerFont}>
                 បុរស · Paternity · 7 ថ្ងៃ
               </Badge>
             ) : gender === "FEMALE" ? (
-              <Badge variant="outline" className="w-fit text-[10px] text-pink-600 border-pink-200 bg-pink-50 dark:bg-pink-950 px-1.5 py-0">
+              <Badge variant="outline" className="w-fit text-[10px] text-pink-600 border-pink-200 bg-pink-50 dark:bg-pink-950 px-1.5 py-0" style={khmerFont}>
                 ស្ត្រី · Maternity · 90 ថ្ងៃ
               </Badge>
             ) : null
