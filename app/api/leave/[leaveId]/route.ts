@@ -30,6 +30,15 @@ function getLeaveLabel(type: string): string {
   return labels[type.toUpperCase()] ?? `ច្បាប់ ${type}`;
 }
 
+function formatHourLabel(h: number): string {
+  const totalMin = Math.round(h * 60);
+  if (totalMin < 60) return `${totalMin} នាទី`;
+  if (totalMin % 60 === 0) return `${totalMin / 60} ម៉ោង`;
+  const hrs = Math.floor(totalMin / 60);
+  const min = totalMin % 60;
+  return `${hrs} ម៉ោង ${min} នាទី`;
+}
+
 export async function PATCH(req: Request) {
   const loggedInUser = await getCurrentUser();
 
@@ -88,14 +97,10 @@ export async function PATCH(req: Request) {
     // ── អនុម័ត ────────────────────────────────────────────────────────────────
     if (status === LeaveStatus.APPROVED) {
 
-      // ── Step 1: MODERATOR only ───────────────────────────────────────────────
-      // Admin no longer participates in Step 1 — they skip directly to final
       const canDoStep1 =
         actorRole === "MODERATOR" &&
         !leave.headDepartmentApproved;
 
-      // ── Final approval: ADMIN skips straight here regardless of Step 1 ───────
-      // MODERATOR can only reach here after Step 1 is done (headDepartmentApproved)
       const canDoAdminFinal =
         actorRole === "ADMIN" &&
         !leave.managerApproved;
@@ -141,28 +146,39 @@ export async function PATCH(req: Request) {
       // ── Final: Admin (bypass) OR Moderator (after Step 1) ───────────────────
       if (canDoAdminFinal || canDoModeratorFinal) {
         const hoursFromDb = Number(leave.hours ?? 0);
+        const daysFromDb  = Number(leave.days  ?? 0);
 
-        const isPartialPersonal =
-          type === "PERSONAL" && hoursFromDb > 0 && (days === 0 || days == null);
+        // Covers PERSONAL and SICK partial-day (hours stored, days = 0)
+        const isPartialHourly =
+          (type === "PERSONAL" || type === "SICK") &&
+          hoursFromDb > 0 &&
+          (daysFromDb === 0 || daysFromDb == null);
+
+        // Determine what to pass to calculateAndUpdateBalances
+        const effectiveType = isShortLeave
+          ? "SHORT"
+          : isPartialHourly && type === "SICK"
+            ? "SICK_SHORT"
+            : type;
 
         const effectiveValue = isShortLeave
-          ? hoursFromDb
-          : isPartialPersonal
-            ? hoursFromDb / 8
-            : days;
+          ? hoursFromDb                  // SHORT: pass raw hours
+          : isPartialHourly
+            ? hoursFromDb                // PERSONAL partial: calculateBalances handles /8
+            : daysFromDb > 0
+              ? daysFromDb               // full days stored in DB
+              : days;                    // fallback to body days
 
-        await calculateAndUpdateBalances(email, year, type, effectiveValue);
+        await calculateAndUpdateBalances(email, year, effectiveType, effectiveValue);
 
-        const durationLabel = isShortLeave
-          ? `${hoursFromDb} ម៉ោង`
-          : isPartialPersonal
-            ? (() => {
-                const totalMin = Math.round(hoursFromDb * 60);
-                return totalMin < 60
-                  ? `${totalMin} នាទី`
-                  : `${+hoursFromDb.toFixed(1)} ម៉ោង`;
-              })()
-            : `${days} ថ្ងៃ`;
+        // ── Duration label for Telegram ──────────────────────────────────────
+        const durationLabel = (() => {
+          if (isShortLeave) return formatHourLabel(hoursFromDb);
+          if (isPartialHourly) return formatHourLabel(hoursFromDb);
+          // Full-day: use DB days (most accurate), fallback to body days
+          const d = daysFromDb > 0 ? daysFromDb : days;
+          return `${d} ថ្ងៃ`;
+        })();
 
         await prisma.events.create({
           data: {
@@ -172,14 +188,12 @@ export async function PATCH(req: Request) {
           },
         });
 
-        // Admin bypassed Step 1 — fill both head dept + manager fields at once
         const adminBypassed = canDoAdminFinal && !leave.headDepartmentApproved;
 
         await prisma.leave.update({
           where: { id },
           data: {
             status: LeaveStatus.APPROVED,
-            // If Admin bypassed Step 1, populate head dept fields too
             ...(adminBypassed && {
               headDepartment:         actorName,
               headDepartmentNote:     notes,
@@ -194,9 +208,6 @@ export async function PATCH(req: Request) {
           },
         });
 
-        // ── Telegram: send ONE final message only ─────────────────────────────
-        // If Admin bypassed Step 1 → no middle "head dept" message was ever sent
-        // so this is the only notification the group sees
         await sendTelegramMessage(
           [
             `🎉 <b>ច្បាប់ត្រូវបានអនុម័តទាំងស្រុង!</b>`,
@@ -205,7 +216,6 @@ export async function PATCH(req: Request) {
             `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
             `📅 <b>រយៈពេល៖</b> ${durationLabel}`,
             `✅ <b>អនុម័តដោយ៖</b> ${actorName} (អ្នកគ្រប់គ្រង)`,
-            // Show different context depending on whether Step 1 was bypassed
             ...(adminBypassed
               ? [`⚡ <i>រំលង Head Dept — អនុម័តដោយផ្ទាល់ដោយ Admin</i>`]
               : [`👍 <b>ប្រធានផ្នែក៖</b> ${leave.headDepartment}`]
