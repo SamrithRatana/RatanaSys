@@ -51,11 +51,10 @@ const UserBalances = ({ balances }: Props) => {
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-muted/40 border-b border-border/50">
-              <th className="py-2.5 pl-4 pr-4 text-left text-xs font-medium text-muted-foreground">ប្រភេទច្បាប់</th>
-              <th className="py-2.5 px-4 text-right text-xs font-medium text-muted-foreground">ផ្តល់</th>
-              <th className="py-2.5 px-4 text-right text-xs font-medium text-muted-foreground">បានប្រើ</th>
-              <th className="py-2.5 px-4 text-right text-xs font-medium text-muted-foreground">នៅសល់</th>
-              <th className="py-2.5 pl-4 pr-4 text-left text-xs font-medium text-muted-foreground hidden sm:table-cell">ការប្រើប្រាស់</th>
+              <th className="py-2.5 pl-3 pr-2 text-left text-[11px] font-medium text-muted-foreground">ប្រភេទច្បាប់</th>
+              <th className="py-2.5 px-2 text-right text-[11px] font-medium text-muted-foreground">ផ្តល់</th>
+              <th className="py-2.5 px-2 text-right text-[11px] font-medium text-muted-foreground">បានប្រើ</th>
+              <th className="py-2.5 pl-2 pr-3 text-right text-[11px] font-medium text-muted-foreground">នៅសល់</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/30 bg-background">

@@ -17,7 +17,7 @@ const VISIBLE_TYPES = ["ANNUAL", "SICK", "PERSONAL", "MATERNITY", "SPECIAL"];
 
 const leaveKhmerLabels: Record<string, string> = {
   ANNUAL:    "ច្បាប់ប្រចាំឆ្នាំ",
-  SICK:      "ច្បាប់ឈឺផ្ទាល់ខ្លួន",
+  SICK:      "ច្បាប់លើឆ្មាំឆ្នន",
   PERSONAL:  "ច្បាប់ផ្ទាល់ខ្លួន",
   MATERNITY: "ច្បាប់មាតុភាព",
   SPECIAL:   "ច្បាប់ពិសេស",
@@ -39,17 +39,10 @@ function formatValue(val: number, isHours: boolean): string {
   return `${wholeDays} day${wholeDays !== 1 ? "s" : ""} ${remainingHrs} hr${remainingHrs !== 1 ? "s" : ""}`;
 }
 
-// Infer gender from credit value, falling back to used amount for legacy records
-// where credit was never set by admin but leaves were already submitted.
 function detectMaternityGender(credit: number, used: number): "MALE" | "FEMALE" | null {
   if (credit === 7  || (credit === 0 && used > 0 && used <= 7))  return "MALE";
   if (credit === 90 || (credit === 0 && used > 7))               return "FEMALE";
   return null;
-}
-
-function usagePercent(used: number, credit: number): number {
-  if (credit === 0) return 0;
-  return Math.min(100, Math.round((used / credit) * 100));
 }
 
 const LeaveCard = ({
@@ -69,15 +62,14 @@ const LeaveCard = ({
 
   const gender     = isMaternity ? detectMaternityGender(creditVal, usedVal) : null;
   const notApplied = isMaternity && creditVal === 0 && usedVal === 0;
-  const pct        = usagePercent(usedVal, creditVal);
 
   return (
     <tr className="border-b border-border/40 last:border-0 hover:bg-muted/30 transition-colors">
 
       {/* Leave type */}
-      <td className="py-3 pl-4 pr-4">
+      <td className="py-3 pl-3 pr-2">
         <div className="flex flex-col gap-0.5">
-          <span className="text-sm font-medium text-foreground">
+          <span className="text-[13px] font-medium text-foreground leading-tight">
             {leaveKhmerLabels[leaveType] ?? leaveType}
           </span>
           {isMaternity && (
@@ -99,39 +91,24 @@ const LeaveCard = ({
       </td>
 
       {/* Credit */}
-      <td className="py-3 px-4 text-right">
+      <td className="py-3 px-2 text-right">
         {notApplied
-          ? <span className="text-sm text-muted-foreground italic">—</span>
-          : <span className="text-sm text-foreground">{formatValue(creditVal, isHours)}</span>
+          ? <span className="text-[13px] text-muted-foreground italic">—</span>
+          : <span className="text-[13px] text-foreground">{formatValue(creditVal, isHours)}</span>
         }
       </td>
 
       {/* Used */}
-      <td className="py-3 px-4 text-right">
-        <span className="text-sm text-muted-foreground">{formatValue(usedVal, isHours)}</span>
+      <td className="py-3 px-2 text-right">
+        <span className="text-[13px] text-muted-foreground">{formatValue(usedVal, isHours)}</span>
       </td>
 
       {/* Balance */}
-      <td className="py-3 px-4 text-right">
+      <td className="py-3 pl-2 pr-3 text-right">
         {notApplied
-          ? <span className="text-sm text-muted-foreground italic">—</span>
-          : <span className="text-sm font-medium text-green-700 dark:text-green-400">{formatValue(balanceVal, isHours)}</span>
+          ? <span className="text-[13px] text-muted-foreground italic">—</span>
+          : <span className="text-[13px] font-medium text-green-700 dark:text-green-400">{formatValue(balanceVal, isHours)}</span>
         }
-      </td>
-
-      {/* Progress */}
-      <td className="py-3 pl-4 pr-4 w-28 hidden sm:table-cell">
-        {!notApplied && creditVal > 0 && (
-          <div className="flex items-center gap-2">
-            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full bg-green-500 transition-all"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-            <span className="text-[11px] text-muted-foreground w-7 text-right">{pct}%</span>
-          </div>
-        )}
       </td>
 
     </tr>
