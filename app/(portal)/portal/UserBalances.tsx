@@ -52,9 +52,9 @@ const UserBalances = ({ balances }: Props) => {
           <thead>
             <tr className="bg-muted/40 border-b border-border/50">
               <th className="py-2.5 pl-3 pr-2 text-left text-[11px] font-medium text-muted-foreground">ប្រភេទច្បាប់</th>
-              <th className="py-2.5 px-2 text-right text-[11px] font-medium text-muted-foreground">ផ្តល់</th>
-              <th className="py-2.5 px-2 text-right text-[11px] font-medium text-muted-foreground">បានប្រើ</th>
-              <th className="py-2.5 pl-2 pr-3 text-right text-[11px] font-medium text-muted-foreground">នៅសល់</th>
+              <th className="py-2.5 px-2 text-right text-[11px] font-medium text-muted-foreground">Credit</th>
+              <th className="py-2.5 px-2 text-right text-[11px] font-medium text-muted-foreground">Used</th>
+              <th className="py-2.5 pl-2 pr-3 text-right text-[11px] font-medium text-muted-foreground">Balance</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/30 bg-background">
