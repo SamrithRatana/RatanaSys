@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { LeaveStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { sendTelegramMessage } from "@/lib/sendTelegramMessage";
+import { format } from "date-fns";
 
 type EditBody = {
   notes:     string;
@@ -39,6 +40,15 @@ function formatHourLabel(h: number): string {
   return `${hrs} ម៉ោង ${min} នាទី`;
 }
 
+/** Build "DD MMM YYYY → DD MMM YYYY (X ថ្ងៃ)" or single-date variant */
+function buildDateRange(startDate: Date, endDate: Date, durationLabel: string): string {
+  const s = format(startDate, "dd MMM yyyy");
+  const e = format(endDate,   "dd MMM yyyy");
+  return s === e
+    ? `${s} (${durationLabel})`
+    : `${s} → ${e} (${durationLabel})`;
+}
+
 export async function PATCH(req: Request) {
   const loggedInUser = await getCurrentUser();
 
@@ -67,6 +77,24 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Leave not found" }, { status: 404 });
     }
 
+    // ── Compute duration label from DB (used in ALL Telegram messages) ────────
+    const hoursFromDb = Number(leave.hours ?? 0);
+    const daysFromDb  = Number(leave.days  ?? 0);
+
+    const isPartialHourly =
+      (type === "PERSONAL" || type === "SICK") &&
+      hoursFromDb > 0 &&
+      (daysFromDb === 0 || daysFromDb == null);
+
+    const durationLabel = (() => {
+      if (isShortLeave)    return formatHourLabel(hoursFromDb);
+      if (isPartialHourly) return formatHourLabel(hoursFromDb);
+      const d = daysFromDb > 0 ? daysFromDb : days;
+      return `${d} ថ្ងៃ`;
+    })();
+
+    const dateRangeLabel = buildDateRange(leave.startDate, leave.endDate, durationLabel);
+
     // ── បដិសេធ ────────────────────────────────────────────────────────────────
     if (status === LeaveStatus.REJECTED) {
       await prisma.leave.update({
@@ -85,6 +113,8 @@ export async function PATCH(req: Request) {
           ``,
           `👤 <b>ឈ្មោះ៖</b> ${user}`,
           `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
+          `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRangeLabel}`,
+          `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
           `🙅 <b>បដិសេធដោយ៖</b> ${actorName}`,
           `📝 <b>កំណត់ចំណាំ៖</b> ${notes || "—"}`,
         ].join("\n"),
@@ -130,7 +160,10 @@ export async function PATCH(req: Request) {
             ``,
             `👤 <b>ឈ្មោះ៖</b> ${user}`,
             `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
+            `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRangeLabel}`,
+            `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
             `👍 <b>អនុម័តដោយ៖</b> ${actorName} (ប្រធានផ្នែក)`,
+            `📝 <b>កំណត់ចំណាំ៖</b> ${notes || "—"}`,
             ``,
             `⏳ <i>កំពុងរង់ចាំការអនុម័តពីអ្នកគ្រប់គ្រង</i>`,
           ].join("\n"),
@@ -145,16 +178,6 @@ export async function PATCH(req: Request) {
 
       // ── Final: Admin (bypass) OR Moderator (after Step 1) ───────────────────
       if (canDoAdminFinal || canDoModeratorFinal) {
-        const hoursFromDb = Number(leave.hours ?? 0);
-        const daysFromDb  = Number(leave.days  ?? 0);
-
-        // Covers PERSONAL and SICK partial-day (hours stored, days = 0)
-        const isPartialHourly =
-          (type === "PERSONAL" || type === "SICK") &&
-          hoursFromDb > 0 &&
-          (daysFromDb === 0 || daysFromDb == null);
-
-        // Determine what to pass to calculateAndUpdateBalances
         const effectiveType = isShortLeave
           ? "SHORT"
           : isPartialHourly && type === "SICK"
@@ -162,23 +185,14 @@ export async function PATCH(req: Request) {
             : type;
 
         const effectiveValue = isShortLeave
-          ? hoursFromDb                  // SHORT: pass raw hours
+          ? hoursFromDb
           : isPartialHourly
-            ? hoursFromDb                // PERSONAL partial: calculateBalances handles /8
+            ? hoursFromDb
             : daysFromDb > 0
-              ? daysFromDb               // full days stored in DB
-              : days;                    // fallback to body days
+              ? daysFromDb
+              : days;
 
         await calculateAndUpdateBalances(email, year, effectiveType, effectiveValue);
-
-        // ── Duration label for Telegram ──────────────────────────────────────
-        const durationLabel = (() => {
-          if (isShortLeave) return formatHourLabel(hoursFromDb);
-          if (isPartialHourly) return formatHourLabel(hoursFromDb);
-          // Full-day: use DB days (most accurate), fallback to body days
-          const d = daysFromDb > 0 ? daysFromDb : days;
-          return `${d} ថ្ងៃ`;
-        })();
 
         await prisma.events.create({
           data: {
@@ -214,7 +228,8 @@ export async function PATCH(req: Request) {
             ``,
             `👤 <b>ឈ្មោះ៖</b> ${user}`,
             `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
-            `📅 <b>រយៈពេល៖</b> ${durationLabel}`,
+            `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRangeLabel}`,
+            `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
             `✅ <b>អនុម័តដោយ៖</b> ${actorName} (អ្នកគ្រប់គ្រង)`,
             ...(adminBypassed
               ? [`⚡ <i>រំលង Head Dept — អនុម័តដោយផ្ទាល់ដោយ Admin</i>`]

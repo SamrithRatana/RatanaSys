@@ -36,7 +36,16 @@ function safeParse(isoString: string): Date {
   return new Date(`${dateOnly}T12:00:00.000Z`);
 }
 
-type Params = { params: { leaveId: string } };  // ← matches your folder name
+function formatHourLabel(h: number): string {
+  const totalMin = Math.round(h * 60);
+  if (totalMin < 60) return `${totalMin} នាទី`;
+  if (totalMin % 60 === 0) return `${totalMin / 60} ម៉ោង`;
+  const hrs = Math.floor(totalMin / 60);
+  const min = totalMin % 60;
+  return `${hrs} ម៉ោង ${min} នាទី`;
+}
+
+type Params = { params: { leaveId: string } };
 
 // ── PATCH — user edits their own PENDING leave ────────────────────────────────
 export async function PATCH(req: NextRequest, { params }: Params) {
@@ -51,12 +60,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "Leave not found" }, { status: 404 });
     }
 
-    // Only the owner can edit
     if (leave.userEmail !== loggedInUser.email) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Only PENDING leaves can be edited
     if (leave.status !== LeaveStatus.PENDING) {
       return NextResponse.json(
         { error: "Only pending leaves can be edited." },
@@ -96,18 +103,26 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       },
     });
 
+    // ── Build duration + date range for Telegram ──────────────────────────────
+    const durationLabel = (() => {
+      if (isShortLeave) return formatHourLabel(calcHours);
+      return `${calcDays} ថ្ងៃ`;
+    })();
+
+    const dateRange = (() => {
+      const s = format(startDateObj, "dd MMM yyyy");
+      const e = format(endDateObj,   "dd MMM yyyy");
+      if (isShortLeave) return `${s} (${durationLabel})`;
+      if (s === e)      return `${s} (${durationLabel})`;
+      return `${s} → ${e} (${durationLabel})`;
+    })();
+
     // ── Edit the original Telegram message if we have its ID ─────────────────
     const msgId = leave.telegramMessageId;
     if (msgId) {
       const baseUrl    = process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh";
       const leaveUrl   = `${baseUrl}/dashboard/leaves/${leave.id}`;
       const leaveLabel = getLeaveLabel(leave.type, maternityGender);
-
-      const dateRange = isShortLeave
-        ? `${format(startDateObj, "dd MMM yyyy")} (${calcHours} ម៉ោង)`
-        : calcDays === 1
-          ? format(startDateObj, "dd MMM yyyy")
-          : `${format(startDateObj, "dd MMM yyyy")} → ${format(endDateObj, "dd MMM yyyy")} (${calcDays} ថ្ងៃ)`;
 
       await editTelegramMessage(
         msgId,
@@ -120,6 +135,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
             ? [`⚧ <b>ភេទ៖</b> ${maternityGender === "MALE" ? "បុរស 👨" : "ស្ត្រី 👩"}`]
             : []),
           `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRange}`,
+          `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
           `📝 <b>មូលហេតុ៖</b> ${notes || "—"}`,
           ``,
           `✏️ <i>បានកែប្រែដោយអ្នកស្នើ · រង់ចាំអនុម័តពីប្រធានផ្នែក</i>`,
@@ -164,17 +180,33 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     // ── Edit Telegram to show cancelled ──────────────────────────────────────
     const msgId = leave.telegramMessageId;
     if (msgId) {
+      const leaveLabel = getLeaveLabel(leave.type);
+
+      // Re-build date range from original DB values
+      const s = format(leave.startDate, "dd MMM yyyy");
+      const e = format(leave.endDate,   "dd MMM yyyy");
+      const storedDays  = Number(leave.days  ?? 0);
+      const storedHours = Number(leave.hours ?? 0);
+      const isShort     = leave.type === "SHORT";
+      const durationLabel = isShort
+        ? formatHourLabel(storedHours)
+        : `${storedDays} ថ្ងៃ`;
+      const dateRange = (isShort || s === e)
+        ? `${s} (${durationLabel})`
+        : `${s} → ${e} (${durationLabel})`;
+
       await editTelegramMessage(
         msgId,
         [
           `🚫 <b>សំណើច្បាប់បានលុបចោល</b>`,
           ``,
           `👤 <b>ឈ្មោះ៖</b> ${leave.userName}`,
-          `📋 <b>ប្រភេទ៖</b> ${leave.type}`,
+          `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
+          `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRange}`,
+          `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
           ``,
           `❌ <i>លុបចោលដោយអ្នកស្នើ</i>`,
         ].join("\n")
-        // no button — leave is deleted
       );
     }
 
