@@ -397,7 +397,7 @@ const RequestForm = ({ user }: Props) => {
       <div className="flex items-center gap-2 flex-wrap">
         <FormLabel style={khmerFont}>ម៉ោង (Time)</FormLabel>
         <span style={khmerFont} className="text-[14px] text-red-500">
-          * បើឈប់ចាប់ពី 1 ថ្ងៃ មិនចាំបាច់បំពេញម៉ោងនេះទេ
+          * បើឈប់ចាប់ពី 1 ថ្ងៃ មិនចាំបាច់បំពេញម៉ោងនេះទេសូមរំលង
         </span>
       </div>
 
