@@ -1,20 +1,22 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from "react";
+import { useExternalLinks } from "@/lib/openExternalLink";
 
 declare global {
   interface Window {
     Telegram?: {
       WebApp?: {
-        ready: () => void;
-        expand: () => void;
-        addToHomeScreen: () => void;
+        ready:               () => void;
+        expand:              () => void;
+        addToHomeScreen:     () => void;
+        openLink:            (url: string, opts?: { try_instant_view?: boolean }) => void;
         checkHomeScreenStatus: (
-          callback: (status: 'unsupported' | 'unknown' | 'added' | 'missed') => void
+          callback: (status: "unsupported" | "unknown" | "added" | "missed") => void
         ) => void;
-        platform: string;
-        version: string;
-        initData: string;
+        platform:  string;
+        version:   string;
+        initData:  string;
       };
     };
     __pwaInstallPrompt: any;
@@ -22,12 +24,17 @@ declare global {
 }
 
 export default function InstallPWAButton() {
-  const [show, setShow] = useState(false);
-  const [isTelegram, setIsTelegram] = useState(false);
+  const [show,         setShow]         = useState(false);
+  const [isTelegram,   setIsTelegram]   = useState(false);
   const [alreadyAdded, setAlreadyAdded] = useState(false);
 
+  // ── Patch all external link clicks to open in phone browser ──────────────
+  // This is the key fix: any <a href="https://..."> inside the Mini App
+  // will be routed through Telegram.WebApp.openLink() instead of WebView.
+  useExternalLinks();
+
   useEffect(() => {
-    const tg = window.Telegram?.WebApp;
+    const tg            = window.Telegram?.WebApp;
     const isRealTelegram = !!tg && !!tg.initData && tg.initData.length > 0;
 
     if (isRealTelegram && tg) {
@@ -35,14 +42,15 @@ export default function InstallPWAButton() {
       tg.expand();
       setIsTelegram(true);
 
-      if (typeof tg.checkHomeScreenStatus === 'function') {
+      if (typeof tg.checkHomeScreenStatus === "function") {
         tg.checkHomeScreenStatus((status) => {
-          if (status === 'added') {
+          if (status === "added") {
             setAlreadyAdded(true);
             setShow(false);
-          } else if (status === 'missed' || status === 'unknown') {
+          } else if (status === "missed" || status === "unknown") {
             setShow(true);
-          } else if (status === 'unsupported') {
+          } else {
+            // "unsupported"
             setShow(false);
           }
         });
@@ -50,24 +58,22 @@ export default function InstallPWAButton() {
         setShow(true);
       }
     } else {
-      if (window.__pwaInstallPrompt) {
-        setShow(true);
-      }
+      if (window.__pwaInstallPrompt) setShow(true);
       const onReady = () => setShow(true);
-      window.addEventListener('pwaInstallReady', onReady);
-      return () => window.removeEventListener('pwaInstallReady', onReady);
+      window.addEventListener("pwaInstallReady", onReady);
+      return () => window.removeEventListener("pwaInstallReady", onReady);
     }
   }, []);
 
   const handleInstall = async () => {
-    const tg = window.Telegram?.WebApp;
+    const tg             = window.Telegram?.WebApp;
     const isRealTelegram = !!tg && !!tg.initData && tg.initData.length > 0;
 
     if (isTelegram && isRealTelegram && tg) {
       tg.addToHomeScreen();
       setTimeout(() => {
         tg.checkHomeScreenStatus?.((status) => {
-          if (status === 'added') {
+          if (status === "added") {
             setAlreadyAdded(true);
             setShow(false);
           }
@@ -78,7 +84,7 @@ export default function InstallPWAButton() {
       if (!prompt) return;
       await prompt.prompt();
       const { outcome } = await prompt.userChoice;
-      if (outcome === 'accepted') {
+      if (outcome === "accepted") {
         window.__pwaInstallPrompt = null;
         setShow(false);
       }

@@ -3,10 +3,11 @@ type InlineButton = {
   url:  string;
 };
 
+// ── Send a new Telegram message ───────────────────────────────────────────────
 export async function sendTelegramMessage(
   message: string,
   buttons?: InlineButton[]
-): Promise<number | null> {  // ← now returns messageId for later editing
+): Promise<number | null> {
   const token   = process.env.TELEGRAM_BOT_TOKEN;
   let   chatId  = process.env.TELEGRAM_GROUP_CHAT_ID;
   const topicId = process.env.TELEGRAM_LEAVES_TOPIC_ID;
@@ -25,7 +26,10 @@ export async function sendTelegramMessage(
       ? {
           reply_markup: {
             inline_keyboard: [
-              buttons.map((btn) => ({ text: btn.text, url: btn.url })),
+              buttons.map((btn) => ({
+                text: btn.text,
+                url:  btn.url,
+              })),
             ],
           },
         }
@@ -45,7 +49,6 @@ export async function sendTelegramMessage(
     if (!res.ok) {
       const err = await res.json();
 
-      // ── Auto-handle supergroup migration ──────────────────────────────────
       if (err?.error_code === 400 && err?.parameters?.migrate_to_chat_id) {
         const newChatId = err.parameters.migrate_to_chat_id.toString();
         console.warn(`[Telegram] Group migrated. New chat_id: ${newChatId}`);
@@ -86,8 +89,8 @@ export async function editTelegramMessage(
   message:   string,
   buttons?:  InlineButton[]
 ): Promise<void> {
-  const token   = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId  = process.env.TELEGRAM_GROUP_CHAT_ID;
+  const token  = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_GROUP_CHAT_ID;
 
   if (!token || !chatId || !messageId) {
     console.warn("[Telegram] editTelegramMessage: missing token, chatId, or messageId");
@@ -103,7 +106,10 @@ export async function editTelegramMessage(
       ? {
           reply_markup: {
             inline_keyboard: [
-              buttons.map((btn) => ({ text: btn.text, url: btn.url })),
+              buttons.map((btn) => ({
+                text: btn.text,
+                url:  btn.url,
+              })),
             ],
           },
         }
@@ -122,7 +128,6 @@ export async function editTelegramMessage(
 
     if (!res.ok) {
       const err = await res.json();
-      // 400 "message is not modified" is harmless — ignore it
       if (err?.description?.includes("message is not modified")) return;
       console.error("[Telegram] editMessageText failed:", JSON.stringify(err));
     }
