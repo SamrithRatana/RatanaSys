@@ -3,38 +3,6 @@ type InlineButton = {
   url:  string;
 };
 
-/**
- * Converts a normal https:// URL into an Android intent:// URL that
- * launches the installed PWA directly instead of opening Chrome.
- *
- * On iOS there is no equivalent — Safari will open, but if the user
- * has the PWA installed iOS will show a banner to switch to the app.
- *
- * Format:
- *   intent://<host><path>#Intent;scheme=https;action=android.intent.action.VIEW;
- *            category=android.intent.category.BROWSABLE;
- *            S.browser_fallback_url=<encoded-original-url>;end
- */
-function toPwaIntentUrl(url: string): string {
-  try {
-    const parsed   = new URL(url);
-    const hostPath = `${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`;
-    const fallback = encodeURIComponent(url);
-
-    return (
-      `intent://${hostPath}` +
-      `#Intent` +
-      `;scheme=https` +
-      `;action=android.intent.action.VIEW` +
-      `;category=android.intent.category.BROWSABLE` +
-      `;S.browser_fallback_url=${fallback}` +
-      `;end`
-    );
-  } catch {
-    return url; // fall back to original if URL is malformed
-  }
-}
-
 // ── Send a new Telegram message ───────────────────────────────────────────────
 export async function sendTelegramMessage(
   message: string,
@@ -60,10 +28,7 @@ export async function sendTelegramMessage(
             inline_keyboard: [
               buttons.map((btn) => ({
                 text: btn.text,
-                // intent:// launches the installed PWA on Android.
-                // The S.browser_fallback_url ensures it still works
-                // on devices without the PWA installed (opens Chrome).
-                url: toPwaIntentUrl(btn.url),
+                url:  btn.url, // plain https:// — Telegram only accepts https
               })),
             ],
           },
@@ -84,7 +49,6 @@ export async function sendTelegramMessage(
     if (!res.ok) {
       const err = await res.json();
 
-      // ── Auto-handle supergroup migration ──────────────────────────────────
       if (err?.error_code === 400 && err?.parameters?.migrate_to_chat_id) {
         const newChatId = err.parameters.migrate_to_chat_id.toString();
         console.warn(`[Telegram] Group migrated. New chat_id: ${newChatId}`);
@@ -144,7 +108,7 @@ export async function editTelegramMessage(
             inline_keyboard: [
               buttons.map((btn) => ({
                 text: btn.text,
-                url:  toPwaIntentUrl(btn.url),
+                url:  btn.url, // plain https://
               })),
             ],
           },
