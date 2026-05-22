@@ -671,32 +671,19 @@ const RequestForm = ({ user }: Props) => {
             />
           )}
 
-          {/* ── Date Fields ── */}
+          {/* ── Date + Time Fields ── */}
           {(!isMaternity || !!maternityGender) && (
             <>
-              {/* ── For hourly leaves: show TimePicker immediately (dates already auto-set to today) ── */}
-              {isHourly && isSameDay && <TimePicker />}
-
-              {/* ── For hourly leaves: optionally change the date ── */}
+              {/* ── Hourly (PERSONAL / SICK): date pickers first, TimePicker below ── */}
               {isHourly && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2">
-                    <div className="h-px flex-1 bg-border" />
-                    <span style={khmerFont} className="text-[11px] text-muted-foreground px-2">
-                      ផ្លាស់ប្ដូរថ្ងៃ (optional)
-                    </span>
-                    <div className="h-px flex-1 bg-border" />
-                  </div>
-
+                <>
                   {/* Start Date */}
                   <FormField
                     control={form.control}
                     name="startDate"
                     render={({ field }) => (
                       <FormItem className="flex flex-col">
-                        <FormLabel style={khmerFont} className="text-muted-foreground text-[12px]">
-                          ថ្ងៃចាប់ផ្ដើម
-                        </FormLabel>
+                        <FormLabel style={khmerFont}>ថ្ងៃចាប់ផ្ដើម</FormLabel>
                         <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}>
                           <PopoverTrigger asChild>
                             <FormControl>
@@ -716,7 +703,6 @@ const RequestForm = ({ user }: Props) => {
                               selected={field.value}
                               onSelect={(date) => {
                                 field.onChange(date);
-                                // Reset end date to same day and times to current time
                                 form.setValue("endDate", date ?? undefined, { shouldValidate: false });
                                 const nowTime = getCurrentTime();
                                 form.setValue("personalStartTime", nowTime, { shouldValidate: false });
@@ -737,15 +723,13 @@ const RequestForm = ({ user }: Props) => {
                     )}
                   />
 
-                  {/* End Date (for multi-day hourly — rare but supported) */}
+                  {/* End Date */}
                   <FormField
                     control={form.control}
                     name="endDate"
                     render={({ field }) => (
                       <FormItem className="flex flex-col">
-                        <FormLabel style={khmerFont} className="text-muted-foreground text-[12px]">
-                          ថ្ងៃបញ្ចប់
-                        </FormLabel>
+                        <FormLabel style={khmerFont}>ថ្ងៃបញ្ចប់</FormLabel>
                         <Popover modal={true} open={openEndDate} onOpenChange={setOpenEndDate}>
                           <PopoverTrigger asChild>
                             <FormControl>
@@ -780,10 +764,13 @@ const RequestForm = ({ user }: Props) => {
                       </FormItem>
                     )}
                   />
-                </div>
+
+                  {/* TimePicker — shown below dates, only when same day */}
+                  {isSameDay && <TimePicker />}
+                </>
               )}
 
-              {/* ── Non-hourly: Start + End date pickers (original layout) ── */}
+              {/* ── Non-hourly: Start + End date pickers ── */}
               {!isHourly && (
                 <>
                   {/* Start Date */}
@@ -871,7 +858,7 @@ const RequestForm = ({ user }: Props) => {
                 </>
               )}
 
-              {/* ── Universal duration banner (all leave types) ── */}
+              {/* ── Universal duration banner ── */}
               <SummaryBanner />
             </>
           )}
