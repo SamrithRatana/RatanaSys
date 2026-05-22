@@ -1,6 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+
+  // ✅ Fix segfault during "Collecting build traces"
+  outputFileTracingExcludes: {
+    '*': [
+      './node_modules/@swc/core-linux-x64-gnu',
+      './node_modules/@swc/core-linux-x64-musl',
+      './node_modules/sharp',
+      './node_modules/@img',
+      './node_modules/esbuild',
+      './node_modules/webpack',
+    ],
+  },
+
   experimental: {
     serverActions: {
       allowedOrigins: [
@@ -9,7 +22,7 @@ const nextConfig = {
       ],
     },
   },
-  // ✅ Add this line to fix DYNAMIC_SERVER_USAGE build error
+
   staticPageGenerationTimeout: 120,
 }
 
