@@ -394,7 +394,12 @@ const RequestForm = ({ user }: Props) => {
   // ── Shared time-picker (PERSONAL + SICK same-day) ─────────────────────────
   const TimePicker = () => (
     <FormItem>
-      <FormLabel style={khmerFont}>ម៉ោង (Time)</FormLabel>
+      <div className="flex items-center gap-2 flex-wrap">
+        <FormLabel style={khmerFont}>ម៉ោង (Time)</FormLabel>
+        <span style={khmerFont} className="text-[11px] text-red-500">
+          * បើឈប់ចាប់ពី 1 ថ្ងៃ មិនចាំបាច់បំពេញម៉ោងនេះទេ
+        </span>
+      </div>
 
       <div className="flex items-center gap-2 flex-wrap">
         <FormField
