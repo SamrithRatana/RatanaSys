@@ -51,21 +51,31 @@ type Props = { user: User };
 const today = new Date();
 today.setHours(0, 0, 0, 0);
 
+// ── Time helpers ──────────────────────────────────────────────────────────────
+
 function timeToMinutes(t: string): number {
   const [h, m] = t.split(":").map(Number);
   return h * 60 + m;
-}
-
-function calcPersonalHours(startTime: string, endTime: string): number {
-  const startMin = timeToMinutes(startTime);
-  const endMin   = timeToMinutes(endTime);
-  return Math.max(0, (endMin - startMin) / 60);
 }
 
 function minutesToTime(min: number): string {
   const h = Math.floor(min / 60).toString().padStart(2, "0");
   const m = (min % 60).toString().padStart(2, "0");
   return `${h}:${m}`;
+}
+
+/** Returns current local time as "HH:MM" */
+function getCurrentTime(): string {
+  const now = new Date();
+  const h = now.getHours().toString().padStart(2, "0");
+  const m = now.getMinutes().toString().padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+function calcPersonalHours(startTime: string, endTime: string): number {
+  const startMin = timeToMinutes(startTime);
+  const endMin   = timeToMinutes(endTime);
+  return Math.max(0, (endMin - startMin) / 60);
 }
 
 function formatDuration(totalMinutes: number): string {
@@ -81,6 +91,8 @@ function blockFloatKeys(e: React.KeyboardEvent<HTMLInputElement>) {
     e.preventDefault();
   }
 }
+
+// ── Zod schema ────────────────────────────────────────────────────────────────
 
 const formSchema = z
   .object({
@@ -138,6 +150,8 @@ const formSchema = z
     }
   });
 
+// ── Component ─────────────────────────────────────────────────────────────────
+
 const RequestForm = ({ user }: Props) => {
   const [open,          setOpen]          = useState(false);
   const [openLeaveType, setOpenLeaveType] = useState(false);
@@ -147,11 +161,14 @@ const RequestForm = ({ user }: Props) => {
   const [shortcutH, setShortcutH] = useState<number>(0);
   const [shortcutM, setShortcutM] = useState<number>(0);
 
+  // ── Default start = current time, end = current time (user inputs duration) ─
+  const initTime = getCurrentTime();
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      personalStartTime: "08:00",
-      personalEndTime:   "17:00",
+      personalStartTime: initTime,
+      personalEndTime:   initTime,
     },
   });
 
@@ -159,8 +176,8 @@ const RequestForm = ({ user }: Props) => {
   const maternityGender   = form.watch("maternityGender");
   const startDateValue    = form.watch("startDate");
   const endDateValue      = form.watch("endDate");
-  const personalStartTime = form.watch("personalStartTime") ?? "08:00";
-  const personalEndTime   = form.watch("personalEndTime")   ?? "17:00";
+  const personalStartTime = form.watch("personalStartTime") ?? initTime;
+  const personalEndTime   = form.watch("personalEndTime")   ?? initTime;
 
   const isPersonal  = selectedLeave === "PERSONAL";
   const isSick      = selectedLeave === "SICK";
@@ -178,11 +195,9 @@ const RequestForm = ({ user }: Props) => {
     ? calcPersonalHours(personalStartTime, personalEndTime)
     : null;
 
-  // ── Universal duration calculation (all leave types) ──────────────────────
-  // Rule: same start & end date = 1 ថ្ងៃ (differenceInDays returns 0, +1 = 1)
+  // ── Universal duration calculation ────────────────────────────────────────
   const totalDays: number | null = (() => {
     if (!startDateValue || !endDateValue) return null;
-    // Hourly same-day with partial hours: count as fractional, show ម៉ោង instead
     if (isSameDay && leaveHours !== null && leaveHours > 0 && leaveHours < 8) return null;
     return differenceInDays(endDateValue, startDateValue) + 1;
   })();
@@ -192,20 +207,22 @@ const RequestForm = ({ user }: Props) => {
     if (!startDateValue || !endDateValue) return null;
 
     if (isSameDay) {
-      if (!leaveHours || leaveHours <= 0) return null;
-      const totalMin = Math.round(leaveHours * 60);
+      const totalMin = Math.round((leaveHours ?? 0) * 60);
+
+      // No duration input → full day
+      if (!leaveHours || leaveHours <= 0) {
+        return `1 ថ្ងៃ (${format(startDateValue, "dd MMM yyyy")})`;
+      }
       if (leaveHours >= 8) {
         return `1 ថ្ងៃ (${personalStartTime} – ${personalEndTime})`;
       }
       return `${formatDuration(totalMin)} (${personalStartTime} – ${personalEndTime})`;
     }
 
-    // Multi-day or non-hourly types
     const days = differenceInDays(endDateValue, startDateValue) + 1;
     const startFmt = format(startDateValue, "dd MMM");
     const endFmt   = format(endDateValue,   "dd MMM yyyy");
 
-    // Same calendar date (start === end, 1 day)
     if (days === 1) {
       return `1 ថ្ងៃ (${format(startDateValue, "dd MMM yyyy")})`;
     }
@@ -217,6 +234,14 @@ const RequestForm = ({ user }: Props) => {
   const resetShortcuts = () => {
     setShortcutH(0);
     setShortcutM(0);
+  };
+
+  // ── Reset time fields to current time ────────────────────────────────────
+  const resetTimesToNow = () => {
+    const now = getCurrentTime();
+    form.setValue("personalStartTime", now, { shouldValidate: false });
+    form.setValue("personalEndTime",   now, { shouldValidate: false });
+    resetShortcuts();
   };
 
   useEffect(() => {
@@ -251,6 +276,17 @@ const RequestForm = ({ user }: Props) => {
     }
   }, [startDateValue]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── For hourly leaves: auto-set today as both start and end date ──────────
+  // so TimePicker shows immediately without requiring date selection
+  useEffect(() => {
+    if (isHourly && !startDateValue) {
+      const todayDate = new Date(today);
+      form.setValue("startDate", todayDate, { shouldValidate: false });
+      form.setValue("endDate",   todayDate, { shouldValidate: false });
+      resetTimesToNow();
+    }
+  }, [selectedLeave]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const getMinStartDate = (): Date => {
     if (selectedLeave === "SPECIAL") {
       const minDate = new Date(today);
@@ -270,18 +306,46 @@ const RequestForm = ({ user }: Props) => {
         ? differenceInDays(values.endDate, values.startDate) === 0
         : false;
 
-      const hours = sameDay
+      // Raw hours from time picker (start → end diff)
+      const rawHours = sameDay
         ? calcPersonalHours(
-            values.personalStartTime ?? "08:00",
-            values.personalEndTime   ?? "17:00",
+            values.personalStartTime ?? initTime,
+            values.personalEndTime   ?? initTime,
           )
-        : undefined;
+        : 0;
 
-      const days = isHourlyLeave
-        ? sameDay
-          ? hours && hours >= 8 ? 1 : 0
-          : differenceInDays(values.endDate!, values.startDate) + 1
-        : differenceInDays(values.endDate!, values.startDate) + 1;
+      // ── Core logic ────────────────────────────────────────────────────────
+      // • No input (rawHours === 0, start === end time) → 1 day, hours = 0
+      // • Partial hours (0 < rawHours < 8)              → days = 0, hours = rawHours
+      // • Full day (rawHours >= 8)                      → days = 1, hours = rawHours
+      // • Multi-day hourly                              → days = diff+1, hours = 0
+      let submitDays:  number;
+      let submitHours: number;
+
+      if (isHourlyLeave) {
+        if (sameDay) {
+          if (rawHours <= 0) {
+            // No duration input → full day, no hours stored
+            submitDays  = 1;
+            submitHours = 0;
+          } else if (rawHours >= 8) {
+            // >= 8 hours = 1 full day, no hours stored
+            submitDays  = 1;
+            submitHours = 0;
+          } else {
+            // Partial day → store hours only
+            submitDays  = 0;
+            submitHours = +rawHours.toFixed(4);
+          }
+        } else {
+          // Multi-day hourly (different start/end date)
+          submitDays  = differenceInDays(values.endDate!, values.startDate) + 1;
+          submitHours = 0;
+        }
+      } else {
+        submitDays  = differenceInDays(values.endDate!, values.startDate) + 1;
+        submitHours = 0;
+      }
 
       const effectiveEmail =
         user.email ??
@@ -298,8 +362,8 @@ const RequestForm = ({ user }: Props) => {
         endDate:         values.endDate
           ? format(values.endDate, "yyyy-MM-dd")
           : format(values.startDate, "yyyy-MM-dd"),
-        hours: hours !== undefined ? +hours.toFixed(4) : undefined,
-        days,
+        hours: submitHours > 0 ? submitHours : undefined,
+        days:  submitDays,
         user: { ...user, email: effectiveEmail },
       };
 
@@ -311,7 +375,11 @@ const RequestForm = ({ user }: Props) => {
       if (res.ok) {
         toast.success("Leave Submitted", { duration: 4000 });
         setOpen(false);
-        form.reset({ personalStartTime: "08:00", personalEndTime: "17:00" });
+        const nowTime = getCurrentTime();
+        form.reset({
+          personalStartTime: nowTime,
+          personalEndTime:   nowTime,
+        });
         resetShortcuts();
       } else {
         const data = await res.json();
@@ -343,7 +411,7 @@ const RequestForm = ({ user }: Props) => {
                 onChange={(e) => {
                   field.onChange(e);
                   const newStart = e.target.value;
-                  const curEnd   = form.getValues("personalEndTime") ?? "17:00";
+                  const curEnd   = form.getValues("personalEndTime") ?? initTime;
                   if (timeToMinutes(curEnd) <= timeToMinutes(newStart)) {
                     const pushed = Math.min(timeToMinutes(newStart) + 60, 17 * 60);
                     form.setValue("personalEndTime", minutesToTime(pushed));
@@ -374,6 +442,7 @@ const RequestForm = ({ user }: Props) => {
         />
       </div>
 
+      {/* ── Duration shortcut inputs ── */}
       <div className="flex items-center gap-2 mt-2 flex-wrap">
         <Input
           type="number"
@@ -388,7 +457,8 @@ const RequestForm = ({ user }: Props) => {
           onChange={(e) => {
             const h = Math.max(0, parseInt(e.target.value) || 0);
             setShortcutH(h);
-            const startMin = timeToMinutes(form.getValues("personalStartTime") ?? "08:00");
+            // Base off current personalStartTime (which is current clock time)
+            const startMin = timeToMinutes(form.getValues("personalStartTime") ?? getCurrentTime());
             const endMin   = Math.min(startMin + h * 60 + shortcutM, 17 * 60);
             form.setValue("personalEndTime", minutesToTime(endMin), { shouldValidate: true });
           }}
@@ -408,7 +478,8 @@ const RequestForm = ({ user }: Props) => {
           onChange={(e) => {
             const m = Math.max(0, parseInt(e.target.value) || 0);
             setShortcutM(m);
-            const startMin = timeToMinutes(form.getValues("personalStartTime") ?? "08:00");
+            // Base off current personalStartTime (which is current clock time)
+            const startMin = timeToMinutes(form.getValues("personalStartTime") ?? getCurrentTime());
             const endMin   = Math.min(startMin + shortcutH * 60 + m, 17 * 60);
             form.setValue("personalEndTime", minutesToTime(endMin), { shouldValidate: true });
           }}
@@ -427,9 +498,9 @@ const RequestForm = ({ user }: Props) => {
   const SummaryBanner = () => {
     if (!leaveSummary) return null;
 
-    const isSickBanner     = isSick;
-    const isPartialHourly  = isSameDay && leaveHours !== null && leaveHours > 0 && leaveHours < 8;
-    const leaveLabel       = isSick ? "ច្បាប់ឈឺ" : "ច្បាប់ផ្ទាល់ខ្លួន";
+    const isSickBanner    = isSick;
+    const isPartialHourly = isSameDay && leaveHours !== null && leaveHours > 0 && leaveHours < 8;
+    const leaveLabel      = isSick ? "ច្បាប់ឈឺ" : "ច្បាប់ផ្ទាល់ខ្លួន";
 
     return (
       <div className={cn(
@@ -509,8 +580,10 @@ const RequestForm = ({ user }: Props) => {
                               form.resetField("maternityGender");
                               form.resetField("startDate");
                               form.resetField("endDate");
-                              form.setValue("personalStartTime", "08:00");
-                              form.setValue("personalEndTime",   "17:00");
+                              // Reset times to current time when changing leave type
+                              const nowTime = getCurrentTime();
+                              form.setValue("personalStartTime", nowTime);
+                              form.setValue("personalEndTime",   nowTime);
                               resetShortcuts();
                               setOpenLeaveType(false);
                             }}
@@ -601,101 +674,202 @@ const RequestForm = ({ user }: Props) => {
           {/* ── Date Fields ── */}
           {(!isMaternity || !!maternityGender) && (
             <>
-              {/* Start Date */}
-              <FormField
-                control={form.control}
-                name="startDate"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel style={khmerFont}>
-                      {isHourly ? "ថ្ងៃចាប់ផ្ដើម" : "Start Date"}
-                    </FormLabel>
-                    <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant="outline"
-                            style={khmerFont}
-                            className={cn("inline-flex justify-between text-[13px]", !field.value && "text-muted-foreground")}
-                          >
-                            {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                            <IoCalendarOutline className="h-4 w-4 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={field.value}
-                          onSelect={(date) => {
-                            field.onChange(date);
-                            if (isHourly) {
-                              form.setValue("endDate",           date ?? undefined, { shouldValidate: false });
-                              form.setValue("personalStartTime", "08:00",           { shouldValidate: false });
-                              form.setValue("personalEndTime",   "17:00",           { shouldValidate: false });
-                              resetShortcuts();
-                            }
-                            setOpenStartDate(false);
-                          }}
-                          disabled={(date: Date) => {
-                            const min = getMinStartDate();
-                            return date < today || date.getFullYear() > currentYear || date < min;
-                          }}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* End Date */}
-              <FormField
-                control={form.control}
-                name="endDate"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel style={khmerFont}>
-                      {isHourly ? "ថ្ងៃបញ្ចប់" : "End Date"}
-                    </FormLabel>
-                    <Popover modal={true} open={openEndDate} onOpenChange={setOpenEndDate}>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant="outline"
-                            style={khmerFont}
-                            className={cn("inline-flex justify-between text-[13px]", !field.value && "text-muted-foreground")}
-                          >
-                            {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                            <IoCalendarOutline className="h-4 w-4 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={field.value}
-                          onSelect={(date) => {
-                            field.onChange(date);
-                            resetShortcuts();
-                            setOpenEndDate(false);
-                          }}
-                          disabled={(date: Date) =>
-                            date < today ||
-                            (!!startDateValue && date < startDateValue)
-                          }
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* ── Same-day time picker (PERSONAL or SICK only) ── */}
+              {/* ── For hourly leaves: show TimePicker immediately (dates already auto-set to today) ── */}
               {isHourly && isSameDay && <TimePicker />}
+
+              {/* ── For hourly leaves: optionally change the date ── */}
+              {isHourly && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <div className="h-px flex-1 bg-border" />
+                    <span style={khmerFont} className="text-[11px] text-muted-foreground px-2">
+                      ផ្លាស់ប្ដូរថ្ងៃ (optional)
+                    </span>
+                    <div className="h-px flex-1 bg-border" />
+                  </div>
+
+                  {/* Start Date */}
+                  <FormField
+                    control={form.control}
+                    name="startDate"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel style={khmerFont} className="text-muted-foreground text-[12px]">
+                          ថ្ងៃចាប់ផ្ដើម
+                        </FormLabel>
+                        <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                variant="outline"
+                                style={khmerFont}
+                                className={cn("inline-flex justify-between text-[13px]", !field.value && "text-muted-foreground")}
+                              >
+                                {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                                <IoCalendarOutline className="h-4 w-4 opacity-50" />
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={field.value}
+                              onSelect={(date) => {
+                                field.onChange(date);
+                                // Reset end date to same day and times to current time
+                                form.setValue("endDate", date ?? undefined, { shouldValidate: false });
+                                const nowTime = getCurrentTime();
+                                form.setValue("personalStartTime", nowTime, { shouldValidate: false });
+                                form.setValue("personalEndTime",   nowTime, { shouldValidate: false });
+                                resetShortcuts();
+                                setOpenStartDate(false);
+                              }}
+                              disabled={(date: Date) => {
+                                const min = getMinStartDate();
+                                return date < today || date.getFullYear() > currentYear || date < min;
+                              }}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* End Date (for multi-day hourly — rare but supported) */}
+                  <FormField
+                    control={form.control}
+                    name="endDate"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel style={khmerFont} className="text-muted-foreground text-[12px]">
+                          ថ្ងៃបញ្ចប់
+                        </FormLabel>
+                        <Popover modal={true} open={openEndDate} onOpenChange={setOpenEndDate}>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                variant="outline"
+                                style={khmerFont}
+                                className={cn("inline-flex justify-between text-[13px]", !field.value && "text-muted-foreground")}
+                              >
+                                {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                                <IoCalendarOutline className="h-4 w-4 opacity-50" />
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={field.value}
+                              onSelect={(date) => {
+                                field.onChange(date);
+                                resetShortcuts();
+                                setOpenEndDate(false);
+                              }}
+                              disabled={(date: Date) =>
+                                date < today ||
+                                (!!startDateValue && date < startDateValue)
+                              }
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              )}
+
+              {/* ── Non-hourly: Start + End date pickers (original layout) ── */}
+              {!isHourly && (
+                <>
+                  {/* Start Date */}
+                  <FormField
+                    control={form.control}
+                    name="startDate"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel style={khmerFont}>Start Date</FormLabel>
+                        <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                variant="outline"
+                                style={khmerFont}
+                                className={cn("inline-flex justify-between text-[13px]", !field.value && "text-muted-foreground")}
+                              >
+                                {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                                <IoCalendarOutline className="h-4 w-4 opacity-50" />
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={field.value}
+                              onSelect={(date) => {
+                                field.onChange(date);
+                                setOpenStartDate(false);
+                              }}
+                              disabled={(date: Date) => {
+                                const min = getMinStartDate();
+                                return date < today || date.getFullYear() > currentYear || date < min;
+                              }}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* End Date */}
+                  <FormField
+                    control={form.control}
+                    name="endDate"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel style={khmerFont}>End Date</FormLabel>
+                        <Popover modal={true} open={openEndDate} onOpenChange={setOpenEndDate}>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                variant="outline"
+                                style={khmerFont}
+                                className={cn("inline-flex justify-between text-[13px]", !field.value && "text-muted-foreground")}
+                              >
+                                {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                                <IoCalendarOutline className="h-4 w-4 opacity-50" />
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={field.value}
+                              onSelect={(date) => {
+                                field.onChange(date);
+                                resetShortcuts();
+                                setOpenEndDate(false);
+                              }}
+                              disabled={(date: Date) =>
+                                date < today ||
+                                (!!startDateValue && date < startDateValue)
+                              }
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
 
               {/* ── Universal duration banner (all leave types) ── */}
               <SummaryBanner />
