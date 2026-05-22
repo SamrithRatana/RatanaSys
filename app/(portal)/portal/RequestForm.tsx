@@ -249,14 +249,14 @@ const RequestForm = ({ user }: Props) => {
       const autoStart = new Date(today);
       const days      = MATERNITY_DAYS[maternityGender];
       const autoEnd   = new Date(autoStart);
-      autoEnd.setDate(autoEnd.getDate() + days);
+      autoEnd.setDate(autoEnd.getDate() + days - 1); // -1 so total = exact days (start inclusive)
       form.setValue("startDate", autoStart, { shouldValidate: false });
       form.setValue("endDate",   autoEnd,   { shouldValidate: false });
     } else if (selectedLeave === "SPECIAL") {
       const autoStart = new Date(today);
       autoStart.setDate(autoStart.getDate() + 7);
       const autoEnd = new Date(autoStart);
-      autoEnd.setDate(autoEnd.getDate() + 7);
+      autoEnd.setDate(autoEnd.getDate() + 6); // +6 so total = 7 days (start inclusive)
       form.setValue("startDate", autoStart, { shouldValidate: false });
       form.setValue("endDate",   autoEnd,   { shouldValidate: false });
     }
@@ -267,11 +267,11 @@ const RequestForm = ({ user }: Props) => {
     if (selectedLeave === "MATERNITY" && maternityGender) {
       const days    = MATERNITY_DAYS[maternityGender];
       const autoEnd = new Date(startDateValue);
-      autoEnd.setDate(autoEnd.getDate() + days);
+      autoEnd.setDate(autoEnd.getDate() + days - 1); // -1 so total = exact days (start inclusive)
       form.setValue("endDate", autoEnd, { shouldValidate: false });
     } else if (selectedLeave === "SPECIAL") {
       const autoEnd = new Date(startDateValue);
-      autoEnd.setDate(autoEnd.getDate() + 7);
+      autoEnd.setDate(autoEnd.getDate() + 6); // +6 so total = 7 days (start inclusive)
       form.setValue("endDate", autoEnd, { shouldValidate: false });
     }
   }, [startDateValue]); // eslint-disable-line react-hooks/exhaustive-deps
