@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ClientSafeProvider, getProviders, signIn } from "next-auth/react";
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 type Tab = "credentials" | "google" | "telegram";
@@ -21,15 +20,16 @@ export function AuthForm() {
   const [providers, setProviders] = useState<Record<string, ClientSafeProvider>>({});
   const [tab, setTab] = useState<Tab>("credentials");
 
-  // Credentials state
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
-
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const searchParams = useSearchParams();
   const registered = searchParams.get("registered") === "true";
+
+  // ✅ Key fix — read callbackUrl from URL
+  const callbackUrl = searchParams.get("callbackUrl") || "/portal";
 
   useEffect(() => {
     getProviders().then((p) =>
@@ -58,7 +58,7 @@ export function AuthForm() {
 
         const result = await signIn("telegram-phone", {
           tempToken: data.tempToken,
-          callbackUrl: "/portal",
+          callbackUrl, // ✅ use dynamic callbackUrl
           redirect: false,
         });
 
@@ -73,16 +73,15 @@ export function AuthForm() {
         setLoading(false);
       }
     };
-  }, []);
+  }, [callbackUrl]);
 
-  // ── Inject Telegram widget when tab is active ─────────────
+  // ── Inject Telegram widget ────────────────────────────────
   useEffect(() => {
     if (tab !== "telegram") return;
 
     const container = document.getElementById("telegram-widget-container");
     if (!container) return;
 
-    // Clear previous widget
     container.innerHTML = "";
 
     const script = document.createElement("script");
@@ -101,13 +100,16 @@ export function AuthForm() {
     e.preventDefault();
     setLoading(true);
     setError("");
+
     const res = await signIn("credentials", {
       identifier,
       password,
-      callbackUrl: "/portal",
+      callbackUrl, // ✅ use dynamic callbackUrl
       redirect: false,
     });
+
     setLoading(false);
+
     if (res?.error) {
       setError("Invalid email/username or password.");
     } else if (res?.url) {
@@ -176,12 +178,6 @@ export function AuthForm() {
           <Button type="submit" disabled={loading}>
             {loading ? "Signing in…" : "Sign in"}
           </Button>
-          {/* <p className="text-center text-sm text-muted-foreground"> */}
-            {/* No account yet?{" "} */}
-            {/* <Link href="/register" className="underline underline-offset-4 hover:text-primary"> */}
-              {/* Create one */}
-            {/* </Link> */}
-          {/* </p> */}
         </form>
       )}
 
@@ -195,7 +191,9 @@ export function AuthForm() {
                 key={provider.name}
                 variant="outline"
                 type="button"
-                onClick={() => signIn(provider.id, { callbackUrl: "/portal" })}
+                onClick={() =>
+                  signIn(provider.id, { callbackUrl }) // ✅ use dynamic callbackUrl
+                }
               >
                 <Icons.google className="mr-2 h-4 w-4" />
                 Continue with Google
