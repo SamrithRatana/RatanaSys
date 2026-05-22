@@ -2,7 +2,6 @@
 const nextConfig = {
   output: 'standalone',
 
-  // ✅ Fix segfault during "Collecting build traces"
   outputFileTracingExcludes: {
     '*': [
       './node_modules/@swc/core-linux-x64-gnu',
