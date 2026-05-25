@@ -4,6 +4,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { differenceInDays, format } from "date-fns";
 import { sendTelegramMessage } from "@/lib/sendTelegramMessage";
 
+type Segment = {
+  date:       string;
+  hours?:     number;
+  days?:      number;
+  startTime?: string;
+  endTime?:   string;
+};
+
 type SubmittedLeave = {
   notes:            string;
   leave?:           string;
@@ -13,6 +21,7 @@ type SubmittedLeave = {
   endDate:          string;
   hours?:           number;
   days?:            number;
+  segments?:        Segment[];
   user: {
     email: string;
     image: string;
@@ -58,6 +67,51 @@ function formatHourLabel(h: number): string {
   return `${hrs} ម៉ោង ${min} នាទី`;
 }
 
+function formatSegmentLine(seg: Segment): string {
+  const dateLabel = safeFormat(seg.date, "dd MMM yyyy");
+  const h = seg.hours ?? 0;
+  const d = seg.days  ?? 0;
+
+  if (d >= 1 || (h === 0 && d === 1)) {
+    return `  📌 ${dateLabel} · 1 ថ្ងៃ`;
+  }
+  if (h >= 8) {
+    return `  📌 ${dateLabel} · 1 ថ្ងៃ`;
+  }
+  const timeRange =
+    seg.startTime && seg.endTime
+      ? ` (${seg.startTime}–${seg.endTime})`
+      : "";
+  return `  📌 ${dateLabel} · ${formatHourLabel(h)}${timeRange}`;
+}
+
+function computeTotalLabel(segs: Segment[]): string {
+  let totalMin = 0;
+  for (const seg of segs) {
+    const h = seg.hours ?? 0;
+    const d = seg.days  ?? 0;
+    if (d >= 1 || (h === 0 && d === 1)) {
+      totalMin += 8 * 60;
+    } else if (h >= 8) {
+      totalMin += 8 * 60;
+    } else {
+      totalMin += Math.round(h * 60);
+    }
+  }
+  if (totalMin === 0) return "0 ម៉ោង";
+  if (totalMin % (8 * 60) === 0) return `${totalMin / (8 * 60)} ថ្ងៃ`;
+  const wholeDays = Math.floor(totalMin / (8 * 60));
+  const remMin    = totalMin % (8 * 60);
+  const daysStr   = wholeDays > 0 ? `${wholeDays} ថ្ងៃ ` : "";
+  const remHrs    = Math.floor(remMin / 60);
+  const remMins   = remMin % 60;
+  const timeStr   =
+    remMins === 0
+      ? `${remHrs} ម៉ោង`
+      : `${remHrs} ម៉ោង ${remMins} នាទី`;
+  return `${daysStr}${timeStr}`;
+}
+
 export async function POST(req: NextRequest) {
   const loggedInUser = await getCurrentUser();
   if (!loggedInUser) {
@@ -66,7 +120,10 @@ export async function POST(req: NextRequest) {
 
   try {
     const body: SubmittedLeave = await req.json();
-    const { startDate, endDate, notes, hours, days: frontendDays, user, maternityGender } = body;
+    const {
+      startDate, endDate, notes, hours, days: frontendDays,
+      user, maternityGender, segments,
+    } = body;
 
     const leaveType   = (body.type ?? body.leave ?? "").toUpperCase();
     const isMaternity = leaveType === "MATERNITY";
@@ -74,8 +131,92 @@ export async function POST(req: NextRequest) {
     const isSick      = leaveType === "SICK";
     const isAnnual    = leaveType === "ANNUAL";
 
-    // PERSONAL, SICK, and ANNUAL all support hourly (partial-day) requests
-    const isHourlyLeave = (isPersonal || isSick || isAnnual) && !!hours && hours > 0;
+    const isSegmentMode =
+      (isPersonal || isSick || isAnnual) &&
+      !!segments &&
+      segments.length > 0;
+
+    // ────────────────────────────────────────────────────────────────────────
+    // SEGMENT MODE — one DB record per segment, one combined Telegram message
+    // ────────────────────────────────────────────────────────────────────────
+    if (isSegmentMode) {
+      const year = safeParse(segments[0].date).getFullYear().toString();
+
+      const createdLeaves = await Promise.all(
+        segments.map(async (seg) => {
+          const h = seg.hours ?? 0;
+          const d = seg.days  ?? 0;
+          let calcDays:  number;
+          let calcHours: number;
+
+          if (d >= 1) {
+            calcDays = 1; calcHours = 0;
+          } else if (h >= 8) {
+            calcDays = 1; calcHours = h;
+          } else {
+            calcDays = 0; calcHours = h;
+          }
+
+          const dateObj = safeParse(seg.date);
+          return prisma.leave.create({
+            data: {
+              startDate: dateObj,
+              endDate:   dateObj,
+              userEmail: user.email,
+              type:      leaveType,
+              userNote:  notes,
+              userName:  user.name,
+              days:      calcDays,
+              hours:     calcHours,
+              year,
+            },
+          });
+        })
+      );
+
+      const baseUrl    = process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh";
+      const leaveUrl   = `${baseUrl}/dashboard/leaves/${createdLeaves[0].id}`;
+      const leaveLabel = getLeaveLabel(leaveType);
+      const totalLabel = computeTotalLabel(segments);
+      const segLines   = segments.map(formatSegmentLine);
+
+      const telegramMessageId = await sendTelegramMessage(
+        [
+          `📄 <b>សំណើច្បាប់ថ្មី</b>`,
+          ``,
+          `👤 <b>ឈ្មោះ៖</b> ${user.name}`,
+          `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
+          ``,
+          `📅 <b>កាលបរិច្ឆេទ (${segments.length} segment):</b>`,
+          ...segLines,
+          ``,
+          `⏱ <b>រយៈពេលសរុប៖</b> ${totalLabel}`,
+          `📝 <b>មូលហេតុ៖</b> ${notes || "—"}`,
+          ``,
+          `⏳ <i>រង់ចាំអនុម័តពីប្រធានផ្នែក</i>`,
+        ].join("\n"),
+        [{ text: "👀 មើល និងអនុម័តប្រធានផ្នែក →", url: leaveUrl }]
+      );
+
+      if (telegramMessageId) {
+        await Promise.all(
+          createdLeaves.map((lv) =>
+            prisma.leave.update({
+              where: { id: lv.id },
+              data:  { telegramMessageId },
+            })
+          )
+        );
+      }
+
+      return NextResponse.json({ message: "Success" }, { status: 200 });
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // CLASSIC MODE — MATERNITY / SPECIAL (original logic, unchanged)
+    // ────────────────────────────────────────────────────────────────────────
+    const isHourlyLeave =
+      (isPersonal || isSick || isAnnual) && !!hours && hours > 0;
 
     const startDateObj = safeParse(startDate);
     const endDateObj   = safeParse(endDate);
@@ -90,11 +231,9 @@ export async function POST(req: NextRequest) {
     } else if (isHourlyLeave) {
       const h = Number(hours);
       if (h >= 8) {
-        // Full day via time picker → 1 ថ្ងៃ
         calcDays  = 1;
         calcHours = h;
       } else {
-        // Partial day → store hours, days = 0 for balance calc
         calcDays  = 0;
         calcHours = h;
       }
@@ -103,7 +242,7 @@ export async function POST(req: NextRequest) {
       calcHours = 0;
     }
 
-    // ── Auto-set maternity credit ─────────────────────────────────────────────
+    // Auto-set maternity credit
     if (isMaternity && maternityGender) {
       const creditDays      = MATERNITY_DAYS[maternityGender];
       const existingBalance = await prisma.balances.findFirst({
@@ -114,7 +253,10 @@ export async function POST(req: NextRequest) {
         if ((existingBalance.maternityCredit as number) === 0) {
           await prisma.balances.update({
             where: { id: existingBalance.id },
-            data: { maternityCredit: creditDays, maternityAvailable: creditDays },
+            data: {
+              maternityCredit:    creditDays,
+              maternityAvailable: creditDays,
+            },
           });
         }
       } else {
@@ -132,7 +274,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── Create leave record ───────────────────────────────────────────────────
     const createdLeave = await prisma.leave.create({
       data: {
         startDate: startDateObj,
@@ -151,7 +292,6 @@ export async function POST(req: NextRequest) {
     const leaveUrl   = `${baseUrl}/dashboard/leaves/${createdLeave.id}`;
     const leaveLabel = getLeaveLabel(leaveType, maternityGender);
 
-    // ── Duration label for Telegram ⏱ line ───────────────────────────────────
     const durationLabel = (() => {
       if (isHourlyLeave) {
         if (calcDays === 1) return "1 ថ្ងៃ";
@@ -162,7 +302,6 @@ export async function POST(req: NextRequest) {
       return `${calcDays} ថ្ងៃ`;
     })();
 
-    // ── Date range for Telegram 📅 line ──────────────────────────────────────
     const dateRange = (() => {
       if (isHourlyLeave) {
         if (calcDays === 1) {
@@ -179,7 +318,6 @@ export async function POST(req: NextRequest) {
       return `${safeFormat(startDate, "dd MMM yyyy")} → ${safeFormat(endDate, "dd MMM yyyy")} (${calcDays} ថ្ងៃ)`;
     })();
 
-    // ── Send Telegram notification ────────────────────────────────────────────
     const telegramMessageId = await sendTelegramMessage(
       [
         `📄 <b>សំណើច្បាប់ថ្មី</b>`,

@@ -45,40 +45,36 @@ const leaveKhmerLabels: Record<string, string> = {
 
 const MATERNITY_DAYS: Record<string, number> = { MALE: 7, FEMALE: 90 };
 
-// Slot types for multi-segment mode
 type SlotType = "FULL" | "HALF_AM" | "HALF_PM" | "CUSTOM";
 
-// A single leave segment (one entry in the multi-segment list)
 type Segment = {
   id:        string;
   date:      Date | undefined;
   slotType:  SlotType;
-  startTime: string; // only used when slotType === "CUSTOM"
-  endTime:   string; // only used when slotType === "CUSTOM"
-  // shortcut inputs
+  startTime: string;
+  endTime:   string;
   shortcutH: number;
   shortcutM: number;
-  // popover open state
   calOpen:   boolean;
 };
 
-// Slot metadata
 const SLOT_LABELS: Record<SlotType, string> = {
-  FULL:     "ពេញថ្ងៃ (1 ថ្ងៃ)",
-  HALF_AM:  "ព្រឹក (07:00–12:00)",
-  HALF_PM:  "រសៀល (13:00–17:00)",
-  CUSTOM:   "កំណត់ម៉ោងផ្ទាល់",
+  FULL:    "ពេញថ្ងៃ (1 ថ្ងៃ)",
+  HALF_AM: "ព្រឹក (08:00–12:00)",
+  HALF_PM: "រសៀល (13:00–17:00)",
+  CUSTOM:  "កំណត់ម៉ោងផ្ទាល់",
 };
 
+// 1 ថ្ងៃ = 8 ម៉ោង: ព្រឹក 08:00–12:00 = 4h, រសៀល 13:00–17:00 = 4h
 const SLOT_HOURS: Record<Exclude<SlotType, "CUSTOM">, number> = {
-  FULL:    0,   // submitted as days=1, hours=0
-  HALF_AM: 5,   // 07:00–12:00 = 5 h
-  HALF_PM: 4,   // 13:00–17:00 = 4 h
+  FULL:    0,  // submitted as days=1
+  HALF_AM: 4,  // 08:00–12:00
+  HALF_PM: 4,  // 13:00–17:00
 };
 
 const SLOT_TIMES: Record<Exclude<SlotType, "CUSTOM">, [string, string]> = {
-  FULL:    ["07:00", "17:00"],
-  HALF_AM: ["07:00", "12:00"],
+  FULL:    ["08:00", "17:00"],
+  HALF_AM: ["08:00", "12:00"],
   HALF_PM: ["13:00", "17:00"],
 };
 
@@ -116,27 +112,23 @@ function blockFloatKeys(e: React.KeyboardEvent<HTMLInputElement>) {
   if ([".", ",", "-", "e", "E", "+"].includes(e.key)) e.preventDefault();
 }
 
-// Compute hours & days for a segment
 function segmentValue(seg: Segment): { hours: number; days: number } {
   if (seg.slotType === "FULL")    return { hours: 0, days: 1 };
   if (seg.slotType === "HALF_AM") return { hours: SLOT_HOURS.HALF_AM, days: 0 };
   if (seg.slotType === "HALF_PM") return { hours: SLOT_HOURS.HALF_PM, days: 0 };
-  // CUSTOM
   const h = calcHours(seg.startTime, seg.endTime);
   if (h >= 8) return { hours: 0, days: 1 };
   return { hours: h, days: 0 };
 }
 
-// Day-fraction for display (for summing total)
 function segmentDayFraction(seg: Segment): number {
   const { hours, days } = segmentValue(seg);
   if (days >= 1) return 1;
   return hours / 8;
 }
 
-// Human-readable duration label for one segment
 function segmentDurationLabel(seg: Segment): string {
-  if (seg.slotType === "FULL") return "1 ថ្ងៃ";
+  if (seg.slotType === "FULL")    return "1 ថ្ងៃ";
   if (seg.slotType === "HALF_AM") return formatDuration(SLOT_HOURS.HALF_AM * 60);
   if (seg.slotType === "HALF_PM") return formatDuration(SLOT_HOURS.HALF_PM * 60);
   const h = calcHours(seg.startTime, seg.endTime);
@@ -146,15 +138,14 @@ function segmentDurationLabel(seg: Segment): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Zod schema — for the non-segment fields (leave type, notes, maternity, etc.)
+// Zod schema
 // ─────────────────────────────────────────────────────────────────────────────
 
 const formSchema = z
   .object({
-    notes:           z.string().min(1, "Notes are required.").max(500),
-    leave:           z.string({ required_error: "Please select a leave type." }),
-    maternityGender: z.enum(["MALE", "FEMALE"]).optional(),
-    // Non-segment leave fields (MATERNITY / SPECIAL / multi-day SICK etc.)
+    notes:             z.string().min(1, "Notes are required.").max(500),
+    leave:             z.string({ required_error: "Please select a leave type." }),
+    maternityGender:   z.enum(["MALE", "FEMALE"]).optional(),
     startDate:         z.date().optional(),
     endDate:           z.date().optional(),
     personalStartTime: z.string().optional(),
@@ -174,7 +165,6 @@ const formSchema = z
       data.leave === "PERSONAL" ||
       data.leave === "SICK";
 
-    // Non-segment leaves still need dates
     if (!isSegmentLeave && data.leave && data.leave !== "MATERNITY") {
       if (!data.startDate) {
         ctx.addIssue({
@@ -206,7 +196,7 @@ const formSchema = z
   });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helpers to build a new empty segment
+// New segment factory
 // ─────────────────────────────────────────────────────────────────────────────
 
 let _segId = 0;
@@ -233,12 +223,7 @@ const RequestForm = ({ user }: Props) => {
   const [openStartDate, setOpenStartDate] = useState(false);
   const [openEndDate,   setOpenEndDate]   = useState(false);
 
-  // ── Segments state (used for ANNUAL / PERSONAL / SICK) ───────────────────
   const [segments, setSegments] = useState<Segment[]>([newSegment(new Date(today))]);
-
-  // ── Classic shortcut state (used for single-segment fallback, non-segment leaves) ─
-  const [shortcutH, setShortcutH] = useState(0);
-  const [shortcutM, setShortcutM] = useState(0);
 
   const initTime = getCurrentTime();
 
@@ -260,19 +245,18 @@ const RequestForm = ({ user }: Props) => {
   const isAnnual    = selectedLeave === "ANNUAL";
   const isMaternity = selectedLeave === "MATERNITY";
 
-  // Segment mode: ANNUAL, PERSONAL, SICK
   const isSegmentMode = isAnnual || isPersonal || isSick;
 
   const currentYear = today.getFullYear();
 
-  // ── Reset segments when leave type changes ───────────────────────────────
+  // Reset segments on leave type change
   useEffect(() => {
     if (isSegmentMode) {
       setSegments([newSegment(new Date(today))]);
     }
   }, [selectedLeave]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Auto-set dates for MATERNITY / SPECIAL ───────────────────────────────
+  // Auto-set dates for MATERNITY / SPECIAL
   useEffect(() => {
     if (selectedLeave === "MATERNITY" && maternityGender) {
       const autoStart = new Date(today);
@@ -320,27 +304,20 @@ const RequestForm = ({ user }: Props) => {
     setSegments(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
   }, []);
 
-  const addSegment = () => {
-    setSegments(prev => [...prev, newSegment()]);
-  };
+  const addSegment = () => setSegments(prev => [...prev, newSegment()]);
 
-  const removeSegment = (id: string) => {
+  const removeSegment = (id: string) =>
     setSegments(prev => prev.filter(s => s.id !== id));
-  };
 
   // Total summary
   const totalFraction = segments.reduce((sum, s) => sum + segmentDayFraction(s), 0);
   const totalLabel = (() => {
     if (totalFraction === 0) return null;
-    // Express as X ថ្ងៃ or X.5 ថ្ងៃ etc.
-    // Convert to minutes for clean display
     const totalHours = totalFraction * 8;
     const totalMin   = Math.round(totalHours * 60);
-    // If whole days
     if (totalMin % 480 === 0) return `${totalMin / 480} ថ្ងៃ`;
-    // Mixed
-    const days    = Math.floor(totalMin / 480);
-    const remMin  = totalMin % 480;
+    const days   = Math.floor(totalMin / 480);
+    const remMin = totalMin % 480;
     const daysStr = days > 0 ? `${days} ថ្ងៃ ` : "";
     return `${daysStr}${formatDuration(remMin)}`;
   })();
@@ -357,15 +334,13 @@ const RequestForm = ({ user }: Props) => {
 
       const userPayload = { ...user, email: effectiveEmail };
 
-      // ── Segment mode: submit one request per segment ──────────────────────
+      // ── Segment mode: one request with all segments ───────────────────────
       if (isSegmentMode) {
-        // Validate: all segments must have a date
         const missing = segments.some(s => !s.date);
         if (missing) {
           toast.error("សូមជ្រើសរើសកាលបរិច្ឆេទសម្រាប់រាល់ segment !");
           return;
         }
-        // Validate: CUSTOM segments must have valid time range
         const invalidCustom = segments.some(
           s => s.slotType === "CUSTOM" && calcHours(s.startTime, s.endTime) <= 0
         );
@@ -374,60 +349,60 @@ const RequestForm = ({ user }: Props) => {
           return;
         }
 
-        const promises = segments.map(async (seg) => {
+        const segmentPayloads = segments.map((seg) => {
           const { hours, days } = segmentValue(seg);
-          const dateStr = format(seg.date!, "yyyy-MM-dd");
-
-          // Determine effective start/end times for the payload
-          let startTime = "07:00";
+          let startTime = "08:00";
           let endTime   = "17:00";
-          if (seg.slotType === "HALF_AM") { startTime = "07:00"; endTime = "12:00"; }
+          if (seg.slotType === "HALF_AM") { startTime = "08:00"; endTime = "12:00"; }
           if (seg.slotType === "HALF_PM") { startTime = "13:00"; endTime = "17:00"; }
           if (seg.slotType === "CUSTOM")  { startTime = seg.startTime; endTime = seg.endTime; }
-
-          const payload = {
-            notes:    values.notes,
-            leave:    values.leave,
-            type:     values.leave,
-            startDate: dateStr,
-            endDate:   dateStr,
-            hours:    hours > 0 ? hours : undefined,
+          return {
+            date:      format(seg.date!, "yyyy-MM-dd"),
+            hours:     hours > 0 ? hours : undefined,
             days,
-            user: userPayload,
+            startTime: seg.slotType !== "FULL" ? startTime : undefined,
+            endTime:   seg.slotType !== "FULL" ? endTime   : undefined,
           };
-
-          return fetch("/api/leave", {
-            method: "POST",
-            body:   JSON.stringify(payload),
-          });
         });
 
-        const results = await Promise.all(promises);
-        const allOk   = results.every(r => r.ok);
+        const payload = {
+          notes:     values.notes,
+          leave:     values.leave,
+          type:      values.leave,
+          startDate: format(segments[0].date!, "yyyy-MM-dd"),
+          endDate:   format(segments[segments.length - 1].date!, "yyyy-MM-dd"),
+          segments:  segmentPayloads,
+          user:      userPayload,
+        };
 
-        if (allOk) {
+        const res = await fetch("/api/leave", {
+          method: "POST",
+          body:   JSON.stringify(payload),
+        });
+
+        if (res.ok) {
           toast.success(
             `បានស្នើសុំ ${segments.length} segment${segments.length > 1 ? "s" : ""} ដោយជោគជ័យ!`,
             { duration: 4000 }
           );
           setOpen(false);
           setSegments([newSegment(new Date(today))]);
-          form.reset({ personalStartTime: getCurrentTime(), personalEndTime: getCurrentTime() });
+          form.reset({
+            personalStartTime: getCurrentTime(),
+            personalEndTime:   getCurrentTime(),
+          });
         } else {
-          // Find first failed
-          const failedIdx = results.findIndex(r => !r.ok);
-          const errData   = await results[failedIdx].json().catch(() => ({}));
-          toast.error(`មានបញ្ហាក្នុង segment ${failedIdx + 1}: ${JSON.stringify(errData)}`, { duration: 6000 });
+          const errData = await res.json().catch(() => ({}));
+          toast.error(`មានបញ្ហា: ${JSON.stringify(errData)}`, { duration: 6000 });
         }
         return;
       }
 
-      // ── Classic mode (MATERNITY / SPECIAL) ───────────────────────────────
-      const isHourlyLeave = false; // MATERNITY & SPECIAL are always whole-day
-
-      const submitDays = values.startDate && values.endDate
-        ? differenceInDays(values.endDate, values.startDate) + 1
-        : 1;
+      // ── Classic mode — MATERNITY / SPECIAL ───────────────────────────────
+      const submitDays =
+        values.startDate && values.endDate
+          ? differenceInDays(values.endDate, values.startDate) + 1
+          : 1;
 
       const payload = {
         notes:           values.notes,
@@ -448,7 +423,10 @@ const RequestForm = ({ user }: Props) => {
       if (res.ok) {
         toast.success("Leave Submitted", { duration: 4000 });
         setOpen(false);
-        form.reset({ personalStartTime: getCurrentTime(), personalEndTime: getCurrentTime() });
+        form.reset({
+          personalStartTime: getCurrentTime(),
+          personalEndTime:   getCurrentTime(),
+        });
       } else {
         const data = await res.json();
         toast.error(`An error occurred: ${JSON.stringify(data)}`, { duration: 6000 });
@@ -463,13 +441,12 @@ const RequestForm = ({ user }: Props) => {
   // Sub-components
   // ─────────────────────────────────────────────────────────────────────────
 
-  // ── Single segment row ────────────────────────────────────────────────────
   const SegmentRow = ({ seg, idx }: { seg: Segment; idx: number }) => {
     const isCustom = seg.slotType === "CUSTOM";
 
     return (
       <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-3 space-y-3">
-        {/* Row header */}
+        {/* Header */}
         <div className="flex items-center justify-between">
           <span style={khmerFont} className="text-[12px] font-semibold text-gray-500 dark:text-gray-400">
             Segment {idx + 1}
@@ -488,7 +465,9 @@ const RequestForm = ({ user }: Props) => {
 
         {/* Date picker */}
         <div className="flex flex-col gap-1">
-          <span style={khmerFont} className="text-[12px] text-gray-600 dark:text-gray-400">កាលបរិច្ឆេទ</span>
+          <span style={khmerFont} className="text-[12px] text-gray-600 dark:text-gray-400">
+            កាលបរិច្ឆេទ
+          </span>
           <Popover
             modal={true}
             open={seg.calOpen}
@@ -504,7 +483,9 @@ const RequestForm = ({ user }: Props) => {
                   !seg.date && "text-muted-foreground"
                 )}
               >
-                {seg.date ? format(seg.date, "dd MMM yyyy (EEEE)") : <span>ជ្រើសរើសថ្ងៃ</span>}
+                {seg.date
+                  ? format(seg.date, "dd MMM yyyy (EEEE)")
+                  : <span>ជ្រើសរើសថ្ងៃ</span>}
                 <IoCalendarOutline className="h-4 w-4 opacity-50" />
               </Button>
             </PopoverTrigger>
@@ -512,26 +493,34 @@ const RequestForm = ({ user }: Props) => {
               <Calendar
                 mode="single"
                 selected={seg.date}
-                onSelect={(date) => {
-                  updateSegment(seg.id, { date: date ?? undefined, calOpen: false });
-                }}
-                disabled={(date: Date) => date < today || date.getFullYear() > currentYear}
+                onSelect={(date) =>
+                  updateSegment(seg.id, { date: date ?? undefined, calOpen: false })
+                }
+                disabled={(date: Date) =>
+                  date < today || date.getFullYear() > currentYear
+                }
                 initialFocus
               />
             </PopoverContent>
           </Popover>
         </div>
 
-        {/* Slot type selector */}
+        {/* Slot type */}
         <div className="flex flex-col gap-1">
-          <span style={khmerFont} className="text-[12px] text-gray-600 dark:text-gray-400">ប្រភេទ</span>
+          <span style={khmerFont} className="text-[12px] text-gray-600 dark:text-gray-400">
+            ប្រភេទ
+          </span>
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
             {(["FULL", "HALF_AM", "HALF_PM", "CUSTOM"] as SlotType[]).map((slot) => (
               <button
                 key={slot}
                 type="button"
                 onClick={() => {
-                  const patch: Partial<Segment> = { slotType: slot, shortcutH: 0, shortcutM: 0 };
+                  const patch: Partial<Segment> = {
+                    slotType:  slot,
+                    shortcutH: 0,
+                    shortcutM: 0,
+                  };
                   if (slot === "CUSTOM") {
                     patch.startTime = getCurrentTime();
                     patch.endTime   = getCurrentTime();
@@ -558,7 +547,7 @@ const RequestForm = ({ user }: Props) => {
             <div className="flex items-center gap-2 flex-wrap">
               <Input
                 type="time"
-                min="06:00"
+                min="08:00"
                 max="16:59"
                 className="w-32"
                 value={seg.startTime}
@@ -580,15 +569,21 @@ const RequestForm = ({ user }: Props) => {
               <span className="text-muted-foreground text-sm">→</span>
               <Input
                 type="time"
-                min="06:01"
+                min="08:01"
                 max="17:00"
                 className="w-32"
                 value={seg.endTime}
-                onChange={(e) => updateSegment(seg.id, { endTime: e.target.value, shortcutH: 0, shortcutM: 0 })}
+                onChange={(e) =>
+                  updateSegment(seg.id, {
+                    endTime:   e.target.value,
+                    shortcutH: 0,
+                    shortcutM: 0,
+                  })
+                }
               />
             </div>
 
-            {/* Shortcut h/m inputs */}
+            {/* Shortcut h/m */}
             <div className="flex items-center gap-2 flex-wrap">
               <Input
                 type="number" min={0} max={9} step={1} placeholder="h"
@@ -597,7 +592,7 @@ const RequestForm = ({ user }: Props) => {
                 onKeyDown={blockFloatKeys}
                 onFocus={(e) => e.target.select()}
                 onChange={(e) => {
-                  const h = Math.max(0, parseInt(e.target.value) || 0);
+                  const h        = Math.max(0, parseInt(e.target.value) || 0);
                   const startMin = timeToMinutes(seg.startTime);
                   const endMin   = Math.min(startMin + h * 60 + seg.shortcutM, 17 * 60);
                   updateSegment(seg.id, { shortcutH: h, endTime: minutesToTime(endMin) });
@@ -611,7 +606,7 @@ const RequestForm = ({ user }: Props) => {
                 onKeyDown={blockFloatKeys}
                 onFocus={(e) => e.target.select()}
                 onChange={(e) => {
-                  const m = Math.max(0, parseInt(e.target.value) || 0);
+                  const m        = Math.max(0, parseInt(e.target.value) || 0);
                   const startMin = timeToMinutes(seg.startTime);
                   const endMin   = Math.min(startMin + seg.shortcutH * 60 + m, 17 * 60);
                   updateSegment(seg.id, { shortcutM: m, endTime: minutesToTime(endMin) });
@@ -624,16 +619,20 @@ const RequestForm = ({ user }: Props) => {
 
         {/* Per-segment duration preview */}
         {seg.date && (
-          <div className={cn(
-            "text-[12px] rounded-md px-3 py-1.5 flex items-center gap-1.5",
-            isAnnual
-              ? "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300"
-              : isSick
-                ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300"
-                : "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-          )}>
+          <div
+            className={cn(
+              "text-[12px] rounded-md px-3 py-1.5 flex items-center gap-1.5",
+              isAnnual
+                ? "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300"
+                : isSick
+                  ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300"
+                  : "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+            )}
+          >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
-              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
             </svg>
             <span style={khmerFont}>
               {format(seg.date, "dd MMM")} · <strong>{segmentDurationLabel(seg)}</strong>
@@ -650,42 +649,63 @@ const RequestForm = ({ user }: Props) => {
     );
   };
 
-  // ── Total summary banner ──────────────────────────────────────────────────
   const TotalSummary = () => {
     if (!totalLabel) return null;
     const validSegs = segments.filter(s => s.date);
     if (validSegs.length === 0) return null;
 
     return (
-      <div className={cn(
-        "rounded-xl border-2 px-4 py-3 space-y-2",
-        isAnnual
-          ? "border-green-300 bg-green-50 dark:border-green-700 dark:bg-green-950"
-          : isSick
-            ? "border-red-300 bg-red-50 dark:border-red-700 dark:bg-red-950"
-            : "border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-950"
-      )}>
+      <div
+        className={cn(
+          "rounded-xl border-2 px-4 py-3 space-y-2",
+          isAnnual
+            ? "border-green-300 bg-green-50 dark:border-green-700 dark:bg-green-950"
+            : isSick
+              ? "border-red-300 bg-red-50 dark:border-red-700 dark:bg-red-950"
+              : "border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-950"
+        )}
+      >
         <div className="flex items-center gap-2">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cn(
-            "shrink-0",
-            isAnnual ? "text-green-600 dark:text-green-400" : isSick ? "text-red-600 dark:text-red-400" : "text-blue-600 dark:text-blue-400"
-          )}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            className={cn(
+              "shrink-0",
+              isAnnual
+                ? "text-green-600 dark:text-green-400"
+                : isSick
+                  ? "text-red-600 dark:text-red-400"
+                  : "text-blue-600 dark:text-blue-400"
+            )}
+          >
             <polyline points="20 6 9 17 4 12"/>
           </svg>
-          <span style={khmerFont} className={cn(
-            "text-[13px] font-semibold",
-            isAnnual ? "text-green-800 dark:text-green-300" : isSick ? "text-red-800 dark:text-red-300" : "text-blue-800 dark:text-blue-300"
-          )}>
+          <span
+            style={khmerFont}
+            className={cn(
+              "text-[13px] font-semibold",
+              isAnnual
+                ? "text-green-800 dark:text-green-300"
+                : isSick
+                  ? "text-red-800 dark:text-red-300"
+                  : "text-blue-800 dark:text-blue-300"
+            )}
+          >
             សរុប: {totalLabel}
           </span>
         </div>
-        {/* Per-segment breakdown */}
         <div className="space-y-0.5">
-          {validSegs.map((s, i) => (
-            <div key={s.id} style={khmerFont} className={cn(
-              "text-[11px] flex items-center gap-1",
-              isAnnual ? "text-green-700 dark:text-green-400" : isSick ? "text-red-700 dark:text-red-400" : "text-blue-700 dark:text-blue-400"
-            )}>
+          {validSegs.map((s) => (
+            <div
+              key={s.id}
+              style={khmerFont}
+              className={cn(
+                "text-[11px] flex items-center gap-1",
+                isAnnual
+                  ? "text-green-700 dark:text-green-400"
+                  : isSick
+                    ? "text-red-700 dark:text-red-400"
+                    : "text-blue-700 dark:text-blue-400"
+              )}
+            >
               <span className="opacity-50">·</span>
               {s.date && format(s.date, "dd MMM (EEE)")} — {segmentDurationLabel(s)}
             </div>
@@ -727,10 +747,14 @@ const RequestForm = ({ user }: Props) => {
                         variant="outline"
                         role="combobox"
                         style={khmerFont}
-                        className={cn("justify-between text-[13px]", !field.value && "text-muted-foreground")}
+                        className={cn(
+                          "justify-between text-[13px]",
+                          !field.value && "text-muted-foreground"
+                        )}
                       >
                         {field.value
-                          ? leaveKhmerLabels[field.value] ?? leaveTypes.find(l => l.value === field.value)?.label
+                          ? leaveKhmerLabels[field.value] ??
+                            leaveTypes.find(l => l.value === field.value)?.label
                           : "ជ្រើសរើសប្រភេទច្បាប់"}
                         <PiCaretUpDownBold className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
@@ -738,8 +762,14 @@ const RequestForm = ({ user }: Props) => {
                   </PopoverTrigger>
                   <PopoverContent className="w-[260px] p-0">
                     <Command>
-                      <CommandInput placeholder="ស្វែងរកប្រភេទច្បាប់..." style={khmerFont} className="text-[13px]" />
-                      <CommandEmpty style={khmerFont} className="text-[13px] py-3 text-center">រកមិនឃើញប្រភេទច្បាប់។</CommandEmpty>
+                      <CommandInput
+                        placeholder="ស្វែងរកប្រភេទច្បាប់..."
+                        style={khmerFont}
+                        className="text-[13px]"
+                      />
+                      <CommandEmpty style={khmerFont} className="text-[13px] py-3 text-center">
+                        រកមិនឃើញប្រភេទច្បាប់។
+                      </CommandEmpty>
                       <CommandGroup>
                         {leaveTypes.map((leave) => (
                           <CommandItem
@@ -755,7 +785,12 @@ const RequestForm = ({ user }: Props) => {
                               setOpenLeaveType(false);
                             }}
                           >
-                            <BsCheckLg className={cn("mr-2 h-4 w-4 shrink-0", leave.value === field.value ? "opacity-100" : "opacity-0")} />
+                            <BsCheckLg
+                              className={cn(
+                                "mr-2 h-4 w-4 shrink-0",
+                                leave.value === field.value ? "opacity-100" : "opacity-0"
+                              )}
+                            />
                             {leaveKhmerLabels[leave.value] ?? leave.label}
                           </CommandItem>
                         ))}
@@ -768,12 +803,13 @@ const RequestForm = ({ user }: Props) => {
             )}
           />
 
-          {/* ── Special leave 7-day banner ── */}
+          {/* ── Special 7-day banner ── */}
           {selectedLeave === "SPECIAL" && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0">
                 <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
               </svg>
               <span style={khmerFont} className="text-[13px]">
                 <strong>7-day advance notice required.</strong> ច្បាប់ប្រភេទនេះត្រូវតែស្នើសុំ
@@ -786,11 +822,13 @@ const RequestForm = ({ user }: Props) => {
           {isAnnual && (
             <div className="flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0">
-                <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="16" x2="12" y2="12"/>
+                <line x1="12" y1="8" x2="12.01" y2="8"/>
               </svg>
               <span style={khmerFont} className="text-[13px]">
                 អាចបន្ថែម <strong>ច្រើន segment</strong> ក្នុងមួយ submit ។
-                ឧទាហរណ៍: ថ្ងៃ 28 ព្រឹក + ថ្ងៃ 29 ពេញថ្ងៃ = 1.5 ថ្ងៃ
+                ឧទាហរណ៍: ថ្ងៃ 28 ព្រឹក + ថ្ងៃ 29 ពេញថ្ងៃ = 1 ថ្ងៃ 4 ម៉ោង
               </span>
             </div>
           )}
@@ -804,31 +842,45 @@ const RequestForm = ({ user }: Props) => {
                 <FormItem>
                   <FormLabel style={khmerFont}>សូមជ្រើសរើសភេទ (Select Gender)</FormLabel>
                   <div className="grid grid-cols-2 gap-3 mt-1">
-                    <button type="button" onClick={() => field.onChange("MALE")}
+                    <button
+                      type="button"
+                      onClick={() => field.onChange("MALE")}
                       className={cn(
                         "flex flex-col items-center justify-center gap-1.5 rounded-xl border-2 p-4 text-sm font-medium transition-all cursor-pointer",
                         field.value === "MALE"
                           ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-400"
                           : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400"
-                      )}>
+                      )}
+                    >
                       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="10" cy="14" r="5"/><line x1="19" y1="5" x2="14.14" y2="9.86"/><polyline points="15 5 19 5 19 9"/>
+                        <circle cx="10" cy="14" r="5"/>
+                        <line x1="19" y1="5" x2="14.14" y2="9.86"/>
+                        <polyline points="15 5 19 5 19 9"/>
                       </svg>
                       <span style={khmerFont} className="text-[13px]">បុរស (Male)</span>
-                      <span style={khmerFont} className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900 rounded-full px-2 py-0.5">Paternity · 7 ថ្ងៃ</span>
+                      <span style={khmerFont} className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900 rounded-full px-2 py-0.5">
+                        Paternity · 7 ថ្ងៃ
+                      </span>
                     </button>
-                    <button type="button" onClick={() => field.onChange("FEMALE")}
+                    <button
+                      type="button"
+                      onClick={() => field.onChange("FEMALE")}
                       className={cn(
                         "flex flex-col items-center justify-center gap-1.5 rounded-xl border-2 p-4 text-sm font-medium transition-all cursor-pointer",
                         field.value === "FEMALE"
                           ? "border-pink-500 bg-pink-50 text-pink-700 dark:bg-pink-950 dark:text-pink-300 dark:border-pink-400"
                           : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400"
-                      )}>
+                      )}
+                    >
                       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="8" r="5"/><line x1="12" y1="13" x2="12" y2="21"/><line x1="9" y1="18" x2="15" y2="18"/>
+                        <circle cx="12" cy="8" r="5"/>
+                        <line x1="12" y1="13" x2="12" y2="21"/>
+                        <line x1="9" y1="18" x2="15" y2="18"/>
                       </svg>
                       <span style={khmerFont} className="text-[13px]">ស្ត្រី (Female)</span>
-                      <span style={khmerFont} className="text-[11px] font-semibold text-pink-600 dark:text-pink-400 bg-pink-100 dark:bg-pink-900 rounded-full px-2 py-0.5">Maternity · 90 ថ្ងៃ</span>
+                      <span style={khmerFont} className="text-[11px] font-semibold text-pink-600 dark:text-pink-400 bg-pink-100 dark:bg-pink-900 rounded-full px-2 py-0.5">
+                        Maternity · 90 ថ្ងៃ
+                      </span>
                     </button>
                   </div>
                   <FormMessage />
@@ -844,7 +896,7 @@ const RequestForm = ({ user }: Props) => {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span style={khmerFont} className="text-[13px] font-semibold">
-                  កាលបរិច្ឆេទ & ប្រភេទ
+                  កាលបរិច្ឆេទ &amp; ប្រភេទ
                 </span>
                 <button
                   type="button"
@@ -853,7 +905,8 @@ const RequestForm = ({ user }: Props) => {
                   className="flex items-center gap-1 text-[12px] text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
                   </svg>
                   បន្ថែម segment
                 </button>
@@ -868,7 +921,7 @@ const RequestForm = ({ user }: Props) => {
           )}
 
           {/* ══════════════════════════════════════════════════════════════════
-              CLASSIC MODE — MATERNITY / SPECIAL
+              CLASSIC MODE — SPECIAL only (MATERNITY uses auto-dates above)
           ══════════════════════════════════════════════════════════════════ */}
           {!isSegmentMode && !isMaternity && selectedLeave && (
             <div className="space-y-4">
@@ -882,8 +935,14 @@ const RequestForm = ({ user }: Props) => {
                     <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}>
                       <PopoverTrigger asChild>
                         <FormControl>
-                          <Button variant="outline" style={khmerFont}
-                            className={cn("inline-flex justify-between text-[13px]", !field.value && "text-muted-foreground")}>
+                          <Button
+                            variant="outline"
+                            style={khmerFont}
+                            className={cn(
+                              "inline-flex justify-between text-[13px]",
+                              !field.value && "text-muted-foreground"
+                            )}
+                          >
                             {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
                             <IoCalendarOutline className="h-4 w-4 opacity-50" />
                           </Button>
@@ -893,10 +952,17 @@ const RequestForm = ({ user }: Props) => {
                         <Calendar
                           mode="single"
                           selected={field.value}
-                          onSelect={(date) => { field.onChange(date); setOpenStartDate(false); }}
+                          onSelect={(date) => {
+                            field.onChange(date);
+                            setOpenStartDate(false);
+                          }}
                           disabled={(date: Date) => {
                             const min = getMinStartDate();
-                            return date < today || date.getFullYear() > currentYear || date < min;
+                            return (
+                              date < today ||
+                              date.getFullYear() > currentYear ||
+                              date < min
+                            );
                           }}
                           initialFocus
                         />
@@ -916,8 +982,14 @@ const RequestForm = ({ user }: Props) => {
                     <Popover modal={true} open={openEndDate} onOpenChange={setOpenEndDate}>
                       <PopoverTrigger asChild>
                         <FormControl>
-                          <Button variant="outline" style={khmerFont}
-                            className={cn("inline-flex justify-between text-[13px]", !field.value && "text-muted-foreground")}>
+                          <Button
+                            variant="outline"
+                            style={khmerFont}
+                            className={cn(
+                              "inline-flex justify-between text-[13px]",
+                              !field.value && "text-muted-foreground"
+                            )}
+                          >
                             {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
                             <IoCalendarOutline className="h-4 w-4 opacity-50" />
                           </Button>
@@ -927,9 +999,13 @@ const RequestForm = ({ user }: Props) => {
                         <Calendar
                           mode="single"
                           selected={field.value}
-                          onSelect={(date) => { field.onChange(date); setOpenEndDate(false); }}
+                          onSelect={(date) => {
+                            field.onChange(date);
+                            setOpenEndDate(false);
+                          }}
                           disabled={(date: Date) =>
-                            date < today || (!!startDateValue && date < startDateValue)
+                            date < today ||
+                            (!!startDateValue && date < startDateValue)
                           }
                           initialFocus
                         />
@@ -943,7 +1019,9 @@ const RequestForm = ({ user }: Props) => {
               {startDateValue && endDateValue && (
                 <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm dark:border-gray-700 dark:bg-gray-900">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-gray-500">
-                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="16" x2="12" y2="12"/>
+                    <line x1="12" y1="8" x2="12.01" y2="8"/>
                   </svg>
                   <span style={khmerFont} className="text-[13px] text-gray-700 dark:text-gray-300">
                     រយៈពេល: <strong>{differenceInDays(endDateValue, startDateValue) + 1} ថ្ងៃ</strong>
@@ -958,7 +1036,9 @@ const RequestForm = ({ user }: Props) => {
           {isMaternity && maternityGender && startDateValue && endDateValue && (
             <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm dark:border-gray-700 dark:bg-gray-900">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-gray-500">
-                <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="16" x2="12" y2="12"/>
+                <line x1="12" y1="8" x2="12.01" y2="8"/>
               </svg>
               <span style={khmerFont} className="text-[13px] text-gray-700 dark:text-gray-300">
                 រយៈពេល: <strong>{MATERNITY_DAYS[maternityGender]} ថ្ងៃ</strong>
@@ -977,7 +1057,9 @@ const RequestForm = ({ user }: Props) => {
                 <FormControl>
                   <Textarea placeholder="Reason" {...field} />
                 </FormControl>
-                <FormDescription className="text-[12px]">Add extra notes to support your request.</FormDescription>
+                <FormDescription className="text-[12px]">
+                  Add extra notes to support your request.
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
