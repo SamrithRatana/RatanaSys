@@ -48,14 +48,16 @@ const MATERNITY_DAYS: Record<string, number> = { MALE: 7, FEMALE: 90 };
 type SlotType = "FULL" | "HALF_AM" | "HALF_PM" | "CUSTOM";
 
 type Segment = {
-  id:        string;
-  date:      Date | undefined;
-  slotType:  SlotType;
-  startTime: string;
-  endTime:   string;
-  shortcutH: number;
-  shortcutM: number;
-  calOpen:   boolean;
+  id:         string;
+  date:       Date | undefined;
+  endDate:    Date | undefined;
+  slotType:   SlotType;
+  startTime:  string;
+  endTime:    string;
+  shortcutH:  number;
+  shortcutM:  number;
+  calOpen:    boolean;
+  calEndOpen: boolean;
 };
 
 const SLOT_LABELS: Record<SlotType, string> = {
@@ -111,8 +113,18 @@ function blockFloatKeys(e: React.KeyboardEvent<HTMLInputElement>) {
   if ([".", ",", "-", "e", "E", "+"].includes(e.key)) e.preventDefault();
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Segment helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getSegmentDays(seg: Segment): number {
+  if (seg.slotType !== "FULL" || !seg.date || !seg.endDate) return 1;
+  const diff = differenceInDays(seg.endDate, seg.date);
+  return diff >= 0 ? diff + 1 : 1;
+}
+
 function segmentValue(seg: Segment): { hours: number; days: number } {
-  if (seg.slotType === "FULL")    return { hours: 0, days: 1 };
+  if (seg.slotType === "FULL")    return { hours: 0, days: getSegmentDays(seg) };
   if (seg.slotType === "HALF_AM") return { hours: SLOT_HOURS.HALF_AM, days: 0 };
   if (seg.slotType === "HALF_PM") return { hours: SLOT_HOURS.HALF_PM, days: 0 };
   const h = calcHours(seg.startTime, seg.endTime);
@@ -122,12 +134,15 @@ function segmentValue(seg: Segment): { hours: number; days: number } {
 
 function segmentDayFraction(seg: Segment): number {
   const { hours, days } = segmentValue(seg);
-  if (days >= 1) return 1;
+  if (days >= 1) return days;
   return hours / 8;
 }
 
 function segmentDurationLabel(seg: Segment): string {
-  if (seg.slotType === "FULL")    return "1 ថ្ងៃ";
+  if (seg.slotType === "FULL") {
+    const d = getSegmentDays(seg);
+    return `${d} ថ្ងៃ`;
+  }
   if (seg.slotType === "HALF_AM") return formatDuration(SLOT_HOURS.HALF_AM * 60);
   if (seg.slotType === "HALF_PM") return formatDuration(SLOT_HOURS.HALF_PM * 60);
   const h = calcHours(seg.startTime, seg.endTime);
@@ -195,14 +210,16 @@ const formSchema = z
 let _segId = 0;
 function newSegment(date?: Date): Segment {
   return {
-    id:        `seg-${++_segId}`,
+    id:         `seg-${++_segId}`,
     date,
-    slotType:  "FULL",
-    startTime: getCurrentTime(),
-    endTime:   getCurrentTime(),
-    shortcutH: 0,
-    shortcutM: 0,
-    calOpen:   false,
+    endDate:    date,
+    slotType:   "FULL",
+    startTime:  getCurrentTime(),
+    endTime:    getCurrentTime(),
+    shortcutH:  0,
+    shortcutM:  0,
+    calOpen:    false,
+    calEndOpen: false,
   };
 }
 
@@ -216,7 +233,6 @@ const RequestForm = ({ user }: Props) => {
   const [openStartDate, setOpenStartDate] = useState(false);
   const [openEndDate,   setOpenEndDate]   = useState(false);
 
-  // Whether ANNUAL/PERSONAL/SICK is in segment mode (default: false = date range)
   const [isSegmentMode, setIsSegmentMode] = useState(false);
   const [segments, setSegments] = useState<Segment[]>([newSegment(new Date(today))]);
 
@@ -240,18 +256,15 @@ const RequestForm = ({ user }: Props) => {
   const isAnnual    = selectedLeave === "ANNUAL";
   const isMaternity = selectedLeave === "MATERNITY";
 
-  // Leave types that support both date-range and segment mode
   const isFlexibleLeave = isAnnual || isPersonal || isSick;
 
   const currentYear = today.getFullYear();
 
-  // Reset mode + segments when leave type changes
   useEffect(() => {
     setIsSegmentMode(false);
     setSegments([newSegment(new Date(today))]);
   }, [selectedLeave]);
 
-  // Auto-set dates for MATERNITY / SPECIAL
   useEffect(() => {
     if (selectedLeave === "MATERNITY" && maternityGender) {
       const autoStart = new Date(today);
@@ -298,14 +311,11 @@ const RequestForm = ({ user }: Props) => {
     setIsSegmentMode(prev => {
       const next = !prev;
       if (next) {
-        // switching TO segment — pre-fill first segment with startDate if set
         const prefillDate = startDateValue ?? new Date(today);
         setSegments([newSegment(new Date(prefillDate))]);
-        // clear classic date fields
         form.setValue("startDate", undefined as any, { shouldValidate: false });
         form.setValue("endDate",   undefined as any, { shouldValidate: false });
       } else {
-        // switching BACK to date range — reset segments
         setSegments([newSegment(new Date(today))]);
       }
       return next;
@@ -368,6 +378,7 @@ const RequestForm = ({ user }: Props) => {
           if (seg.slotType === "CUSTOM")  { startTime = seg.startTime; endTime = seg.endTime; }
           return {
             date:      format(seg.date!, "yyyy-MM-dd"),
+            endDate:   format(seg.endDate ?? seg.date!, "yyyy-MM-dd"),
             hours:     hours > 0 ? hours : undefined,
             days,
             startTime: seg.slotType !== "FULL" ? startTime : undefined,
@@ -380,7 +391,7 @@ const RequestForm = ({ user }: Props) => {
           leave:     values.leave,
           type:      values.leave,
           startDate: format(segments[0].date!, "yyyy-MM-dd"),
-          endDate:   format(segments[segments.length - 1].date!, "yyyy-MM-dd"),
+          endDate:   format(segments[segments.length - 1].endDate ?? segments[segments.length - 1].date!, "yyyy-MM-dd"),
           segments:  segmentPayloads,
           user:      userPayload,
         };
@@ -455,6 +466,8 @@ const RequestForm = ({ user }: Props) => {
 
   const SegmentRow = ({ seg, idx }: { seg: Segment; idx: number }) => {
     const isCustom = seg.slotType === "CUSTOM";
+    const isFull   = seg.slotType === "FULL";
+
     return (
       <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-3 space-y-3">
         <div className="flex items-center justify-between">
@@ -473,10 +486,10 @@ const RequestForm = ({ user }: Props) => {
           )}
         </div>
 
-        {/* Date picker */}
+        {/* Start date */}
         <div className="flex flex-col gap-1">
           <span style={khmerFont} className="text-[12px] text-gray-600 dark:text-gray-400">
-            កាលបរិច្ឆេទ
+            {isFull ? "ថ្ងៃចាប់ផ្តើម" : "កាលបរិច្ឆេទ"}
           </span>
           <Popover
             modal={true}
@@ -503,9 +516,18 @@ const RequestForm = ({ user }: Props) => {
               <Calendar
                 mode="single"
                 selected={seg.date}
-                onSelect={(date) =>
-                  updateSegment(seg.id, { date: date ?? undefined, calOpen: false })
-                }
+                onSelect={(date) => {
+                  const patch: Partial<Segment> = { date: date ?? undefined, calOpen: false };
+                  // If new start is after current endDate, reset endDate to match
+                  if (date && seg.endDate && seg.endDate < date) {
+                    patch.endDate = date;
+                  }
+                  // If no endDate yet, default it to same day
+                  if (date && !seg.endDate) {
+                    patch.endDate = date;
+                  }
+                  updateSegment(seg.id, patch);
+                }}
                 disabled={(date: Date) =>
                   date < today || date.getFullYear() > currentYear
                 }
@@ -514,6 +536,52 @@ const RequestForm = ({ user }: Props) => {
             </PopoverContent>
           </Popover>
         </div>
+
+        {/* End date — only for FULL slot */}
+        {isFull && (
+          <div className="flex flex-col gap-1">
+            <span style={khmerFont} className="text-[12px] text-gray-600 dark:text-gray-400">
+              ថ្ងៃបញ្ចប់
+            </span>
+            <Popover
+              modal={true}
+              open={seg.calEndOpen}
+              onOpenChange={(o) => updateSegment(seg.id, { calEndOpen: o })}
+            >
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  style={khmerFont}
+                  className={cn(
+                    "inline-flex justify-between text-[13px] w-full",
+                    !seg.endDate && "text-muted-foreground"
+                  )}
+                >
+                  {seg.endDate
+                    ? format(seg.endDate, "dd MMM yyyy (EEEE)")
+                    : <span>ជ្រើសរើសថ្ងៃបញ្ចប់</span>}
+                  <IoCalendarOutline className="h-4 w-4 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={seg.endDate}
+                  onSelect={(date) =>
+                    updateSegment(seg.id, { endDate: date ?? undefined, calEndOpen: false })
+                  }
+                  disabled={(date: Date) =>
+                    date < today ||
+                    date.getFullYear() > currentYear ||
+                    (!!seg.date && date < seg.date)
+                  }
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+        )}
 
         {/* Slot type */}
         <div className="flex flex-col gap-1">
@@ -530,6 +598,10 @@ const RequestForm = ({ user }: Props) => {
                   if (slot === "CUSTOM") {
                     patch.startTime = getCurrentTime();
                     patch.endTime   = getCurrentTime();
+                  }
+                  // When switching away from FULL, clear endDate (not needed)
+                  if (slot !== "FULL") {
+                    patch.endDate = seg.date;
                   }
                   updateSegment(seg.id, patch);
                 }}
@@ -623,7 +695,10 @@ const RequestForm = ({ user }: Props) => {
               <line x1="12" y1="16" x2="12.01" y2="16"/>
             </svg>
             <span style={khmerFont}>
-              {format(seg.date, "dd MMM")} · <strong>{segmentDurationLabel(seg)}</strong>
+              {isFull && seg.endDate && seg.endDate > seg.date
+                ? `${format(seg.date, "dd MMM")} → ${format(seg.endDate, "dd MMM")}`
+                : format(seg.date, "dd MMM")}
+              {" · "}<strong>{segmentDurationLabel(seg)}</strong>
               {seg.slotType === "CUSTOM" && (
                 <> ({seg.startTime} – {seg.endTime})</>
               )}
@@ -670,19 +745,28 @@ const RequestForm = ({ user }: Props) => {
           </span>
         </div>
         <div className="space-y-0.5">
-          {validSegs.map((s) => (
-            <div key={s.id} style={khmerFont} className={cn(
-              "text-[11px] flex items-center gap-1",
-              isAnnual
-                ? "text-green-700 dark:text-green-400"
-                : isSick
-                  ? "text-red-700 dark:text-red-400"
-                  : "text-blue-700 dark:text-blue-400"
-            )}>
-              <span className="opacity-50">·</span>
-              {s.date && format(s.date, "dd MMM (EEE)")} — {segmentDurationLabel(s)}
-            </div>
-          ))}
+          {validSegs.map((s) => {
+            const isFull = s.slotType === "FULL";
+            const dateLabel =
+              isFull && s.endDate && s.endDate > s.date!
+                ? `${format(s.date!, "dd MMM (EEE)")} → ${format(s.endDate, "dd MMM (EEE)")}`
+                : s.date
+                  ? format(s.date, "dd MMM (EEE)")
+                  : "";
+            return (
+              <div key={s.id} style={khmerFont} className={cn(
+                "text-[11px] flex items-center gap-1",
+                isAnnual
+                  ? "text-green-700 dark:text-green-400"
+                  : isSick
+                    ? "text-red-700 dark:text-red-400"
+                    : "text-blue-700 dark:text-blue-400"
+              )}>
+                <span className="opacity-50">·</span>
+                {dateLabel} — {segmentDurationLabel(s)}
+              </div>
+            );
+          })}
         </div>
       </div>
     );
@@ -841,7 +925,6 @@ const RequestForm = ({ user }: Props) => {
 
           {/* ══════════════════════════════════════════════════════════════════
               FLEXIBLE LEAVE — ANNUAL / PERSONAL / SICK
-              Default: date range  |  Toggle: segment mode
           ══════════════════════════════════════════════════════════════════ */}
           {isFlexibleLeave && (
             <div className="space-y-4">
@@ -875,7 +958,6 @@ const RequestForm = ({ user }: Props) => {
               {/* ── DATE RANGE MODE ── */}
               {!isSegmentMode && (
                 <div className="space-y-3">
-                  {/* Start Date */}
                   <FormField
                     control={form.control}
                     name="startDate"
@@ -906,7 +988,6 @@ const RequestForm = ({ user }: Props) => {
                               selected={field.value}
                               onSelect={(date) => {
                                 field.onChange(date);
-                                // auto-set endDate to same day if not set
                                 if (date && !endDateValue) {
                                   form.setValue("endDate", date, { shouldValidate: false });
                                 }
@@ -924,7 +1005,6 @@ const RequestForm = ({ user }: Props) => {
                     )}
                   />
 
-                  {/* End Date */}
                   <FormField
                     control={form.control}
                     name="endDate"
@@ -971,7 +1051,6 @@ const RequestForm = ({ user }: Props) => {
                     )}
                   />
 
-                  {/* Duration banner */}
                   {startDateValue && endDateValue && (
                     <div className={cn(
                       "flex items-center gap-2 rounded-lg border px-4 py-3",
@@ -1039,7 +1118,7 @@ const RequestForm = ({ user }: Props) => {
           )}
 
           {/* ══════════════════════════════════════════════════════════════════
-              CLASSIC MODE — MATERNITY / SPECIAL
+              CLASSIC MODE — SPECIAL (not MATERNITY, not flexible)
           ══════════════════════════════════════════════════════════════════ */}
           {!isFlexibleLeave && !isMaternity && selectedLeave && (
             <div className="space-y-4">
