@@ -27,11 +27,13 @@ import { Calendar } from "@/components/ui/calendar";
 import DialogWrapper from "@/components/Common/DialogWrapper";
 import { User } from "@prisma/client";
 import toast from "react-hot-toast";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
-const khmerFont: React.CSSProperties = {
-  fontFamily: "'Battambang', serif",
-};
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants & types
+// ─────────────────────────────────────────────────────────────────────────────
+
+const khmerFont: React.CSSProperties = { fontFamily: "'Battambang', serif" };
 
 const leaveKhmerLabels: Record<string, string> = {
   ANNUAL:    "ច្បាប់ប្រចាំឆ្នាំ-Annual Leave",
@@ -41,9 +43,43 @@ const leaveKhmerLabels: Record<string, string> = {
   SPECIAL:   "ច្បាប់ពិសេស-Special Leave",
 };
 
-const MATERNITY_DAYS: Record<string, number> = {
-  MALE:   7,
-  FEMALE: 90,
+const MATERNITY_DAYS: Record<string, number> = { MALE: 7, FEMALE: 90 };
+
+// Slot types for multi-segment mode
+type SlotType = "FULL" | "HALF_AM" | "HALF_PM" | "CUSTOM";
+
+// A single leave segment (one entry in the multi-segment list)
+type Segment = {
+  id:        string;
+  date:      Date | undefined;
+  slotType:  SlotType;
+  startTime: string; // only used when slotType === "CUSTOM"
+  endTime:   string; // only used when slotType === "CUSTOM"
+  // shortcut inputs
+  shortcutH: number;
+  shortcutM: number;
+  // popover open state
+  calOpen:   boolean;
+};
+
+// Slot metadata
+const SLOT_LABELS: Record<SlotType, string> = {
+  FULL:     "ពេញថ្ងៃ (1 ថ្ងៃ)",
+  HALF_AM:  "ព្រឹក (07:00–12:00)",
+  HALF_PM:  "រសៀល (13:00–17:00)",
+  CUSTOM:   "កំណត់ម៉ោងផ្ទាល់",
+};
+
+const SLOT_HOURS: Record<Exclude<SlotType, "CUSTOM">, number> = {
+  FULL:    0,   // submitted as days=1, hours=0
+  HALF_AM: 5,   // 07:00–12:00 = 5 h
+  HALF_PM: 4,   // 13:00–17:00 = 4 h
+};
+
+const SLOT_TIMES: Record<Exclude<SlotType, "CUSTOM">, [string, string]> = {
+  FULL:    ["07:00", "17:00"],
+  HALF_AM: ["07:00", "12:00"],
+  HALF_PM: ["13:00", "17:00"],
 };
 
 type Props = { user: User };
@@ -51,55 +87,75 @@ type Props = { user: User };
 const today = new Date();
 today.setHours(0, 0, 0, 0);
 
-// ── Time helpers ──────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Time helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 function timeToMinutes(t: string): number {
   const [h, m] = t.split(":").map(Number);
   return h * 60 + m;
 }
-
 function minutesToTime(min: number): string {
-  const h = Math.floor(min / 60).toString().padStart(2, "0");
-  const m = (min % 60).toString().padStart(2, "0");
-  return `${h}:${m}`;
+  return `${Math.floor(min / 60).toString().padStart(2, "0")}:${(min % 60).toString().padStart(2, "0")}`;
 }
-
-/** Returns current local time as "HH:MM" */
 function getCurrentTime(): string {
   const now = new Date();
-  const h = now.getHours().toString().padStart(2, "0");
-  const m = now.getMinutes().toString().padStart(2, "0");
-  return `${h}:${m}`;
+  return `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
 }
-
-function calcPersonalHours(startTime: string, endTime: string): number {
-  const startMin = timeToMinutes(startTime);
-  const endMin   = timeToMinutes(endTime);
-  return Math.max(0, (endMin - startMin) / 60);
+function calcHours(start: string, end: string): number {
+  return Math.max(0, (timeToMinutes(end) - timeToMinutes(start)) / 60);
 }
-
 function formatDuration(totalMinutes: number): string {
-  const hPart = Math.floor(totalMinutes / 60);
-  const mPart = totalMinutes % 60;
-  if (hPart === 0) return `${mPart} នាទី`;
-  if (mPart === 0) return `${hPart} ម៉ោង`;
-  return `${hPart} ម៉ោង ${mPart} នាទី`;
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h === 0) return `${m} នាទី`;
+  if (m === 0) return `${h} ម៉ោង`;
+  return `${h} ម៉ោង ${m} នាទី`;
 }
-
 function blockFloatKeys(e: React.KeyboardEvent<HTMLInputElement>) {
-  if ([".", ",", "-", "e", "E", "+"].includes(e.key)) {
-    e.preventDefault();
-  }
+  if ([".", ",", "-", "e", "E", "+"].includes(e.key)) e.preventDefault();
 }
 
-// ── Zod schema ────────────────────────────────────────────────────────────────
+// Compute hours & days for a segment
+function segmentValue(seg: Segment): { hours: number; days: number } {
+  if (seg.slotType === "FULL")    return { hours: 0, days: 1 };
+  if (seg.slotType === "HALF_AM") return { hours: SLOT_HOURS.HALF_AM, days: 0 };
+  if (seg.slotType === "HALF_PM") return { hours: SLOT_HOURS.HALF_PM, days: 0 };
+  // CUSTOM
+  const h = calcHours(seg.startTime, seg.endTime);
+  if (h >= 8) return { hours: 0, days: 1 };
+  return { hours: h, days: 0 };
+}
+
+// Day-fraction for display (for summing total)
+function segmentDayFraction(seg: Segment): number {
+  const { hours, days } = segmentValue(seg);
+  if (days >= 1) return 1;
+  return hours / 8;
+}
+
+// Human-readable duration label for one segment
+function segmentDurationLabel(seg: Segment): string {
+  if (seg.slotType === "FULL") return "1 ថ្ងៃ";
+  if (seg.slotType === "HALF_AM") return formatDuration(SLOT_HOURS.HALF_AM * 60);
+  if (seg.slotType === "HALF_PM") return formatDuration(SLOT_HOURS.HALF_PM * 60);
+  const h = calcHours(seg.startTime, seg.endTime);
+  if (h <= 0) return "—";
+  if (h >= 8) return "1 ថ្ងៃ";
+  return formatDuration(Math.round(h * 60));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Zod schema — for the non-segment fields (leave type, notes, maternity, etc.)
+// ─────────────────────────────────────────────────────────────────────────────
 
 const formSchema = z
   .object({
-    notes:             z.string().min(1, "Notes are required.").max(500),
-    leave:             z.string({ required_error: "Please select a leave type." }),
-    maternityGender:   z.enum(["MALE", "FEMALE"]).optional(),
-    startDate:         z.date({ required_error: "A start date is required." }),
+    notes:           z.string().min(1, "Notes are required.").max(500),
+    leave:           z.string({ required_error: "Please select a leave type." }),
+    maternityGender: z.enum(["MALE", "FEMALE"]).optional(),
+    // Non-segment leave fields (MATERNITY / SPECIAL / multi-day SICK etc.)
+    startDate:         z.date().optional(),
     endDate:           z.date().optional(),
     personalStartTime: z.string().optional(),
     personalEndTime:   z.string().optional(),
@@ -113,31 +169,26 @@ const formSchema = z
       });
     }
 
-    // ANNUAL, PERSONAL, SICK are all hourly-capable
-    const isHourly =
+    const isSegmentLeave =
+      data.leave === "ANNUAL" ||
       data.leave === "PERSONAL" ||
-      data.leave === "SICK"     ||
-      data.leave === "ANNUAL";
+      data.leave === "SICK";
 
-    if (!isHourly && !data.endDate) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "An end date is required.",
-        path: ["endDate"],
-      });
-    }
-
-    if (isHourly && data.startDate && data.endDate) {
-      const same = differenceInDays(data.endDate, data.startDate) === 0;
-      if (same && data.personalStartTime && data.personalEndTime) {
-        const hrs = calcPersonalHours(data.personalStartTime, data.personalEndTime);
-        if (hrs <= 0) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "End time must be after start time.",
-            path: ["personalEndTime"],
-          });
-        }
+    // Non-segment leaves still need dates
+    if (!isSegmentLeave && data.leave && data.leave !== "MATERNITY") {
+      if (!data.startDate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "A start date is required.",
+          path: ["startDate"],
+        });
+      }
+      if (!data.endDate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "An end date is required.",
+          path: ["endDate"],
+        });
       }
     }
 
@@ -154,7 +205,27 @@ const formSchema = z
     }
   });
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers to build a new empty segment
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _segId = 0;
+function newSegment(date?: Date): Segment {
+  return {
+    id:        `seg-${++_segId}`,
+    date,
+    slotType:  "FULL",
+    startTime: getCurrentTime(),
+    endTime:   getCurrentTime(),
+    shortcutH: 0,
+    shortcutM: 0,
+    calOpen:   false,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Component
+// ─────────────────────────────────────────────────────────────────────────────
 
 const RequestForm = ({ user }: Props) => {
   const [open,          setOpen]          = useState(false);
@@ -162,10 +233,13 @@ const RequestForm = ({ user }: Props) => {
   const [openStartDate, setOpenStartDate] = useState(false);
   const [openEndDate,   setOpenEndDate]   = useState(false);
 
-  const [shortcutH, setShortcutH] = useState<number>(0);
-  const [shortcutM, setShortcutM] = useState<number>(0);
+  // ── Segments state (used for ANNUAL / PERSONAL / SICK) ───────────────────
+  const [segments, setSegments] = useState<Segment[]>([newSegment(new Date(today))]);
 
-  // ── Default start = current time, end = current time (user inputs duration) ─
+  // ── Classic shortcut state (used for single-segment fallback, non-segment leaves) ─
+  const [shortcutH, setShortcutH] = useState(0);
+  const [shortcutM, setShortcutM] = useState(0);
+
   const initTime = getCurrentTime();
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -176,81 +250,29 @@ const RequestForm = ({ user }: Props) => {
     },
   });
 
-  const selectedLeave     = form.watch("leave");
-  const maternityGender   = form.watch("maternityGender");
-  const startDateValue    = form.watch("startDate");
-  const endDateValue      = form.watch("endDate");
-  const personalStartTime = form.watch("personalStartTime") ?? initTime;
-  const personalEndTime   = form.watch("personalEndTime")   ?? initTime;
+  const selectedLeave   = form.watch("leave");
+  const maternityGender = form.watch("maternityGender");
+  const startDateValue  = form.watch("startDate");
+  const endDateValue    = form.watch("endDate");
 
   const isPersonal  = selectedLeave === "PERSONAL";
   const isSick      = selectedLeave === "SICK";
   const isAnnual    = selectedLeave === "ANNUAL";
   const isMaternity = selectedLeave === "MATERNITY";
 
-  // ANNUAL is now also hourly-capable
-  const isHourly = isPersonal || isSick || isAnnual;
-
-  // same-day only applies to hourly leave types
-  const isSameDay =
-    isHourly &&
-    !!startDateValue &&
-    !!endDateValue &&
-    differenceInDays(endDateValue, startDateValue) === 0;
-
-  const leaveHours = isSameDay
-    ? calcPersonalHours(personalStartTime, personalEndTime)
-    : null;
-
-  // ── Universal duration calculation ────────────────────────────────────────
-  const totalDays: number | null = (() => {
-    if (!startDateValue || !endDateValue) return null;
-    if (isSameDay && leaveHours !== null && leaveHours > 0 && leaveHours < 8) return null;
-    return differenceInDays(endDateValue, startDateValue) + 1;
-  })();
-
-  // ── Summary text for the banner ───────────────────────────────────────────
-  const leaveSummary = (() => {
-    if (!startDateValue || !endDateValue) return null;
-
-    if (isSameDay) {
-      const totalMin = Math.round((leaveHours ?? 0) * 60);
-
-      // No duration input → full day
-      if (!leaveHours || leaveHours <= 0) {
-        return `1 ថ្ងៃ (${format(startDateValue, "dd MMM yyyy")})`;
-      }
-      if (leaveHours >= 8) {
-        return `1 ថ្ងៃ (${personalStartTime} – ${personalEndTime})`;
-      }
-      return `${formatDuration(totalMin)} (${personalStartTime} – ${personalEndTime})`;
-    }
-
-    const days = differenceInDays(endDateValue, startDateValue) + 1;
-    const startFmt = format(startDateValue, "dd MMM");
-    const endFmt   = format(endDateValue,   "dd MMM yyyy");
-
-    if (days === 1) {
-      return `1 ថ្ងៃ (${format(startDateValue, "dd MMM yyyy")})`;
-    }
-    return `${days} ថ្ងៃ (${startFmt} – ${endFmt})`;
-  })();
+  // Segment mode: ANNUAL, PERSONAL, SICK
+  const isSegmentMode = isAnnual || isPersonal || isSick;
 
   const currentYear = today.getFullYear();
 
-  const resetShortcuts = () => {
-    setShortcutH(0);
-    setShortcutM(0);
-  };
+  // ── Reset segments when leave type changes ───────────────────────────────
+  useEffect(() => {
+    if (isSegmentMode) {
+      setSegments([newSegment(new Date(today))]);
+    }
+  }, [selectedLeave]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Reset time fields to current time ────────────────────────────────────
-  const resetTimesToNow = () => {
-    const now = getCurrentTime();
-    form.setValue("personalStartTime", now, { shouldValidate: false });
-    form.setValue("personalEndTime",   now, { shouldValidate: false });
-    resetShortcuts();
-  };
-
+  // ── Auto-set dates for MATERNITY / SPECIAL ───────────────────────────────
   useEffect(() => {
     if (selectedLeave === "MATERNITY" && maternityGender) {
       const autoStart = new Date(today);
@@ -283,108 +305,150 @@ const RequestForm = ({ user }: Props) => {
     }
   }, [startDateValue]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── For hourly leaves (PERSONAL, SICK, ANNUAL): auto-set today as both
-  //    start and end date so TimePicker shows immediately ───────────────────
-  useEffect(() => {
-    if (isHourly && !startDateValue) {
-      const todayDate = new Date(today);
-      form.setValue("startDate", todayDate, { shouldValidate: false });
-      form.setValue("endDate",   todayDate, { shouldValidate: false });
-      resetTimesToNow();
-    }
-  }, [selectedLeave]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const getMinStartDate = (): Date => {
     if (selectedLeave === "SPECIAL") {
-      const minDate = new Date(today);
-      minDate.setDate(minDate.getDate() + 7);
-      return minDate;
+      const d = new Date(today);
+      d.setDate(d.getDate() + 7);
+      return d;
     }
     return today;
   };
 
+  // ── Segment helpers ───────────────────────────────────────────────────────
+
+  const updateSegment = useCallback((id: string, patch: Partial<Segment>) => {
+    setSegments(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
+  }, []);
+
+  const addSegment = () => {
+    setSegments(prev => [...prev, newSegment()]);
+  };
+
+  const removeSegment = (id: string) => {
+    setSegments(prev => prev.filter(s => s.id !== id));
+  };
+
+  // Total summary
+  const totalFraction = segments.reduce((sum, s) => sum + segmentDayFraction(s), 0);
+  const totalLabel = (() => {
+    if (totalFraction === 0) return null;
+    // Express as X ថ្ងៃ or X.5 ថ្ងៃ etc.
+    // Convert to minutes for clean display
+    const totalHours = totalFraction * 8;
+    const totalMin   = Math.round(totalHours * 60);
+    // If whole days
+    if (totalMin % 480 === 0) return `${totalMin / 480} ថ្ងៃ`;
+    // Mixed
+    const days    = Math.floor(totalMin / 480);
+    const remMin  = totalMin % 480;
+    const daysStr = days > 0 ? `${days} ថ្ងៃ ` : "";
+    return `${daysStr}${formatDuration(remMin)}`;
+  })();
+
+  // ── Submit ────────────────────────────────────────────────────────────────
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
-      const isPersonalLeave = values.leave === "PERSONAL";
-      const isSickLeave     = values.leave === "SICK";
-      const isAnnualLeave   = values.leave === "ANNUAL";
-      const isHourlyLeave   = isPersonalLeave || isSickLeave || isAnnualLeave;
-
-      const sameDay = isHourlyLeave && values.endDate
-        ? differenceInDays(values.endDate, values.startDate) === 0
-        : false;
-
-      // Raw hours from time picker (start → end diff)
-      const rawHours = sameDay
-        ? calcPersonalHours(
-            values.personalStartTime ?? initTime,
-            values.personalEndTime   ?? initTime,
-          )
-        : 0;
-
-      // ── Core logic ────────────────────────────────────────────────────────
-      // • No input (rawHours === 0, start === end time) → 1 day, hours = 0
-      // • Partial hours (0 < rawHours < 8)              → days = 0, hours = rawHours
-      // • Full day (rawHours >= 8)                      → days = 1, hours = rawHours
-      // • Multi-day hourly                              → days = diff+1, hours = 0
-      let submitDays:  number;
-      let submitHours: number;
-
-      if (isHourlyLeave) {
-        if (sameDay) {
-          if (rawHours <= 0) {
-            submitDays  = 1;
-            submitHours = 0;
-          } else if (rawHours >= 8) {
-            submitDays  = 1;
-            submitHours = 0;
-          } else {
-            submitDays  = 0;
-            submitHours = +rawHours.toFixed(4);
-          }
-        } else {
-          submitDays  = differenceInDays(values.endDate!, values.startDate) + 1;
-          submitHours = 0;
-        }
-      } else {
-        submitDays  = differenceInDays(values.endDate!, values.startDate) + 1;
-        submitHours = 0;
-      }
-
       const effectiveEmail =
         user.email ??
         ((user as any).telegramId ? `telegram-${(user as any).telegramId}` : null) ??
         (user.id ? `userid-${user.id}` : null) ??
         `name-${user.name?.replace(/\s+/g, "-").toLowerCase()}`;
 
-      const formattedValues = {
+      const userPayload = { ...user, email: effectiveEmail };
+
+      // ── Segment mode: submit one request per segment ──────────────────────
+      if (isSegmentMode) {
+        // Validate: all segments must have a date
+        const missing = segments.some(s => !s.date);
+        if (missing) {
+          toast.error("សូមជ្រើសរើសកាលបរិច្ឆេទសម្រាប់រាល់ segment !");
+          return;
+        }
+        // Validate: CUSTOM segments must have valid time range
+        const invalidCustom = segments.some(
+          s => s.slotType === "CUSTOM" && calcHours(s.startTime, s.endTime) <= 0
+        );
+        if (invalidCustom) {
+          toast.error("ម៉ោងបញ្ចប់ត្រូវតែក្រោយម៉ោងចាប់ផ្ដើម!");
+          return;
+        }
+
+        const promises = segments.map(async (seg) => {
+          const { hours, days } = segmentValue(seg);
+          const dateStr = format(seg.date!, "yyyy-MM-dd");
+
+          // Determine effective start/end times for the payload
+          let startTime = "07:00";
+          let endTime   = "17:00";
+          if (seg.slotType === "HALF_AM") { startTime = "07:00"; endTime = "12:00"; }
+          if (seg.slotType === "HALF_PM") { startTime = "13:00"; endTime = "17:00"; }
+          if (seg.slotType === "CUSTOM")  { startTime = seg.startTime; endTime = seg.endTime; }
+
+          const payload = {
+            notes:    values.notes,
+            leave:    values.leave,
+            type:     values.leave,
+            startDate: dateStr,
+            endDate:   dateStr,
+            hours:    hours > 0 ? hours : undefined,
+            days,
+            user: userPayload,
+          };
+
+          return fetch("/api/leave", {
+            method: "POST",
+            body:   JSON.stringify(payload),
+          });
+        });
+
+        const results = await Promise.all(promises);
+        const allOk   = results.every(r => r.ok);
+
+        if (allOk) {
+          toast.success(
+            `បានស្នើសុំ ${segments.length} segment${segments.length > 1 ? "s" : ""} ដោយជោគជ័យ!`,
+            { duration: 4000 }
+          );
+          setOpen(false);
+          setSegments([newSegment(new Date(today))]);
+          form.reset({ personalStartTime: getCurrentTime(), personalEndTime: getCurrentTime() });
+        } else {
+          // Find first failed
+          const failedIdx = results.findIndex(r => !r.ok);
+          const errData   = await results[failedIdx].json().catch(() => ({}));
+          toast.error(`មានបញ្ហាក្នុង segment ${failedIdx + 1}: ${JSON.stringify(errData)}`, { duration: 6000 });
+        }
+        return;
+      }
+
+      // ── Classic mode (MATERNITY / SPECIAL) ───────────────────────────────
+      const isHourlyLeave = false; // MATERNITY & SPECIAL are always whole-day
+
+      const submitDays = values.startDate && values.endDate
+        ? differenceInDays(values.endDate, values.startDate) + 1
+        : 1;
+
+      const payload = {
         notes:           values.notes,
         leave:           values.leave,
         type:            values.leave,
         maternityGender: values.maternityGender,
-        startDate:       format(values.startDate, "yyyy-MM-dd"),
-        endDate:         values.endDate
-          ? format(values.endDate, "yyyy-MM-dd")
-          : format(values.startDate, "yyyy-MM-dd"),
-        hours: submitHours > 0 ? submitHours : undefined,
-        days:  submitDays,
-        user: { ...user, email: effectiveEmail },
+        startDate:       values.startDate ? format(values.startDate, "yyyy-MM-dd") : "",
+        endDate:         values.endDate   ? format(values.endDate,   "yyyy-MM-dd") : "",
+        days:            submitDays,
+        user:            userPayload,
       };
 
       const res = await fetch("/api/leave", {
         method: "POST",
-        body:   JSON.stringify(formattedValues),
+        body:   JSON.stringify(payload),
       });
 
       if (res.ok) {
         toast.success("Leave Submitted", { duration: 4000 });
         setOpen(false);
-        const nowTime = getCurrentTime();
-        form.reset({
-          personalStartTime: nowTime,
-          personalEndTime:   nowTime,
-        });
-        resetShortcuts();
+        form.reset({ personalStartTime: getCurrentTime(), personalEndTime: getCurrentTime() });
       } else {
         const data = await res.json();
         toast.error(`An error occurred: ${JSON.stringify(data)}`, { duration: 6000 });
@@ -395,152 +459,245 @@ const RequestForm = ({ user }: Props) => {
     }
   }
 
-  // ── Shared time-picker (PERSONAL + SICK + ANNUAL same-day) ───────────────
-  const TimePicker = () => (
-    <FormItem>
-      <div className="flex items-center gap-2 flex-wrap">
-        <FormLabel style={khmerFont}>ម៉ោង (Time)</FormLabel>
-        <span style={khmerFont} className="text-[14px] text-red-500">
-          * បើឈប់ចាប់ពី 1 ថ្ងៃ មិនចាំបាច់បំពេញម៉ោងនេះទេ
-        </span>
-      </div>
+  // ─────────────────────────────────────────────────────────────────────────
+  // Sub-components
+  // ─────────────────────────────────────────────────────────────────────────
 
-      <div className="flex items-center gap-2 flex-wrap">
-        <FormField
-          control={form.control}
-          name="personalStartTime"
-          render={({ field }) => (
-            <FormControl>
+  // ── Single segment row ────────────────────────────────────────────────────
+  const SegmentRow = ({ seg, idx }: { seg: Segment; idx: number }) => {
+    const isCustom = seg.slotType === "CUSTOM";
+
+    return (
+      <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-3 space-y-3">
+        {/* Row header */}
+        <div className="flex items-center justify-between">
+          <span style={khmerFont} className="text-[12px] font-semibold text-gray-500 dark:text-gray-400">
+            Segment {idx + 1}
+          </span>
+          {segments.length > 1 && (
+            <button
+              type="button"
+              onClick={() => removeSegment(seg.id)}
+              className="text-red-400 hover:text-red-600 text-[11px] underline"
+              style={khmerFont}
+            >
+              លុប
+            </button>
+          )}
+        </div>
+
+        {/* Date picker */}
+        <div className="flex flex-col gap-1">
+          <span style={khmerFont} className="text-[12px] text-gray-600 dark:text-gray-400">កាលបរិច្ឆេទ</span>
+          <Popover
+            modal={true}
+            open={seg.calOpen}
+            onOpenChange={(o) => updateSegment(seg.id, { calOpen: o })}
+          >
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                style={khmerFont}
+                className={cn(
+                  "inline-flex justify-between text-[13px] w-full",
+                  !seg.date && "text-muted-foreground"
+                )}
+              >
+                {seg.date ? format(seg.date, "dd MMM yyyy (EEEE)") : <span>ជ្រើសរើសថ្ងៃ</span>}
+                <IoCalendarOutline className="h-4 w-4 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={seg.date}
+                onSelect={(date) => {
+                  updateSegment(seg.id, { date: date ?? undefined, calOpen: false });
+                }}
+                disabled={(date: Date) => date < today || date.getFullYear() > currentYear}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
+
+        {/* Slot type selector */}
+        <div className="flex flex-col gap-1">
+          <span style={khmerFont} className="text-[12px] text-gray-600 dark:text-gray-400">ប្រភេទ</span>
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+            {(["FULL", "HALF_AM", "HALF_PM", "CUSTOM"] as SlotType[]).map((slot) => (
+              <button
+                key={slot}
+                type="button"
+                onClick={() => {
+                  const patch: Partial<Segment> = { slotType: slot, shortcutH: 0, shortcutM: 0 };
+                  if (slot === "CUSTOM") {
+                    patch.startTime = getCurrentTime();
+                    patch.endTime   = getCurrentTime();
+                  }
+                  updateSegment(seg.id, patch);
+                }}
+                style={khmerFont}
+                className={cn(
+                  "rounded-lg border px-2 py-2 text-[11px] font-medium transition-all text-center leading-snug",
+                  seg.slotType === slot
+                    ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-950 dark:text-blue-300"
+                    : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400"
+                )}
+              >
+                {SLOT_LABELS[slot]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Custom time inputs */}
+        {isCustom && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Input
                 type="time"
                 min="06:00"
                 max="16:59"
                 className="w-32"
-                {...field}
+                value={seg.startTime}
                 onChange={(e) => {
-                  field.onChange(e);
                   const newStart = e.target.value;
-                  const curEnd   = form.getValues("personalEndTime") ?? initTime;
-                  if (timeToMinutes(curEnd) <= timeToMinutes(newStart)) {
-                    const pushed = Math.min(timeToMinutes(newStart) + 60, 17 * 60);
-                    form.setValue("personalEndTime", minutesToTime(pushed));
+                  const endMin   = timeToMinutes(seg.endTime);
+                  const startMin = timeToMinutes(newStart);
+                  const patch: Partial<Segment> = {
+                    startTime: newStart,
+                    shortcutH: 0,
+                    shortcutM: 0,
+                  };
+                  if (endMin <= startMin) {
+                    patch.endTime = minutesToTime(Math.min(startMin + 60, 17 * 60));
                   }
-                  resetShortcuts();
+                  updateSegment(seg.id, patch);
                 }}
               />
-            </FormControl>
-          )}
-        />
-
-        <span className="text-muted-foreground text-sm">→</span>
-
-        <FormField
-          control={form.control}
-          name="personalEndTime"
-          render={({ field }) => (
-            <FormControl>
+              <span className="text-muted-foreground text-sm">→</span>
               <Input
                 type="time"
                 min="06:01"
                 max="17:00"
                 className="w-32"
-                {...field}
+                value={seg.endTime}
+                onChange={(e) => updateSegment(seg.id, { endTime: e.target.value, shortcutH: 0, shortcutM: 0 })}
               />
-            </FormControl>
-          )}
-        />
-      </div>
+            </div>
 
-      {/* ── Duration shortcut inputs ── */}
-      <div className="flex items-center gap-2 mt-2 flex-wrap">
-        <Input
-          type="number"
-          min={0}
-          max={9}
-          step={1}
-          placeholder="h"
-          className="w-14 text-center"
-          value={shortcutH}
-          onKeyDown={blockFloatKeys}
-          onFocus={(e) => e.target.select()}
-          onChange={(e) => {
-            const h = Math.max(0, parseInt(e.target.value) || 0);
-            setShortcutH(h);
-            const startMin = timeToMinutes(form.getValues("personalStartTime") ?? getCurrentTime());
-            const endMin   = Math.min(startMin + h * 60 + shortcutM, 17 * 60);
-            form.setValue("personalEndTime", minutesToTime(endMin), { shouldValidate: true });
-          }}
-        />
-        <span style={khmerFont} className="text-[13px] text-muted-foreground">ម៉ោង</span>
+            {/* Shortcut h/m inputs */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Input
+                type="number" min={0} max={9} step={1} placeholder="h"
+                className="w-14 text-center"
+                value={seg.shortcutH}
+                onKeyDown={blockFloatKeys}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => {
+                  const h = Math.max(0, parseInt(e.target.value) || 0);
+                  const startMin = timeToMinutes(seg.startTime);
+                  const endMin   = Math.min(startMin + h * 60 + seg.shortcutM, 17 * 60);
+                  updateSegment(seg.id, { shortcutH: h, endTime: minutesToTime(endMin) });
+                }}
+              />
+              <span style={khmerFont} className="text-[13px] text-muted-foreground">ម៉ោង</span>
+              <Input
+                type="number" min={0} max={59} step={5} placeholder="m"
+                className="w-14 text-center"
+                value={seg.shortcutM}
+                onKeyDown={blockFloatKeys}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => {
+                  const m = Math.max(0, parseInt(e.target.value) || 0);
+                  const startMin = timeToMinutes(seg.startTime);
+                  const endMin   = Math.min(startMin + seg.shortcutH * 60 + m, 17 * 60);
+                  updateSegment(seg.id, { shortcutM: m, endTime: minutesToTime(endMin) });
+                }}
+              />
+              <span style={khmerFont} className="text-[13px] text-muted-foreground">នាទី</span>
+            </div>
+          </div>
+        )}
 
-        <Input
-          type="number"
-          min={0}
-          max={59}
-          step={5}
-          placeholder="m"
-          className="w-14 text-center"
-          value={shortcutM}
-          onKeyDown={blockFloatKeys}
-          onFocus={(e) => e.target.select()}
-          onChange={(e) => {
-            const m = Math.max(0, parseInt(e.target.value) || 0);
-            setShortcutM(m);
-            const startMin = timeToMinutes(form.getValues("personalStartTime") ?? getCurrentTime());
-            const endMin   = Math.min(startMin + shortcutH * 60 + m, 17 * 60);
-            form.setValue("personalEndTime", minutesToTime(endMin), { shouldValidate: true });
-          }}
-        />
-        <span style={khmerFont} className="text-[13px] text-muted-foreground">នាទី</span>
-      </div>
-
-      <FormDescription style={khmerFont} className="mt-1 text-[12px]">
-        វាយម៉ោង និងនាទី ដើម្បីគណនាម៉ោងបញ្ចប់ស្វ័យប្រវត្តិ
-      </FormDescription>
-      <FormMessage />
-    </FormItem>
-  );
-
-  // ── Universal summary banner (all leave types) ────────────────────────────
-  const SummaryBanner = () => {
-    if (!leaveSummary) return null;
-
-    const isPartialHourly = isSameDay && leaveHours !== null && leaveHours > 0 && leaveHours < 8;
-
-    const leaveLabel = isSick
-      ? "ច្បាប់ឈឺ"
-      : isAnnual
-        ? "ច្បាប់ប្រចាំឆ្នាំ"
-        : "ច្បាប់ផ្ទាល់ខ្លួន";
-
-    const bannerClass = isSick
-      ? "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
-      : isAnnual
-        ? "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
-        : "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300";
-
-    return (
-      <div className={cn(
-        "flex items-center gap-2 rounded-lg border px-4 py-3 text-sm",
-        bannerClass
-      )}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="12" y1="16" x2="12" y2="12"/>
-          <line x1="12" y1="8"  x2="12.01" y2="8"/>
-        </svg>
-        <span style={khmerFont} className="text-[13px]">
-          រយៈពេល: <strong>{leaveSummary}</strong>
-          {isPartialHourly && leaveHours !== null && (() => {
-            const totalMin = Math.round(leaveHours * 60);
-            return (
-              <> · កាត់ <strong>{formatDuration(totalMin)}</strong> ពី{leaveLabel}</>
-            );
-          })()}
-        </span>
+        {/* Per-segment duration preview */}
+        {seg.date && (
+          <div className={cn(
+            "text-[12px] rounded-md px-3 py-1.5 flex items-center gap-1.5",
+            isAnnual
+              ? "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300"
+              : isSick
+                ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300"
+                : "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+          )}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span style={khmerFont}>
+              {format(seg.date, "dd MMM")} · <strong>{segmentDurationLabel(seg)}</strong>
+              {seg.slotType === "CUSTOM" && seg.startTime && seg.endTime && (
+                <> ({seg.startTime} – {seg.endTime})</>
+              )}
+              {seg.slotType !== "FULL" && seg.slotType !== "CUSTOM" && (
+                <> ({SLOT_TIMES[seg.slotType][0]} – {SLOT_TIMES[seg.slotType][1]})</>
+              )}
+            </span>
+          </div>
+        )}
       </div>
     );
   };
+
+  // ── Total summary banner ──────────────────────────────────────────────────
+  const TotalSummary = () => {
+    if (!totalLabel) return null;
+    const validSegs = segments.filter(s => s.date);
+    if (validSegs.length === 0) return null;
+
+    return (
+      <div className={cn(
+        "rounded-xl border-2 px-4 py-3 space-y-2",
+        isAnnual
+          ? "border-green-300 bg-green-50 dark:border-green-700 dark:bg-green-950"
+          : isSick
+            ? "border-red-300 bg-red-50 dark:border-red-700 dark:bg-red-950"
+            : "border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-950"
+      )}>
+        <div className="flex items-center gap-2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cn(
+            "shrink-0",
+            isAnnual ? "text-green-600 dark:text-green-400" : isSick ? "text-red-600 dark:text-red-400" : "text-blue-600 dark:text-blue-400"
+          )}>
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          <span style={khmerFont} className={cn(
+            "text-[13px] font-semibold",
+            isAnnual ? "text-green-800 dark:text-green-300" : isSick ? "text-red-800 dark:text-red-300" : "text-blue-800 dark:text-blue-300"
+          )}>
+            សរុប: {totalLabel}
+          </span>
+        </div>
+        {/* Per-segment breakdown */}
+        <div className="space-y-0.5">
+          {validSegs.map((s, i) => (
+            <div key={s.id} style={khmerFont} className={cn(
+              "text-[11px] flex items-center gap-1",
+              isAnnual ? "text-green-700 dark:text-green-400" : isSick ? "text-red-700 dark:text-red-400" : "text-blue-700 dark:text-blue-400"
+            )}>
+              <span className="opacity-50">·</span>
+              {s.date && format(s.date, "dd MMM (EEE)")} — {segmentDurationLabel(s)}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────────────────
 
   return (
     <DialogWrapper
@@ -554,7 +711,7 @@ const RequestForm = ({ user }: Props) => {
       setOpen={() => setOpen(!open)}
     >
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
 
           {/* ── Leave Type ── */}
           <FormField
@@ -573,7 +730,7 @@ const RequestForm = ({ user }: Props) => {
                         className={cn("justify-between text-[13px]", !field.value && "text-muted-foreground")}
                       >
                         {field.value
-                          ? leaveKhmerLabels[field.value] ?? leaveTypes.find((l) => l.value === field.value)?.label
+                          ? leaveKhmerLabels[field.value] ?? leaveTypes.find(l => l.value === field.value)?.label
                           : "ជ្រើសរើសប្រភេទច្បាប់"}
                         <PiCaretUpDownBold className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
@@ -595,10 +752,6 @@ const RequestForm = ({ user }: Props) => {
                               form.resetField("maternityGender");
                               form.resetField("startDate");
                               form.resetField("endDate");
-                              const nowTime = getCurrentTime();
-                              form.setValue("personalStartTime", nowTime);
-                              form.setValue("personalEndTime",   nowTime);
-                              resetShortcuts();
                               setOpenLeaveType(false);
                             }}
                           >
@@ -629,17 +782,15 @@ const RequestForm = ({ user }: Props) => {
             </div>
           )}
 
-          {/* ── Annual leave hourly info banner ── */}
+          {/* ── Annual info banner ── */}
           {isAnnual && (
             <div className="flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0">
-                <circle cx="12" cy="12" r="10"/>
-                <line x1="12" y1="16" x2="12" y2="12"/>
-                <line x1="12" y1="8" x2="12.01" y2="8"/>
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
               </svg>
               <span style={khmerFont} className="text-[13px]">
-                អាចសុំច្បាប់ប្រចាំឆ្នាំ <strong>គិតជាម៉ោង</strong> ឬ <strong>កន្លះថ្ងៃ</strong> បានដែរ។
-                វាយម៉ោងចូល-ចេញ ឬចំនួនម៉ោង/នាទី ខាងក្រោម។
+                អាចបន្ថែម <strong>ច្រើន segment</strong> ក្នុងមួយ submit ។
+                ឧទាហរណ៍: ថ្ងៃ 28 ព្រឹក + ថ្ងៃ 29 ពេញថ្ងៃ = 1.5 ថ្ងៃ
               </span>
             </div>
           )}
@@ -653,45 +804,31 @@ const RequestForm = ({ user }: Props) => {
                 <FormItem>
                   <FormLabel style={khmerFont}>សូមជ្រើសរើសភេទ (Select Gender)</FormLabel>
                   <div className="grid grid-cols-2 gap-3 mt-1">
-                    <button
-                      type="button"
-                      onClick={() => field.onChange("MALE")}
+                    <button type="button" onClick={() => field.onChange("MALE")}
                       className={cn(
                         "flex flex-col items-center justify-center gap-1.5 rounded-xl border-2 p-4 text-sm font-medium transition-all cursor-pointer",
                         field.value === "MALE"
                           ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-400"
                           : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400"
-                      )}
-                    >
+                      )}>
                       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="10" cy="14" r="5" />
-                        <line x1="19" y1="5" x2="14.14" y2="9.86" />
-                        <polyline points="15 5 19 5 19 9" />
+                        <circle cx="10" cy="14" r="5"/><line x1="19" y1="5" x2="14.14" y2="9.86"/><polyline points="15 5 19 5 19 9"/>
                       </svg>
                       <span style={khmerFont} className="text-[13px]">បុរស (Male)</span>
-                      <span style={khmerFont} className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900 rounded-full px-2 py-0.5">
-                        Paternity · 7 ថ្ងៃ
-                      </span>
+                      <span style={khmerFont} className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900 rounded-full px-2 py-0.5">Paternity · 7 ថ្ងៃ</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => field.onChange("FEMALE")}
+                    <button type="button" onClick={() => field.onChange("FEMALE")}
                       className={cn(
                         "flex flex-col items-center justify-center gap-1.5 rounded-xl border-2 p-4 text-sm font-medium transition-all cursor-pointer",
                         field.value === "FEMALE"
                           ? "border-pink-500 bg-pink-50 text-pink-700 dark:bg-pink-950 dark:text-pink-300 dark:border-pink-400"
                           : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400"
-                      )}
-                    >
+                      )}>
                       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="8" r="5" />
-                        <line x1="12" y1="13" x2="12" y2="21" />
-                        <line x1="9"  y1="18" x2="15" y2="18" />
+                        <circle cx="12" cy="8" r="5"/><line x1="12" y1="13" x2="12" y2="21"/><line x1="9" y1="18" x2="15" y2="18"/>
                       </svg>
                       <span style={khmerFont} className="text-[13px]">ស្ត្រី (Female)</span>
-                      <span style={khmerFont} className="text-[11px] font-semibold text-pink-600 dark:text-pink-400 bg-pink-100 dark:bg-pink-900 rounded-full px-2 py-0.5">
-                        Maternity · 90 ថ្ងៃ
-                      </span>
+                      <span style={khmerFont} className="text-[11px] font-semibold text-pink-600 dark:text-pink-400 bg-pink-100 dark:bg-pink-900 rounded-full px-2 py-0.5">Maternity · 90 ថ្ងៃ</span>
                     </button>
                   </div>
                   <FormMessage />
@@ -700,196 +837,134 @@ const RequestForm = ({ user }: Props) => {
             />
           )}
 
-          {/* ── Date + Time Fields ── */}
-          {(!isMaternity || !!maternityGender) && (
-            <>
-              {/* ── Hourly (PERSONAL / SICK / ANNUAL): date pickers first, TimePicker below ── */}
-              {isHourly && (
-                <>
-                  {/* Start Date */}
-                  <FormField
-                    control={form.control}
-                    name="startDate"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-col">
-                        <FormLabel style={khmerFont}>ថ្ងៃចាប់ផ្ដើម</FormLabel>
-                        <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}>
-                          <PopoverTrigger asChild>
-                            <FormControl>
-                              <Button
-                                variant="outline"
-                                style={khmerFont}
-                                className={cn("inline-flex justify-between text-[13px]", !field.value && "text-muted-foreground")}
-                              >
-                                {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                                <IoCalendarOutline className="h-4 w-4 opacity-50" />
-                              </Button>
-                            </FormControl>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={field.value}
-                              onSelect={(date) => {
-                                field.onChange(date);
-                                form.setValue("endDate", date ?? undefined, { shouldValidate: false });
-                                const nowTime = getCurrentTime();
-                                form.setValue("personalStartTime", nowTime, { shouldValidate: false });
-                                form.setValue("personalEndTime",   nowTime, { shouldValidate: false });
-                                resetShortcuts();
-                                setOpenStartDate(false);
-                              }}
-                              disabled={(date: Date) => {
-                                const min = getMinStartDate();
-                                return date < today || date.getFullYear() > currentYear || date < min;
-                              }}
-                              initialFocus
-                            />
-                          </PopoverContent>
-                        </Popover>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+          {/* ══════════════════════════════════════════════════════════════════
+              SEGMENT MODE — ANNUAL / PERSONAL / SICK
+          ══════════════════════════════════════════════════════════════════ */}
+          {isSegmentMode && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span style={khmerFont} className="text-[13px] font-semibold">
+                  កាលបរិច្ឆេទ & ប្រភេទ
+                </span>
+                <button
+                  type="button"
+                  onClick={addSegment}
+                  style={khmerFont}
+                  className="flex items-center gap-1 text-[12px] text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                  </svg>
+                  បន្ថែម segment
+                </button>
+              </div>
 
-                  {/* End Date */}
-                  <FormField
-                    control={form.control}
-                    name="endDate"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-col">
-                        <FormLabel style={khmerFont}>ថ្ងៃបញ្ចប់</FormLabel>
-                        <Popover modal={true} open={openEndDate} onOpenChange={setOpenEndDate}>
-                          <PopoverTrigger asChild>
-                            <FormControl>
-                              <Button
-                                variant="outline"
-                                style={khmerFont}
-                                className={cn("inline-flex justify-between text-[13px]", !field.value && "text-muted-foreground")}
-                              >
-                                {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                                <IoCalendarOutline className="h-4 w-4 opacity-50" />
-                              </Button>
-                            </FormControl>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={field.value}
-                              onSelect={(date) => {
-                                field.onChange(date);
-                                resetShortcuts();
-                                setOpenEndDate(false);
-                              }}
-                              disabled={(date: Date) =>
-                                date < today ||
-                                (!!startDateValue && date < startDateValue)
-                              }
-                              initialFocus
-                            />
-                          </PopoverContent>
-                        </Popover>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+              {segments.map((seg, idx) => (
+                <SegmentRow key={seg.id} seg={seg} idx={idx} />
+              ))}
 
-                  {/* TimePicker — shown below dates, only when same day */}
-                  {isSameDay && <TimePicker />}
-                </>
+              <TotalSummary />
+            </div>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              CLASSIC MODE — MATERNITY / SPECIAL
+          ══════════════════════════════════════════════════════════════════ */}
+          {!isSegmentMode && !isMaternity && selectedLeave && (
+            <div className="space-y-4">
+              {/* Start Date */}
+              <FormField
+                control={form.control}
+                name="startDate"
+                render={({ field }) => (
+                  <FormItem className="flex flex-col">
+                    <FormLabel style={khmerFont}>Start Date</FormLabel>
+                    <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button variant="outline" style={khmerFont}
+                            className={cn("inline-flex justify-between text-[13px]", !field.value && "text-muted-foreground")}>
+                            {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                            <IoCalendarOutline className="h-4 w-4 opacity-50" />
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={field.value}
+                          onSelect={(date) => { field.onChange(date); setOpenStartDate(false); }}
+                          disabled={(date: Date) => {
+                            const min = getMinStartDate();
+                            return date < today || date.getFullYear() > currentYear || date < min;
+                          }}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              {/* End Date */}
+              <FormField
+                control={form.control}
+                name="endDate"
+                render={({ field }) => (
+                  <FormItem className="flex flex-col">
+                    <FormLabel style={khmerFont}>End Date</FormLabel>
+                    <Popover modal={true} open={openEndDate} onOpenChange={setOpenEndDate}>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button variant="outline" style={khmerFont}
+                            className={cn("inline-flex justify-between text-[13px]", !field.value && "text-muted-foreground")}>
+                            {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                            <IoCalendarOutline className="h-4 w-4 opacity-50" />
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={field.value}
+                          onSelect={(date) => { field.onChange(date); setOpenEndDate(false); }}
+                          disabled={(date: Date) =>
+                            date < today || (!!startDateValue && date < startDateValue)
+                          }
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              {/* Duration banner */}
+              {startDateValue && endDateValue && (
+                <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm dark:border-gray-700 dark:bg-gray-900">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-gray-500">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                  </svg>
+                  <span style={khmerFont} className="text-[13px] text-gray-700 dark:text-gray-300">
+                    រយៈពេល: <strong>{differenceInDays(endDateValue, startDateValue) + 1} ថ្ងៃ</strong>
+                    {" "}({format(startDateValue, "dd MMM")} – {format(endDateValue, "dd MMM yyyy")})
+                  </span>
+                </div>
               )}
+            </div>
+          )}
 
-              {/* ── Non-hourly: Start + End date pickers ── */}
-              {!isHourly && (
-                <>
-                  {/* Start Date */}
-                  <FormField
-                    control={form.control}
-                    name="startDate"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-col">
-                        <FormLabel style={khmerFont}>Start Date</FormLabel>
-                        <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}>
-                          <PopoverTrigger asChild>
-                            <FormControl>
-                              <Button
-                                variant="outline"
-                                style={khmerFont}
-                                className={cn("inline-flex justify-between text-[13px]", !field.value && "text-muted-foreground")}
-                              >
-                                {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                                <IoCalendarOutline className="h-4 w-4 opacity-50" />
-                              </Button>
-                            </FormControl>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={field.value}
-                              onSelect={(date) => {
-                                field.onChange(date);
-                                setOpenStartDate(false);
-                              }}
-                              disabled={(date: Date) => {
-                                const min = getMinStartDate();
-                                return date < today || date.getFullYear() > currentYear || date < min;
-                              }}
-                              initialFocus
-                            />
-                          </PopoverContent>
-                        </Popover>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  {/* End Date */}
-                  <FormField
-                    control={form.control}
-                    name="endDate"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-col">
-                        <FormLabel style={khmerFont}>End Date</FormLabel>
-                        <Popover modal={true} open={openEndDate} onOpenChange={setOpenEndDate}>
-                          <PopoverTrigger asChild>
-                            <FormControl>
-                              <Button
-                                variant="outline"
-                                style={khmerFont}
-                                className={cn("inline-flex justify-between text-[13px]", !field.value && "text-muted-foreground")}
-                              >
-                                {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                                <IoCalendarOutline className="h-4 w-4 opacity-50" />
-                              </Button>
-                            </FormControl>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={field.value}
-                              onSelect={(date) => {
-                                field.onChange(date);
-                                resetShortcuts();
-                                setOpenEndDate(false);
-                              }}
-                              disabled={(date: Date) =>
-                                date < today ||
-                                (!!startDateValue && date < startDateValue)
-                              }
-                              initialFocus
-                            />
-                          </PopoverContent>
-                        </Popover>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </>
-              )}
-
-              {/* ── Universal duration banner ── */}
-              <SummaryBanner />
-            </>
+          {/* Maternity auto-date info */}
+          {isMaternity && maternityGender && startDateValue && endDateValue && (
+            <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm dark:border-gray-700 dark:bg-gray-900">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-gray-500">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+              </svg>
+              <span style={khmerFont} className="text-[13px] text-gray-700 dark:text-gray-300">
+                រយៈពេល: <strong>{MATERNITY_DAYS[maternityGender]} ថ្ងៃ</strong>
+                {" "}({format(startDateValue, "dd MMM")} – {format(endDateValue, "dd MMM yyyy")})
+              </span>
+            </div>
           )}
 
           {/* ── Notes ── */}
@@ -908,7 +983,11 @@ const RequestForm = ({ user }: Props) => {
             )}
           />
 
-          <Button type="submit">Submit</Button>
+          <Button type="submit" className="w-full" style={khmerFont}>
+            {isSegmentMode && segments.length > 1
+              ? `Submit ${segments.length} Segments`
+              : "Submit"}
+          </Button>
         </form>
       </Form>
     </DialogWrapper>
