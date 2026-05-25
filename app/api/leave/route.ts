@@ -72,9 +72,10 @@ export async function POST(req: NextRequest) {
     const isMaternity = leaveType === "MATERNITY";
     const isPersonal  = leaveType === "PERSONAL";
     const isSick      = leaveType === "SICK";
+    const isAnnual    = leaveType === "ANNUAL";
 
-    // Both PERSONAL and SICK support hourly (partial-day) requests
-    const isHourlyLeave = (isPersonal || isSick) && !!hours && hours > 0;
+    // PERSONAL, SICK, and ANNUAL all support hourly (partial-day) requests
+    const isHourlyLeave = (isPersonal || isSick || isAnnual) && !!hours && hours > 0;
 
     const startDateObj = safeParse(startDate);
     const endDateObj   = safeParse(endDate);
@@ -89,7 +90,7 @@ export async function POST(req: NextRequest) {
     } else if (isHourlyLeave) {
       const h = Number(hours);
       if (h >= 8) {
-        // Full day via time picker (e.g. 08:00–17:00 = 9 hrs) → 1 ថ្ងៃ
+        // Full day via time picker → 1 ថ្ងៃ
         calcDays  = 1;
         calcHours = h;
       } else {
@@ -153,9 +154,7 @@ export async function POST(req: NextRequest) {
     // ── Duration label for Telegram ⏱ line ───────────────────────────────────
     const durationLabel = (() => {
       if (isHourlyLeave) {
-        // Full day via time picker
         if (calcDays === 1) return "1 ថ្ងៃ";
-        // Partial day
         return formatHourLabel(calcHours);
       }
       if (isMaternity && maternityGender) return `${calcDays} ថ្ងៃ`;

@@ -113,7 +113,11 @@ const formSchema = z
       });
     }
 
-    const isHourly = data.leave === "PERSONAL" || data.leave === "SICK";
+    // ANNUAL, PERSONAL, SICK are all hourly-capable
+    const isHourly =
+      data.leave === "PERSONAL" ||
+      data.leave === "SICK"     ||
+      data.leave === "ANNUAL";
 
     if (!isHourly && !data.endDate) {
       ctx.addIssue({
@@ -181,8 +185,11 @@ const RequestForm = ({ user }: Props) => {
 
   const isPersonal  = selectedLeave === "PERSONAL";
   const isSick      = selectedLeave === "SICK";
+  const isAnnual    = selectedLeave === "ANNUAL";
   const isMaternity = selectedLeave === "MATERNITY";
-  const isHourly    = isPersonal || isSick;
+
+  // ANNUAL is now also hourly-capable
+  const isHourly = isPersonal || isSick || isAnnual;
 
   // same-day only applies to hourly leave types
   const isSameDay =
@@ -249,14 +256,14 @@ const RequestForm = ({ user }: Props) => {
       const autoStart = new Date(today);
       const days      = MATERNITY_DAYS[maternityGender];
       const autoEnd   = new Date(autoStart);
-      autoEnd.setDate(autoEnd.getDate() + days - 1); // -1 so total = exact days (start inclusive)
+      autoEnd.setDate(autoEnd.getDate() + days - 1);
       form.setValue("startDate", autoStart, { shouldValidate: false });
       form.setValue("endDate",   autoEnd,   { shouldValidate: false });
     } else if (selectedLeave === "SPECIAL") {
       const autoStart = new Date(today);
       autoStart.setDate(autoStart.getDate() + 7);
       const autoEnd = new Date(autoStart);
-      autoEnd.setDate(autoEnd.getDate() + 6); // +6 so total = 7 days (start inclusive)
+      autoEnd.setDate(autoEnd.getDate() + 6);
       form.setValue("startDate", autoStart, { shouldValidate: false });
       form.setValue("endDate",   autoEnd,   { shouldValidate: false });
     }
@@ -267,17 +274,17 @@ const RequestForm = ({ user }: Props) => {
     if (selectedLeave === "MATERNITY" && maternityGender) {
       const days    = MATERNITY_DAYS[maternityGender];
       const autoEnd = new Date(startDateValue);
-      autoEnd.setDate(autoEnd.getDate() + days - 1); // -1 so total = exact days (start inclusive)
+      autoEnd.setDate(autoEnd.getDate() + days - 1);
       form.setValue("endDate", autoEnd, { shouldValidate: false });
     } else if (selectedLeave === "SPECIAL") {
       const autoEnd = new Date(startDateValue);
-      autoEnd.setDate(autoEnd.getDate() + 6); // +6 so total = 7 days (start inclusive)
+      autoEnd.setDate(autoEnd.getDate() + 6);
       form.setValue("endDate", autoEnd, { shouldValidate: false });
     }
   }, [startDateValue]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── For hourly leaves: auto-set today as both start and end date ──────────
-  // so TimePicker shows immediately without requiring date selection
+  // ── For hourly leaves (PERSONAL, SICK, ANNUAL): auto-set today as both
+  //    start and end date so TimePicker shows immediately ───────────────────
   useEffect(() => {
     if (isHourly && !startDateValue) {
       const todayDate = new Date(today);
@@ -300,7 +307,8 @@ const RequestForm = ({ user }: Props) => {
     try {
       const isPersonalLeave = values.leave === "PERSONAL";
       const isSickLeave     = values.leave === "SICK";
-      const isHourlyLeave   = isPersonalLeave || isSickLeave;
+      const isAnnualLeave   = values.leave === "ANNUAL";
+      const isHourlyLeave   = isPersonalLeave || isSickLeave || isAnnualLeave;
 
       const sameDay = isHourlyLeave && values.endDate
         ? differenceInDays(values.endDate, values.startDate) === 0
@@ -325,20 +333,16 @@ const RequestForm = ({ user }: Props) => {
       if (isHourlyLeave) {
         if (sameDay) {
           if (rawHours <= 0) {
-            // No duration input → full day, no hours stored
             submitDays  = 1;
             submitHours = 0;
           } else if (rawHours >= 8) {
-            // >= 8 hours = 1 full day, no hours stored
             submitDays  = 1;
             submitHours = 0;
           } else {
-            // Partial day → store hours only
             submitDays  = 0;
             submitHours = +rawHours.toFixed(4);
           }
         } else {
-          // Multi-day hourly (different start/end date)
           submitDays  = differenceInDays(values.endDate!, values.startDate) + 1;
           submitHours = 0;
         }
@@ -391,7 +395,7 @@ const RequestForm = ({ user }: Props) => {
     }
   }
 
-  // ── Shared time-picker (PERSONAL + SICK same-day) ─────────────────────────
+  // ── Shared time-picker (PERSONAL + SICK + ANNUAL same-day) ───────────────
   const TimePicker = () => (
     <FormItem>
       <div className="flex items-center gap-2 flex-wrap">
@@ -462,7 +466,6 @@ const RequestForm = ({ user }: Props) => {
           onChange={(e) => {
             const h = Math.max(0, parseInt(e.target.value) || 0);
             setShortcutH(h);
-            // Base off current personalStartTime (which is current clock time)
             const startMin = timeToMinutes(form.getValues("personalStartTime") ?? getCurrentTime());
             const endMin   = Math.min(startMin + h * 60 + shortcutM, 17 * 60);
             form.setValue("personalEndTime", minutesToTime(endMin), { shouldValidate: true });
@@ -483,7 +486,6 @@ const RequestForm = ({ user }: Props) => {
           onChange={(e) => {
             const m = Math.max(0, parseInt(e.target.value) || 0);
             setShortcutM(m);
-            // Base off current personalStartTime (which is current clock time)
             const startMin = timeToMinutes(form.getValues("personalStartTime") ?? getCurrentTime());
             const endMin   = Math.min(startMin + shortcutH * 60 + m, 17 * 60);
             form.setValue("personalEndTime", minutesToTime(endMin), { shouldValidate: true });
@@ -503,16 +505,24 @@ const RequestForm = ({ user }: Props) => {
   const SummaryBanner = () => {
     if (!leaveSummary) return null;
 
-    const isSickBanner    = isSick;
     const isPartialHourly = isSameDay && leaveHours !== null && leaveHours > 0 && leaveHours < 8;
-    const leaveLabel      = isSick ? "ច្បាប់ឈឺ" : "ច្បាប់ផ្ទាល់ខ្លួន";
+
+    const leaveLabel = isSick
+      ? "ច្បាប់ឈឺ"
+      : isAnnual
+        ? "ច្បាប់ប្រចាំឆ្នាំ"
+        : "ច្បាប់ផ្ទាល់ខ្លួន";
+
+    const bannerClass = isSick
+      ? "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+      : isAnnual
+        ? "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
+        : "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300";
 
     return (
       <div className={cn(
         "flex items-center gap-2 rounded-lg border px-4 py-3 text-sm",
-        isSickBanner
-          ? "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
-          : "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300"
+        bannerClass
       )}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
           <circle cx="12" cy="12" r="10"/>
@@ -585,7 +595,6 @@ const RequestForm = ({ user }: Props) => {
                               form.resetField("maternityGender");
                               form.resetField("startDate");
                               form.resetField("endDate");
-                              // Reset times to current time when changing leave type
                               const nowTime = getCurrentTime();
                               form.setValue("personalStartTime", nowTime);
                               form.setValue("personalEndTime",   nowTime);
@@ -616,6 +625,21 @@ const RequestForm = ({ user }: Props) => {
               <span style={khmerFont} className="text-[13px]">
                 <strong>7-day advance notice required.</strong> ច្បាប់ប្រភេទនេះត្រូវតែស្នើសុំ
                 យ៉ាងហោចណាស់ <strong>7 ថ្ងៃ</strong> មុនពេលចូលច្បាប់។
+              </span>
+            </div>
+          )}
+
+          {/* ── Annual leave hourly info banner ── */}
+          {isAnnual && (
+            <div className="flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="16" x2="12" y2="12"/>
+                <line x1="12" y1="8" x2="12.01" y2="8"/>
+              </svg>
+              <span style={khmerFont} className="text-[13px]">
+                អាចសុំច្បាប់ប្រចាំឆ្នាំ <strong>គិតជាម៉ោង</strong> ឬ <strong>កន្លះថ្ងៃ</strong> បានដែរ។
+                វាយម៉ោងចូល-ចេញ ឬចំនួនម៉ោង/នាទី ខាងក្រោម។
               </span>
             </div>
           )}
@@ -679,7 +703,7 @@ const RequestForm = ({ user }: Props) => {
           {/* ── Date + Time Fields ── */}
           {(!isMaternity || !!maternityGender) && (
             <>
-              {/* ── Hourly (PERSONAL / SICK): date pickers first, TimePicker below ── */}
+              {/* ── Hourly (PERSONAL / SICK / ANNUAL): date pickers first, TimePicker below ── */}
               {isHourly && (
                 <>
                   {/* Start Date */}

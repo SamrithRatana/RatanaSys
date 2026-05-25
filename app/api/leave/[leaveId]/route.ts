@@ -81,8 +81,9 @@ export async function PATCH(req: Request) {
     const hoursFromDb = Number(leave.hours ?? 0);
     const daysFromDb  = Number(leave.days  ?? 0);
 
+    // Partial-hourly check: applies to PERSONAL, SICK, and ANNUAL
     const isPartialHourly =
-      (type === "PERSONAL" || type === "SICK") &&
+      (type === "PERSONAL" || type === "SICK" || type === "ANNUAL") &&
       hoursFromDb > 0 &&
       (daysFromDb === 0 || daysFromDb == null);
 
@@ -178,11 +179,18 @@ export async function PATCH(req: Request) {
 
       // ── Final: Admin (bypass) OR Moderator (after Step 1) ───────────────────
       if (canDoAdminFinal || canDoModeratorFinal) {
+        // Determine effective type for balance calculation:
+        // SHORT         → SHORT        (existing short leave)
+        // SICK partial  → SICK_SHORT   (hour-fraction from sick balance)
+        // ANNUAL partial → ANNUAL_SHORT (hour-fraction from annual balance)
+        // everything else → type as-is
         const effectiveType = isShortLeave
           ? "SHORT"
           : isPartialHourly && type === "SICK"
             ? "SICK_SHORT"
-            : type;
+            : isPartialHourly && type === "ANNUAL"
+              ? "ANNUAL_SHORT"
+              : type;
 
         const effectiveValue = isShortLeave
           ? hoursFromDb

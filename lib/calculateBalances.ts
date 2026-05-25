@@ -16,7 +16,7 @@ export default async function calculateAndUpdateBalances(
   email: string,
   year:  string,
   type:  string,
-  days:  number  // for SHORT and SICK_SHORT this value is hours
+  days:  number  // for SHORT, SICK_SHORT, and ANNUAL_SHORT this value is hours
 ): Promise<void> {
   const balance = await prisma.balances.findFirst({
     where: { email, year },
@@ -35,6 +35,17 @@ export default async function calculateAndUpdateBalances(
         annualAvailable: (balance.annualCredit as number) - ((balance.annualUsed as number) + days),
       };
       break;
+
+    // Partial-day annual leave — `days` param carries hours, deduct as fraction of a day
+    case "ANNUAL_SHORT": {
+      const dayFraction   = days / 8;
+      const newAnnualUsed = (balance.annualUsed as number) + dayFraction;
+      balanceUpdate = {
+        annualUsed:      newAnnualUsed,
+        annualAvailable: (balance.annualCredit as number) - newAnnualUsed,
+      };
+      break;
+    }
 
     case "SICK":
       balanceUpdate = {
