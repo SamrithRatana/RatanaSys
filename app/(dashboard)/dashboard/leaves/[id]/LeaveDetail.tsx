@@ -205,9 +205,11 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
             icon={<Clock className="h-4 w-4" />}
             label="រយៈពេល"
             value={
-              leave.hours && leave.hours > 0
-                ? formatHourLabel(Number(leave.hours))
-                : `${leave.days} ថ្ងៃ`
+               leave.hours && leave.hours > 0
+    ? leave.days && leave.days > 0
+      ? `${leave.days} ថ្ងៃ ${formatHourLabel(Number(leave.hours))}`
+      : formatHourLabel(Number(leave.hours))
+    : `${leave.days} ថ្ងៃ`
             }
           />
 
