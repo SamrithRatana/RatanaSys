@@ -27,7 +27,7 @@ const RequestForm = dynamic(
 
 type BalanceProps = {
   balances: Balances[];
-  user: User;
+  user?: User; // ← optional: admin view doesn't always have a single user
 };
 
 const HOURS_PER_DAY = 8;
@@ -54,8 +54,8 @@ const BalancesTable = ({ balances, user }: BalanceProps) => {
 
   return (
     <>
-      {/* Dynamically loaded RequestForm — only mounted when a header is clicked */}
-      {dialogLeave !== null && (
+      {/* Only mount RequestForm if user is available and a leave type is selected */}
+      {dialogLeave !== null && user && (
         <RequestForm
           user={user}
           defaultLeave={dialogLeave}
@@ -90,15 +90,22 @@ const BalancesTable = ({ balances, user }: BalanceProps) => {
                 <TableHead
                   key={cat.key}
                   colSpan={3}
-                  className="text-center border cursor-pointer select-none group hover:bg-blue-50 dark:hover:bg-blue-950 transition-colors"
-                  onClick={() => setDialogLeave(cat.leaveType)}
-                  title={`Click to request ${cat.title} leave`}
+                  className={`text-center border transition-colors ${
+                    user
+                      ? "cursor-pointer select-none group hover:bg-blue-50 dark:hover:bg-blue-950"
+                      : ""
+                  }`}
+                  onClick={() => user && setDialogLeave(cat.leaveType)}
+                  title={user ? `Click to request ${cat.title} leave` : undefined}
                 >
                   <span className="inline-flex items-center gap-1.5">
                     {cat.title}
-                    <span className="opacity-0 group-hover:opacity-100 transition-opacity text-blue-500 text-[11px] font-bold">
-                      + Request
-                    </span>
+                    {/* Only show "+ Request" hint if user is present */}
+                    {user && (
+                      <span className="opacity-0 group-hover:opacity-100 transition-opacity text-blue-500 text-[11px] font-bold">
+                        + Request
+                      </span>
+                    )}
                   </span>
                 </TableHead>
               ))}
