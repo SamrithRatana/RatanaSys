@@ -7,8 +7,11 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   const loggedInUser = await getCurrentUser();
-  if (loggedInUser?.role !== "ADMIN") {
-    return NextResponse.json({ error: "Not permitted" }, { status: 403 });
+  if (loggedInUser?.role !== "ADMIN" && loggedInUser?.role !== "MODERATOR") {
+    return NextResponse.json(
+      { error: "You are not permitted to perform this action" },
+      { status: 403 }
+    );
   }
 
   try {

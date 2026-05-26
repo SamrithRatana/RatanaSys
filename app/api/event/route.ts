@@ -10,8 +10,11 @@ type SubmittedEvent = {
 
 export async function POST(req: NextRequest) {
   const loggedInUser = await getCurrentUser();
-  if (loggedInUser?.role !== "ADMIN") {
-    throw new Error("You are not permitted to perform this action");
+  if (loggedInUser?.role !== "ADMIN" && loggedInUser?.role !== "MODERATOR") {
+    return NextResponse.json(
+      { error: "You are not permitted to perform this action" },
+      { status: 403 }
+    );
   }
 
   try {
