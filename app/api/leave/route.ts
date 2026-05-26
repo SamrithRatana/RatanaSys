@@ -23,6 +23,8 @@ type SubmittedLeave = {
   hours?:           number;
   days?:            number;
   segments?:        Segment[];
+  startTime?:       string;
+  endTime?:         string;
   user: {
     email: string;
     image: string;
@@ -59,13 +61,35 @@ function safeFormat(isoString: string, fmt: string): string {
   return format(safeParse(isoString), fmt);
 }
 
+function formatTotalMinutes(totalMin: number): string {
+  if (totalMin <= 0) return "0 ម៉ោង";
+
+  const FULL_DAY = 8 * 60;
+  const HALF_DAY = 4 * 60;
+
+  const wholeDays = Math.floor(totalMin / FULL_DAY);
+  const remMin    = totalMin % FULL_DAY;
+
+  if (remMin === 0) return `${wholeDays} ថ្ងៃ`;
+
+  if (wholeDays === 0) {
+    if (remMin === HALF_DAY) return "កន្លះថ្ងៃ";
+    const h = Math.floor(remMin / 60);
+    const m = remMin % 60;
+    if (h === 0) return `${m} នាទី`;
+    if (m === 0) return `${h} ម៉ោង`;
+    return `${h} ម៉ោង ${m} នាទី`;
+  }
+
+  if (remMin === HALF_DAY) return `${wholeDays} ថ្ងៃកន្លះ`;
+  const h = Math.floor(remMin / 60);
+  const m = remMin % 60;
+  const timeStr = m === 0 ? `${h} ម៉ោង` : `${h} ម៉ោង ${m} នាទី`;
+  return `${wholeDays} ថ្ងៃ ${timeStr}`;
+}
+
 function formatHourLabel(h: number): string {
-  const totalMin = Math.round(h * 60);
-  if (totalMin < 60) return `${totalMin} នាទី`;
-  if (totalMin % 60 === 0) return `${totalMin / 60} ម៉ោង`;
-  const hrs = Math.floor(totalMin / 60);
-  const min = totalMin % 60;
-  return `${hrs} ម៉ោង ${min} នាទី`;
+  return formatTotalMinutes(Math.round(h * 60));
 }
 
 function formatSegmentLine(seg: Segment): string {
@@ -73,24 +97,22 @@ function formatSegmentLine(seg: Segment): string {
   const h = seg.hours ?? 0;
   const d = seg.days  ?? 0;
 
-  // Multi-day full range (e.g. 26 May → 28 May · 3 ថ្ងៃ)
+  // multi-day full range — no time
   if (d > 1) {
     const endLabel = safeFormat(seg.endDate ?? seg.date, "dd MMM yyyy");
     return `  📌 ${startLabel} → ${endLabel} · ${d} ថ្ងៃ`;
   }
-  // Single full day
-  if (d === 1) {
-    return `  📌 ${startLabel} · 1 ថ្ងៃ`;
-  }
-  // Hours >= 8 counts as full day
-  if (h >= 8) {
-    return `  📌 ${startLabel} · 1 ថ្ងៃ`;
-  }
-  // Partial hours with optional time range
+  // exactly 1 full day — no time
+  if (d === 1) return `  📌 ${startLabel} · 1 ថ្ងៃ`;
+  // >= 8h treated as full day — no time
+  if (h >= 8)  return `  📌 ${startLabel} · 1 ថ្ងៃ`;
+
+  // sub-day hourly — show time range
   const timeRange =
     seg.startTime && seg.endTime
       ? ` (${seg.startTime}–${seg.endTime})`
-      : "";
+      : h === 4 ? ` (08:00–12:00)` : "";
+
   return `  📌 ${startLabel} · ${formatHourLabel(h)}${timeRange}`;
 }
 
@@ -99,26 +121,11 @@ function computeTotalLabel(segs: Segment[]): string {
   for (const seg of segs) {
     const h = seg.hours ?? 0;
     const d = seg.days  ?? 0;
-    if (d >= 1) {
-      totalMin += d * 8 * 60;
-    } else if (h >= 8) {
-      totalMin += 8 * 60;
-    } else {
-      totalMin += Math.round(h * 60);
-    }
+    if (d >= 1)      totalMin += d * 8 * 60;
+    else if (h >= 8) totalMin += 8 * 60;
+    else             totalMin += Math.round(h * 60);
   }
-  if (totalMin === 0) return "0 ម៉ោង";
-  if (totalMin % (8 * 60) === 0) return `${totalMin / (8 * 60)} ថ្ងៃ`;
-  const wholeDays = Math.floor(totalMin / (8 * 60));
-  const remMin    = totalMin % (8 * 60);
-  const daysStr   = wholeDays > 0 ? `${wholeDays} ថ្ងៃ ` : "";
-  const remHrs    = Math.floor(remMin / 60);
-  const remMins   = remMin % 60;
-  const timeStr   =
-    remMins === 0
-      ? `${remHrs} ម៉ោង`
-      : `${remHrs} ម៉ោង ${remMins} នាទី`;
-  return `${daysStr}${timeStr}`;
+  return formatTotalMinutes(totalMin);
 }
 
 export async function POST(req: NextRequest) {
@@ -146,41 +153,32 @@ export async function POST(req: NextRequest) {
       segments.length > 0;
 
     // ────────────────────────────────────────────────────────────────────────
-    // SEGMENT MODE — ONE DB record (aggregated), one Telegram message
+    // SEGMENT MODE
     // ────────────────────────────────────────────────────────────────────────
     if (isSegmentMode) {
       const year = safeParse(segments[0].date).getFullYear().toString();
 
-      // ── Aggregate totals ─────────────────────────────────────────────────
       let totalDays  = 0;
       let totalHours = 0;
 
       for (const seg of segments) {
         const h = seg.hours ?? 0;
         const d = seg.days  ?? 0;
-
-        if (d >= 1) {
-          totalDays += d;
-        } else if (h >= 8) {
-          totalDays += 1;
-        } else {
-          totalHours += h;
-        }
+        if (d >= 1)      totalDays  += d;
+        else if (h >= 8) totalDays  += 1;
+        else             totalHours += h;
       }
 
-      // Normalise: every 8 accumulated hours → 1 extra day
       if (totalHours >= 8) {
         totalDays  += Math.floor(totalHours / 8);
         totalHours  = totalHours % 8;
       }
 
-      // Date range: earliest start → latest end across all segments
       const allStartDates = segments.map(s => safeParse(s.date));
       const allEndDates   = segments.map(s => safeParse(s.endDate ?? s.date));
       const startDateObj  = new Date(Math.min(...allStartDates.map(d => d.getTime())));
       const endDateObj    = new Date(Math.max(...allEndDates.map(d => d.getTime())));
 
-      // ── Single DB record — include raw segments JSON ─────────────────────
       const createdLeave = await prisma.leave.create({
         data: {
           startDate: startDateObj,
@@ -192,12 +190,10 @@ export async function POST(req: NextRequest) {
           days:      totalDays,
           hours:     totalHours,
           year,
-          // ↓ persist the raw segment array so approvals can show the same detail
           segments:  segments as any,
         },
       });
 
-      // ── Telegram message ─────────────────────────────────────────────────
       const baseUrl    = process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh";
       const leaveUrl   = `${baseUrl}/dashboard/leaves/${createdLeave.id}`;
       const leaveLabel = getLeaveLabel(leaveType);
@@ -233,7 +229,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ────────────────────────────────────────────────────────────────────────
-    // CLASSIC MODE — MATERNITY / SPECIAL / date-range flexible leave
+    // CLASSIC MODE
     // ────────────────────────────────────────────────────────────────────────
     const isHourlyLeave =
       (isPersonal || isSick || isAnnual) && !!hours && hours > 0;
@@ -250,13 +246,8 @@ export async function POST(req: NextRequest) {
       calcHours = 0;
     } else if (isHourlyLeave) {
       const h = Number(hours);
-      if (h >= 8) {
-        calcDays  = 1;
-        calcHours = h;
-      } else {
-        calcDays  = 0;
-        calcHours = h;
-      }
+      if (h >= 8) { calcDays = 1; calcHours = h; }
+      else        { calcDays = 0; calcHours = h; }
     } else {
       calcDays  = frontendDays ?? (differenceInDays(endDateObj, startDateObj) + 1);
       calcHours = 0;
@@ -305,7 +296,6 @@ export async function POST(req: NextRequest) {
         days:      calcDays,
         hours:     calcHours,
         year,
-        // No segments for classic mode — field stays null
       },
     });
 
@@ -313,30 +303,40 @@ export async function POST(req: NextRequest) {
     const leaveUrl   = `${baseUrl}/dashboard/leaves/${createdLeave.id}`;
     const leaveLabel = getLeaveLabel(leaveType, maternityGender);
 
+    // ── Smart duration label ──────────────────────────────────────────────
     const durationLabel = (() => {
       if (isHourlyLeave) {
-        if (calcDays === 1) return "1 ថ្ងៃ";
-        return formatHourLabel(calcHours);
+        const totalMin = calcDays * 8 * 60 + Math.round(calcHours * 60);
+        return formatTotalMinutes(totalMin);
       }
       if (isMaternity && maternityGender) return `${calcDays} ថ្ងៃ`;
       if (calcDays === 1) return "1 ថ្ងៃ";
       return `${calcDays} ថ្ងៃ`;
     })();
 
+    // ── Time range suffix — only for sub-day hourly leaves ────────────────
+    const bodyStartTime = body.startTime;
+    const bodyEndTime   = body.endTime;
+    const timeRangeSuffix =
+      isHourlyLeave && calcDays === 0 && bodyStartTime && bodyEndTime
+        ? ` · ${bodyStartTime}–${bodyEndTime}`
+        : "";
+
     const dateRange = (() => {
-      if (isHourlyLeave) {
-        if (calcDays === 1) {
-          return `${safeFormat(startDate, "dd MMM yyyy")} → ${safeFormat(endDate, "dd MMM yyyy")} (1 ថ្ងៃ)`;
-        }
-        return `${safeFormat(startDate, "dd MMM yyyy")} (${formatHourLabel(calcHours)})`;
+      const s = safeFormat(startDate, "dd MMM yyyy");
+      const e = safeFormat(endDate,   "dd MMM yyyy");
+
+      // Sub-day hourly — show duration + time range
+      if (isHourlyLeave && calcDays === 0) {
+        return `${s} (${durationLabel}${timeRangeSuffix})`;
       }
-      if (isMaternity && maternityGender) {
-        return `${safeFormat(startDate, "dd MMM yyyy")} → ${safeFormat(endDate, "dd MMM yyyy")} (${calcDays} ថ្ងៃ)`;
+      // >= 8h treated as 1 full day — no time
+      if (isHourlyLeave && calcDays >= 1) {
+        return s === e ? `${s} (${durationLabel})` : `${s} → ${e} (${durationLabel})`;
       }
-      if (calcDays === 1) {
-        return `${safeFormat(startDate, "dd MMM yyyy")} (1 ថ្ងៃ)`;
-      }
-      return `${safeFormat(startDate, "dd MMM yyyy")} → ${safeFormat(endDate, "dd MMM yyyy")} (${calcDays} ថ្ងៃ)`;
+      if (isMaternity && maternityGender) return `${s} → ${e} (${calcDays} ថ្ងៃ)`;
+      if (calcDays === 1) return `${s} (1 ថ្ងៃ)`;
+      return `${s} → ${e} (${calcDays} ថ្ងៃ)`;
     })();
 
     const telegramMessageId = await sendTelegramMessage(

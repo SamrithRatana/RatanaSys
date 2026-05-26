@@ -3,13 +3,19 @@ import prisma from "@/lib/prisma";
 import { LeaveStatus } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { differenceInDays, format } from "date-fns";
-import { sendTelegramMessage, deleteTelegramMessage } from "@/lib/sendTelegramMessage";
+import {
+  sendTelegramMessage,
+  deleteTelegramMessage,
+  editTelegramMessage,
+} from "@/lib/sendTelegramMessage";
 
 type UserEditBody = {
   notes:            string;
   startDate:        string;
   endDate:          string;
   hours?:           number;
+  startTime?:       string;
+  endTime?:         string;
   maternityGender?: "MALE" | "FEMALE";
 };
 
@@ -36,13 +42,33 @@ function safeParse(isoString: string): Date {
   return new Date(`${dateOnly}T12:00:00.000Z`);
 }
 
+function formatTotalMinutes(totalMin: number): string {
+  if (totalMin <= 0) return "0 ម៉ោង";
+  const FULL_DAY = 8 * 60;
+  const HALF_DAY = 4 * 60;
+  const wholeDays = Math.floor(totalMin / FULL_DAY);
+  const remMin    = totalMin % FULL_DAY;
+
+  if (remMin === 0) return `${wholeDays} ថ្ងៃ`;
+
+  if (wholeDays === 0) {
+    if (remMin === HALF_DAY) return "កន្លះថ្ងៃ";
+    const h = Math.floor(remMin / 60);
+    const m = remMin % 60;
+    if (h === 0) return `${m} នាទី`;
+    if (m === 0) return `${h} ម៉ោង`;
+    return `${h} ម៉ោង ${m} នាទី`;
+  }
+
+  if (remMin === HALF_DAY) return `${wholeDays} ថ្ងៃកន្លះ`;
+  const h = Math.floor(remMin / 60);
+  const m = remMin % 60;
+  const timeStr = m === 0 ? `${h} ម៉ោង` : `${h} ម៉ោង ${m} នាទី`;
+  return `${wholeDays} ថ្ងៃ ${timeStr}`;
+}
+
 function formatHourLabel(h: number): string {
-  const totalMin = Math.round(h * 60);
-  if (totalMin < 60) return `${totalMin} នាទី`;
-  if (totalMin % 60 === 0) return `${totalMin / 60} ម៉ោង`;
-  const hrs = Math.floor(totalMin / 60);
-  const min = totalMin % 60;
-  return `${hrs} ម៉ោង ${min} នាទី`;
+  return formatTotalMinutes(Math.round(h * 60));
 }
 
 type Params = { params: { leaveId: string } };
@@ -72,7 +98,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     }
 
     const body: UserEditBody = await req.json();
-    const { notes, startDate, endDate, hours, maternityGender } = body;
+    const { notes, startDate, endDate, hours, maternityGender, startTime, endTime } = body;
 
     const isShortLeave = leave.type === "SHORT";
     const isMaternity  = leave.type === "MATERNITY";
@@ -103,58 +129,71 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       },
     });
 
-    // ── Build duration + date range labels ────────────────────────────────────
-    const hoursFromDb = Number(leave.hours ?? 0);
-    const daysFromDb  = Number(calcDays);
-    const hasBothDaysAndHours = daysFromDb > 0 && hoursFromDb > 0;
+    // ── Duration label ────────────────────────────────────────────────────
+    const hoursVal = Number(calcHours);
+    const daysVal  = Number(calcDays);
+
+    const isHourlyLeave =
+      (leave.type === "PERSONAL" || leave.type === "SICK" || leave.type === "ANNUAL") &&
+      hoursVal > 0 &&
+      daysVal === 0;
 
     const durationLabel = (() => {
-      if (isShortLeave) return formatHourLabel(calcHours);
-      if (hasBothDaysAndHours) return `${daysFromDb} ថ្ងៃ ${formatHourLabel(hoursFromDb)}`;
-      return `${calcDays} ថ្ងៃ`;
+      if (isShortLeave) return formatHourLabel(hoursVal);
+      const totalMin = daysVal * 8 * 60 + Math.round(hoursVal * 60);
+      return formatTotalMinutes(totalMin);
     })();
 
+    // ── Time suffix — sub-day only ────────────────────────────────────────
+    const durationLine =
+      isHourlyLeave && daysVal === 0 && startTime && endTime
+        ? `${durationLabel} (${startTime}–${endTime})`
+        : durationLabel;
+
+    // ── Date range — clean, no duration inside ────────────────────────────
     const dateRange = (() => {
       const s = format(startDateObj, "dd MMM yyyy");
       const e = format(endDateObj,   "dd MMM yyyy");
-      if (isShortLeave) return `${s} (${durationLabel})`;
-      if (s === e)      return `${s} (${durationLabel})`;
-      return `${s} → ${e} (${durationLabel})`;
+      if (isHourlyLeave && daysVal === 0) return s;
+      if (s === e) return s;
+      return `${s} → ${e}`;
     })();
 
-    // ── Delete old message, send fresh updated one ────────────────────────────
-    const msgId = leave.telegramMessageId;
-    const baseUrl  = process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh";
-    const leaveUrl = `${baseUrl}/dashboard/leaves/${leave.id}`;
+    // ── Build message text & buttons ──────────────────────────────────────
+    const baseUrl    = process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh";
+    const leaveUrl   = `${baseUrl}/dashboard/leaves/${leave.id}`;
     const leaveLabel = getLeaveLabel(leave.type, maternityGender);
 
+    const msgText = [
+      `✏️ <b>សំណើច្បាប់បានកែប្រែ</b>`,
+      ``,
+      `👤 <b>ឈ្មោះ៖</b> ${leave.userName}`,
+      `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
+      ...(isMaternity && maternityGender
+        ? [`⚧ <b>ភេទ៖</b> ${maternityGender === "MALE" ? "បុរស 👨" : "ស្ត្រី 👩"}`]
+        : []),
+      `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRange}`,
+      `⏱ <b>រយៈពេល៖</b> ${durationLine}`,
+      `📝 <b>មូលហេតុ៖</b> ${notes || "—"}`,
+      ``,
+      `✏️ <i>បានកែប្រែដោយអ្នកស្នើ · រង់ចាំអនុម័តពីប្រធានផ្នែក</i>`,
+    ].join("\n");
+
+    const msgButtons = [{ text: "👀 មើល និងអនុម័តប្រធានផ្នែក →", url: leaveUrl }];
+
+    // ── Edit existing message, or send new if none exists ─────────────────
+    const msgId = leave.telegramMessageId;
+
     if (msgId) {
-      await deleteTelegramMessage(msgId);
-    }
-
-    const newMsgId = await sendTelegramMessage(
-      [
-        `✏️ <b>សំណើច្បាប់បានកែប្រែ</b>`,
-        ``,
-        `👤 <b>ឈ្មោះ៖</b> ${leave.userName}`,
-        `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
-        ...(isMaternity && maternityGender
-          ? [`⚧ <b>ភេទ៖</b> ${maternityGender === "MALE" ? "បុរស 👨" : "ស្ត្រី 👩"}`]
-          : []),
-        `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRange}`,
-        `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
-        `📝 <b>មូលហេតុ៖</b> ${notes || "—"}`,
-        ``,
-        `✏️ <i>បានកែប្រែដោយអ្នកស្នើ · រង់ចាំអនុម័តពីប្រធានផ្នែក</i>`,
-      ].join("\n"),
-      [{ text: "👀 មើល និងអនុម័តប្រធានផ្នែក →", url: leaveUrl }]
-    );
-
-    if (newMsgId) {
-      await prisma.leave.update({
-        where: { id: params.leaveId },
-        data:  { telegramMessageId: newMsgId },
-      });
+      await editTelegramMessage(msgId, msgText, msgButtons);
+    } else {
+      const newMsgId = await sendTelegramMessage(msgText, msgButtons);
+      if (newMsgId) {
+        await prisma.leave.update({
+          where: { id: params.leaveId },
+          data:  { telegramMessageId: newMsgId },
+        });
+      }
     }
 
     return NextResponse.json({ message: "Leave updated" }, { status: 200 });
@@ -190,44 +229,10 @@ export async function DELETE(req: NextRequest, { params }: Params) {
 
     await prisma.leave.delete({ where: { id: params.leaveId } });
 
-    // ── Delete old message, send a clean "cancelled" notice ──────────────────
-    const msgId = leave.telegramMessageId;
-
-    if (msgId) {
-      await deleteTelegramMessage(msgId);
+    // Just delete the Telegram message — no new message sent
+    if (leave.telegramMessageId) {
+      await deleteTelegramMessage(leave.telegramMessageId);
     }
-
-    const leaveLabel = getLeaveLabel(leave.type);
-    const s = format(leave.startDate, "dd MMM yyyy");
-    const e = format(leave.endDate,   "dd MMM yyyy");
-    const storedDays  = Number(leave.days  ?? 0);
-    const storedHours = Number(leave.hours ?? 0);
-    const isShort     = leave.type === "SHORT";
-
-    const hasBothDaysAndHours = storedDays > 0 && storedHours > 0;
-
-    const durationLabel = (() => {
-      if (isShort) return formatHourLabel(storedHours);
-      if (hasBothDaysAndHours) return `${storedDays} ថ្ងៃ ${formatHourLabel(storedHours)}`;
-      return `${storedDays} ថ្ងៃ`;
-    })();
-
-    const dateRange = (isShort || s === e)
-      ? `${s} (${durationLabel})`
-      : `${s} → ${e} (${durationLabel})`;
-
-    await sendTelegramMessage(
-      [
-        `🚫 <b>សំណើច្បាប់បានលុបចោល</b>`,
-        ``,
-        `👤 <b>ឈ្មោះ៖</b> ${leave.userName}`,
-        `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
-        `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRange}`,
-        `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
-        ``,
-        `❌ <i>លុបចោលដោយអ្នកស្នើ</i>`,
-      ].join("\n")
-    );
 
     return NextResponse.json({ message: "Leave cancelled" }, { status: 200 });
   } catch (error) {

@@ -19,7 +19,6 @@ type EditBody = {
   startDate: string;
 };
 
-// Matches the shape saved by the POST route
 type StoredSegment = {
   date:       string;
   endDate?:   string;
@@ -41,15 +40,6 @@ function getLeaveLabel(type: string): string {
   return labels[type.toUpperCase()] ?? `ច្បាប់ ${type}`;
 }
 
-function formatHourLabel(h: number): string {
-  const totalMin = Math.round(h * 60);
-  if (totalMin < 60) return `${totalMin} នាទី`;
-  if (totalMin % 60 === 0) return `${totalMin / 60} ម៉ោង`;
-  const hrs = Math.floor(totalMin / 60);
-  const min = totalMin % 60;
-  return `${hrs} ម៉ោង ${min} នាទី`;
-}
-
 function safeParse(isoString: string): Date {
   const dateOnly = isoString.split("T")[0];
   return new Date(`${dateOnly}T12:00:00.000Z`);
@@ -59,54 +49,71 @@ function safeFormat(isoString: string, fmt: string): string {
   return format(safeParse(isoString), fmt);
 }
 
-// ── Exactly mirrors the POST formatSegmentLine ─────────────────────────────
+function formatTotalMinutes(totalMin: number): string {
+  if (totalMin <= 0) return "0 ម៉ោង";
+  const FULL_DAY = 8 * 60;
+  const HALF_DAY = 4 * 60;
+  const wholeDays = Math.floor(totalMin / FULL_DAY);
+  const remMin    = totalMin % FULL_DAY;
+
+  if (remMin === 0) return `${wholeDays} ថ្ងៃ`;
+
+  if (wholeDays === 0) {
+    if (remMin === HALF_DAY) return "កន្លះថ្ងៃ";
+    const h = Math.floor(remMin / 60);
+    const m = remMin % 60;
+    if (h === 0) return `${m} នាទី`;
+    if (m === 0) return `${h} ម៉ោង`;
+    return `${h} ម៉ោង ${m} នាទី`;
+  }
+
+  if (remMin === HALF_DAY) return `${wholeDays} ថ្ងៃកន្លះ`;
+  const h = Math.floor(remMin / 60);
+  const m = remMin % 60;
+  const timeStr = m === 0 ? `${h} ម៉ោង` : `${h} ម៉ោង ${m} នាទី`;
+  return `${wholeDays} ថ្ងៃ ${timeStr}`;
+}
+
+function formatHourLabel(h: number): string {
+  return formatTotalMinutes(Math.round(h * 60));
+}
+
+// ── Segment line ──────────────────────────────────────────────────────────────
 function formatSegmentLine(seg: StoredSegment): string {
   const startLabel = safeFormat(seg.date, "dd MMM yyyy");
   const h = seg.hours ?? 0;
   const d = seg.days  ?? 0;
 
+  // multi-day full range — no time
   if (d > 1) {
     const endLabel = safeFormat(seg.endDate ?? seg.date, "dd MMM yyyy");
     return `  📌 ${startLabel} → ${endLabel} · ${d} ថ្ងៃ`;
   }
-  if (d === 1) {
-    return `  📌 ${startLabel} · 1 ថ្ងៃ`;
-  }
-  if (h >= 8) {
-    return `  📌 ${startLabel} · 1 ថ្ងៃ`;
-  }
+  // exactly 1 full day — no time
+  if (d === 1) return `  📌 ${startLabel} · 1 ថ្ងៃ`;
+  // >= 8h treated as full day — no time
+  if (h >= 8)  return `  📌 ${startLabel} · 1 ថ្ងៃ`;
+
+  // sub-day hourly — show time range
   const timeRange =
     seg.startTime && seg.endTime
       ? ` (${seg.startTime}–${seg.endTime})`
-      : "";
+      : h === 4 ? ` (08:00–12:00)` : "";
+
   return `  📌 ${startLabel} · ${formatHourLabel(h)}${timeRange}`;
 }
 
-// ── Same total label logic as POST computeTotalLabel ──────────────────────
+// ── Total label across segments ───────────────────────────────────────────────
 function computeTotalLabel(segs: StoredSegment[]): string {
   let totalMin = 0;
   for (const seg of segs) {
     const h = seg.hours ?? 0;
     const d = seg.days  ?? 0;
-    if (d >= 1) {
-      totalMin += d * 8 * 60;
-    } else if (h >= 8) {
-      totalMin += 8 * 60;
-    } else {
-      totalMin += Math.round(h * 60);
-    }
+    if (d >= 1)      totalMin += d * 8 * 60;
+    else if (h >= 8) totalMin += 8 * 60;
+    else             totalMin += Math.round(h * 60);
   }
-  if (totalMin === 0) return "0 ម៉ោង";
-  if (totalMin % (8 * 60) === 0) return `${totalMin / (8 * 60)} ថ្ងៃ`;
-  const wholeDays = Math.floor(totalMin / (8 * 60));
-  const remMin    = totalMin % (8 * 60);
-  const daysStr   = wholeDays > 0 ? `${wholeDays} ថ្ងៃ ` : "";
-  const remHrs    = Math.floor(remMin / 60);
-  const remMins   = remMin % 60;
-  const timeStr   = remMins === 0
-    ? `${remHrs} ម៉ោង`
-    : `${remHrs} ម៉ោង ${remMins} នាទី`;
-  return `${daysStr}${timeStr}`;
+  return formatTotalMinutes(totalMin);
 }
 
 function buildDateRange(startDate: Date, endDate: Date, durationLabel: string): string {
@@ -117,9 +124,7 @@ function buildDateRange(startDate: Date, endDate: Date, durationLabel: string): 
     : `${s} → ${e} (${durationLabel})`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Build the date/segment block
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Date/segment block for approval messages ──────────────────────────────────
 function buildDateBlock(
   storedSegments: StoredSegment[] | null,
   startDate:      Date,
@@ -175,23 +180,26 @@ export async function PATCH(req: Request) {
     const hoursFromDb = Number(leave.hours ?? 0);
     const daysFromDb  = Number(leave.days  ?? 0);
 
-    const hasBothDaysAndHours = daysFromDb > 0 && hoursFromDb > 0;
-
     const isPartialHourly =
       (type === "PERSONAL" || type === "SICK" || type === "ANNUAL") &&
       hoursFromDb > 0 &&
       daysFromDb === 0;
 
+    // ── Smart duration label ──────────────────────────────────────────────
     const durationLabel = (() => {
-      if (isShortLeave)         return formatHourLabel(hoursFromDb);
-      if (isPartialHourly)      return formatHourLabel(hoursFromDb);
-      if (hasBothDaysAndHours)  return `${daysFromDb} ថ្ងៃ ${formatHourLabel(hoursFromDb)}`;
+      if (isShortLeave)    return formatHourLabel(hoursFromDb);
+      if (isPartialHourly) return formatHourLabel(hoursFromDb);
+      const totalMin =
+        daysFromDb  * 8 * 60 +
+        Math.round(hoursFromDb * 60);
+      if (totalMin > 0) return formatTotalMinutes(totalMin);
       const d = daysFromDb > 0 ? daysFromDb : days;
       return `${d} ថ្ងៃ`;
     })();
 
-    // ── Read stored segments safely without relying on Prisma type ────────
-    const storedSegments = ((leave as any).segments as StoredSegment[] | null) ?? null;
+    // ── Read stored segments ──────────────────────────────────────────────
+    const storedSegments =
+      ((leave as any).segments as StoredSegment[] | null) ?? null;
 
     const dateBlock = buildDateBlock(
       storedSegments,
@@ -301,6 +309,8 @@ export async function PATCH(req: Request) {
 
       // ── Final: Admin (bypass) OR Moderator (after Step 1) ────────────────
       if (canDoAdminFinal || canDoModeratorFinal) {
+
+        const hasBothDaysAndHours = daysFromDb > 0 && hoursFromDb > 0;
 
         if (hasBothDaysAndHours) {
           await calculateAndUpdateBalances(email, year, type, daysFromDb);
