@@ -69,21 +69,29 @@ function formatHourLabel(h: number): string {
 }
 
 function formatSegmentLine(seg: Segment): string {
-  const dateLabel = safeFormat(seg.date, "dd MMM yyyy");
+  const startLabel = safeFormat(seg.date, "dd MMM yyyy");
   const h = seg.hours ?? 0;
   const d = seg.days  ?? 0;
 
-  if (d >= 1 || (h === 0 && d === 1)) {
-    return `  📌 ${dateLabel} · 1 ថ្ងៃ`;
+  // Multi-day full range (e.g. 26 May → 28 May · 3 ថ្ងៃ)
+  if (d > 1) {
+    const endLabel = safeFormat(seg.endDate ?? seg.date, "dd MMM yyyy");
+    return `  📌 ${startLabel} → ${endLabel} · ${d} ថ្ងៃ`;
   }
+  // Single full day
+  if (d === 1) {
+    return `  📌 ${startLabel} · 1 ថ្ងៃ`;
+  }
+  // Hours >= 8 counts as full day
   if (h >= 8) {
-    return `  📌 ${dateLabel} · 1 ថ្ងៃ`;
+    return `  📌 ${startLabel} · 1 ថ្ងៃ`;
   }
+  // Partial hours with optional time range
   const timeRange =
     seg.startTime && seg.endTime
       ? ` (${seg.startTime}–${seg.endTime})`
       : "";
-  return `  📌 ${dateLabel} · ${formatHourLabel(h)}${timeRange}`;
+  return `  📌 ${startLabel} · ${formatHourLabel(h)}${timeRange}`;
 }
 
 function computeTotalLabel(segs: Segment[]): string {
@@ -91,8 +99,8 @@ function computeTotalLabel(segs: Segment[]): string {
   for (const seg of segs) {
     const h = seg.hours ?? 0;
     const d = seg.days  ?? 0;
-    if (d >= 1 || (h === 0 && d === 1)) {
-      totalMin += 8 * 60;
+    if (d >= 1) {
+      totalMin += d * 8 * 60;
     } else if (h >= 8) {
       totalMin += 8 * 60;
     } else {
@@ -143,7 +151,7 @@ export async function POST(req: NextRequest) {
     if (isSegmentMode) {
       const year = safeParse(segments[0].date).getFullYear().toString();
 
-      // ── Aggregate all segments into a single days + hours total ──────────
+      // ── Aggregate totals ─────────────────────────────────────────────────
       let totalDays  = 0;
       let totalHours = 0;
 
@@ -152,13 +160,10 @@ export async function POST(req: NextRequest) {
         const d = seg.days  ?? 0;
 
         if (d >= 1) {
-          // Explicit full-day segment (could be multi-day range)
           totalDays += d;
         } else if (h >= 8) {
-          // Hours >= 8 counts as a full day
           totalDays += 1;
         } else {
-          // Partial-hour segment
           totalHours += h;
         }
       }
@@ -169,13 +174,13 @@ export async function POST(req: NextRequest) {
         totalHours  = totalHours % 8;
       }
 
-      // Date range: earliest startDate → latest endDate across all segments
+      // Date range: earliest start → latest end across all segments
       const allStartDates = segments.map(s => safeParse(s.date));
       const allEndDates   = segments.map(s => safeParse(s.endDate ?? s.date));
       const startDateObj  = new Date(Math.min(...allStartDates.map(d => d.getTime())));
       const endDateObj    = new Date(Math.max(...allEndDates.map(d => d.getTime())));
 
-      // ── Single DB record ─────────────────────────────────────────────────
+      // ── Single DB record — include raw segments JSON ─────────────────────
       const createdLeave = await prisma.leave.create({
         data: {
           startDate: startDateObj,
@@ -187,6 +192,8 @@ export async function POST(req: NextRequest) {
           days:      totalDays,
           hours:     totalHours,
           year,
+          // ↓ persist the raw segment array so approvals can show the same detail
+          segments:  segments as any,
         },
       });
 
@@ -298,6 +305,7 @@ export async function POST(req: NextRequest) {
         days:      calcDays,
         hours:     calcHours,
         year,
+        // No segments for classic mode — field stays null
       },
     });
 

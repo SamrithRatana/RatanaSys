@@ -19,6 +19,16 @@ type EditBody = {
   startDate: string;
 };
 
+// Matches the shape saved by the POST route
+type StoredSegment = {
+  date:       string;
+  endDate?:   string;
+  hours?:     number;
+  days?:      number;
+  startTime?: string;
+  endTime?:   string;
+};
+
 function getLeaveLabel(type: string): string {
   const labels: Record<string, string> = {
     ANNUAL:    "ច្បាប់ឈប់សម្រាកប្រចាំឆ្នាំ",
@@ -40,12 +50,98 @@ function formatHourLabel(h: number): string {
   return `${hrs} ម៉ោង ${min} នាទី`;
 }
 
+function safeParse(isoString: string): Date {
+  const dateOnly = isoString.split("T")[0];
+  return new Date(`${dateOnly}T12:00:00.000Z`);
+}
+
+function safeFormat(isoString: string, fmt: string): string {
+  return format(safeParse(isoString), fmt);
+}
+
+// ── Exactly mirrors the POST formatSegmentLine ─────────────────────────────
+function formatSegmentLine(seg: StoredSegment): string {
+  const startLabel = safeFormat(seg.date, "dd MMM yyyy");
+  const h = seg.hours ?? 0;
+  const d = seg.days  ?? 0;
+
+  if (d > 1) {
+    const endLabel = safeFormat(seg.endDate ?? seg.date, "dd MMM yyyy");
+    return `  📌 ${startLabel} → ${endLabel} · ${d} ថ្ងៃ`;
+  }
+  if (d === 1) {
+    return `  📌 ${startLabel} · 1 ថ្ងៃ`;
+  }
+  if (h >= 8) {
+    return `  📌 ${startLabel} · 1 ថ្ងៃ`;
+  }
+  const timeRange =
+    seg.startTime && seg.endTime
+      ? ` (${seg.startTime}–${seg.endTime})`
+      : "";
+  return `  📌 ${startLabel} · ${formatHourLabel(h)}${timeRange}`;
+}
+
+// ── Same total label logic as POST computeTotalLabel ──────────────────────
+function computeTotalLabel(segs: StoredSegment[]): string {
+  let totalMin = 0;
+  for (const seg of segs) {
+    const h = seg.hours ?? 0;
+    const d = seg.days  ?? 0;
+    if (d >= 1) {
+      totalMin += d * 8 * 60;
+    } else if (h >= 8) {
+      totalMin += 8 * 60;
+    } else {
+      totalMin += Math.round(h * 60);
+    }
+  }
+  if (totalMin === 0) return "0 ម៉ោង";
+  if (totalMin % (8 * 60) === 0) return `${totalMin / (8 * 60)} ថ្ងៃ`;
+  const wholeDays = Math.floor(totalMin / (8 * 60));
+  const remMin    = totalMin % (8 * 60);
+  const daysStr   = wholeDays > 0 ? `${wholeDays} ថ្ងៃ ` : "";
+  const remHrs    = Math.floor(remMin / 60);
+  const remMins   = remMin % 60;
+  const timeStr   = remMins === 0
+    ? `${remHrs} ម៉ោង`
+    : `${remHrs} ម៉ោង ${remMins} នាទី`;
+  return `${daysStr}${timeStr}`;
+}
+
 function buildDateRange(startDate: Date, endDate: Date, durationLabel: string): string {
   const s = format(startDate, "dd MMM yyyy");
   const e = format(endDate,   "dd MMM yyyy");
   return s === e
     ? `${s} (${durationLabel})`
     : `${s} → ${e} (${durationLabel})`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Build the date/segment block
+// ─────────────────────────────────────────────────────────────────────────────
+function buildDateBlock(
+  storedSegments: StoredSegment[] | null,
+  startDate:      Date,
+  endDate:        Date,
+  durationLabel:  string,
+): string[] {
+  if (storedSegments && storedSegments.length > 0) {
+    const segLines = storedSegments.map(formatSegmentLine);
+    const total    = computeTotalLabel(storedSegments);
+    return [
+      ``,
+      `📅 <b>កាលបរិច្ឆេទ (${storedSegments.length} segment):</b>`,
+      ...segLines,
+      ``,
+      `⏱ <b>រយៈពេលសរុប៖</b> ${total}`,
+    ];
+  }
+
+  return [
+    `📅 <b>កាលបរិច្ឆេទ៖</b> ${buildDateRange(startDate, endDate, durationLabel)}`,
+    `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
+  ];
 }
 
 export async function PATCH(req: Request) {
@@ -79,18 +175,13 @@ export async function PATCH(req: Request) {
     const hoursFromDb = Number(leave.hours ?? 0);
     const daysFromDb  = Number(leave.days  ?? 0);
 
-    // ── Detect leave shape ────────────────────────────────────────────────────
-    // Combined segment: has BOTH whole days AND leftover hours (e.g. 1 day + 4 hours)
-    const hasBothDaysAndHours =
-      daysFromDb > 0 && hoursFromDb > 0;
+    const hasBothDaysAndHours = daysFromDb > 0 && hoursFromDb > 0;
 
-    // Partial-hourly only: hours > 0, days = 0 (classic sub-day leave)
     const isPartialHourly =
       (type === "PERSONAL" || type === "SICK" || type === "ANNUAL") &&
       hoursFromDb > 0 &&
       daysFromDb === 0;
 
-    // ── Build duration label ──────────────────────────────────────────────────
     const durationLabel = (() => {
       if (isShortLeave)         return formatHourLabel(hoursFromDb);
       if (isPartialHourly)      return formatHourLabel(hoursFromDb);
@@ -99,11 +190,20 @@ export async function PATCH(req: Request) {
       return `${d} ថ្ងៃ`;
     })();
 
-    const dateRangeLabel = buildDateRange(leave.startDate, leave.endDate, durationLabel);
+    // ── Read stored segments safely without relying on Prisma type ────────
+    const storedSegments = ((leave as any).segments as StoredSegment[] | null) ?? null;
 
-    // ── Helper: delete old message then send new one, save new ID ────────────
+    const dateBlock = buildDateBlock(
+      storedSegments,
+      leave.startDate,
+      leave.endDate,
+      durationLabel,
+    );
+
+    const userReason = leave.userNote || "—";
+
     async function replaceMessage(
-      newText: string,
+      newText:    string,
       newButtons: { text: string; url: string }[]
     ): Promise<void> {
       if (leave!.telegramMessageId) {
@@ -136,10 +236,10 @@ export async function PATCH(req: Request) {
           ``,
           `👤 <b>ឈ្មោះ៖</b> ${user}`,
           `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
-          `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRangeLabel}`,
-          `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
+          ...dateBlock,
+          `📝 <b>មូលហេតុ (អ្នកស្នើ)៖</b> ${userReason}`,
           `🙅 <b>បដិសេធដោយ៖</b> ${actorName}`,
-          `📝 <b>កំណត់ចំណាំ៖</b> ${notes || "—"}`,
+          `🗒 <b>កំណត់ចំណាំ (អ្នកអនុម័ត)៖</b> ${notes || "—"}`,
         ].join("\n"),
         [{ text: "📋 មើលច្បាប់ →", url: leaveUrl }]
       );
@@ -183,10 +283,10 @@ export async function PATCH(req: Request) {
             ``,
             `👤 <b>ឈ្មោះ៖</b> ${user}`,
             `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
-            `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRangeLabel}`,
-            `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
+            ...dateBlock,
+            `📝 <b>មូលហេតុ (អ្នកស្នើ)៖</b> ${userReason}`,
             `👍 <b>អនុម័តដោយ៖</b> ${actorName} (ប្រធានផ្នែក)`,
-            `📝 <b>កំណត់ចំណាំ៖</b> ${notes || "—"}`,
+            `🗒 <b>កំណត់ចំណាំ (អ្នកអនុម័ត)៖</b> ${notes || "—"}`,
             ``,
             `⏳ <i>កំពុងរង់ចាំការអនុម័តពីអ្នកគ្រប់គ្រង</i>`,
           ].join("\n"),
@@ -202,21 +302,15 @@ export async function PATCH(req: Request) {
       // ── Final: Admin (bypass) OR Moderator (after Step 1) ────────────────
       if (canDoAdminFinal || canDoModeratorFinal) {
 
-        // ── Balance deduction ───────────────────────────────────────────────
         if (hasBothDaysAndHours) {
-          // Combined segment leave: deduct whole days first, then leftover hours
           await calculateAndUpdateBalances(email, year, type, daysFromDb);
-
-          // Deduct leftover hours as the appropriate _SHORT variant
           const shortType =
             type === "SICK"     ? "SICK_SHORT"   :
             type === "ANNUAL"   ? "ANNUAL_SHORT" :
             type === "PERSONAL" ? "SHORT"        :
             "SHORT";
           await calculateAndUpdateBalances(email, year, shortType, hoursFromDb);
-
         } else {
-          // Original single-type logic
           const effectiveType = isShortLeave
             ? "SHORT"
             : isPartialHourly && type === "SICK"
@@ -270,14 +364,14 @@ export async function PATCH(req: Request) {
             ``,
             `👤 <b>ឈ្មោះ៖</b> ${user}`,
             `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
-            `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRangeLabel}`,
-            `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
+            ...dateBlock,
+            `📝 <b>មូលហេតុ (អ្នកស្នើ)៖</b> ${userReason}`,
             `✅ <b>អនុម័តដោយ៖</b> ${actorName} (អ្នកគ្រប់គ្រង)`,
             ...(adminBypassed
               ? [`⚡ <i>រំលង Head Dept — អនុម័តដោយផ្ទាល់ដោយ Admin</i>`]
               : [`👍 <b>ប្រធានផ្នែក៖</b> ${leave.headDepartment}`]
             ),
-            `📝 <b>កំណត់ចំណាំ៖</b> ${notes || "—"}`,
+            `🗒 <b>កំណត់ចំណាំ (អ្នកអនុម័ត)៖</b> ${notes || "—"}`,
           ].join("\n"),
           [{ text: "📋 មើលច្បាប់ →", url: leaveUrl }]
         );
