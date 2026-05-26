@@ -256,15 +256,12 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
     if (externalOpen !== undefined) setOpen(externalOpen);
   }, [externalOpen]);
 
-  // ─── FIX 1: Pre-select leave type AND auto-fill today when opened externally
+  // ─── Set leave type when opened externally ────────────────────────────────
+  // NOTE: date auto-fill is handled by the selectedLeave effect below,
+  // which fires automatically when the leave value changes here.
   useEffect(() => {
     if (externalOpen && defaultLeave) {
       form.setValue("leave", defaultLeave);
-      // Auto-select today as start & end date for flexible leave types
-      if (["ANNUAL", "SICK", "PERSONAL"].includes(defaultLeave)) {
-        form.setValue("startDate", new Date(today), { shouldValidate: false });
-        form.setValue("endDate",   new Date(today), { shouldValidate: false });
-      }
     }
   }, [externalOpen, defaultLeave]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -282,6 +279,9 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
 
   const currentYear = today.getFullYear();
 
+  // ─── Reset UI state when leave type changes ───────────────────────────────
+  // Also auto-fills today's date for ANNUAL / SICK / PERSONAL regardless of
+  // whether the form was opened via the button or a UserBalances row click.
   useEffect(() => {
     setIsSegmentMode(false);
     setSegments([newSegment(new Date(today))]);
@@ -290,7 +290,13 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
     setDrEndTime(getCurrentTime());
     setDrShortcutH(0);
     setDrShortcutM(0);
-  }, [selectedLeave]);
+
+    // Auto-fill today for flexible leave types (manual select OR external open)
+    if (selectedLeave && ["ANNUAL", "SICK", "PERSONAL"].includes(selectedLeave)) {
+      form.setValue("startDate", new Date(today), { shouldValidate: false });
+      form.setValue("endDate",   new Date(today), { shouldValidate: false });
+    }
+  }, [selectedLeave]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (selectedLeave === "MATERNITY" && maternityGender) {
@@ -346,7 +352,6 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
     return calcHours(drStartTime, drEndTime);
   })();
 
-  // ─── FIX 2: CUSTOM slot now shows "0 នាទី" instead of "—" so pill renders
   const drDurationLabel: string = (() => {
     if (drSlotType === "FULL") {
       if (!startDateValue || !endDateValue) return "";
@@ -664,11 +669,11 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
                 onClick={() => {
                   const patch: Partial<Segment> = { slotType: slot, shortcutH: 0, shortcutM: 0 };
                   if (slot === "CUSTOM") {
-  const start = getCurrentTime();
-  const startMin = timeToMinutes(start);
-  patch.startTime = start;
-  patch.endTime = minutesToTime(Math.min(startMin + 60, 17 * 60));
-}
+                    const start = getCurrentTime();
+                    const startMin = timeToMinutes(start);
+                    patch.startTime = start;
+                    patch.endTime = minutesToTime(Math.min(startMin + 60, 17 * 60));
+                  }
                   if (slot !== "FULL") patch.endDate = seg.date;
                   updateSegment(seg.id, patch);
                 }}
@@ -972,12 +977,12 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
                             setDrShortcutH(0);
                             setDrShortcutM(0);
                             if (slot === "CUSTOM") {
-  const start = getCurrentTime();
-  const startMin = timeToMinutes(start);
-  const endMin = Math.min(startMin + 60, 17 * 60);
-  setDrStartTime(start);
-  setDrEndTime(minutesToTime(endMin));
-}
+                              const start = getCurrentTime();
+                              const startMin = timeToMinutes(start);
+                              const endMin = Math.min(startMin + 60, 17 * 60);
+                              setDrStartTime(start);
+                              setDrEndTime(minutesToTime(endMin));
+                            }
                           }}
                           style={khmerFont}
                           className={cn(
@@ -1132,7 +1137,6 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
                     />
                   )}
 
-                  {/* ── FIX 2: removed drDurationLabel !== "—" check so CUSTOM pill always shows */}
                   {startDateValue && drDurationLabel && (
                     <div className={cn(
                       "flex items-center gap-2 rounded-lg border px-4 py-3",
