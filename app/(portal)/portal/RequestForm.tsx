@@ -80,7 +80,6 @@ const SLOT_TIMES: Record<Exclude<SlotType, "CUSTOM">, [string, string]> = {
   HALF_PM: ["13:00", "17:00"],
 };
 
-// ─── UPDATED Props type with external control ────────────────────────────────
 type Props = {
   user: User;
   defaultLeave?: string;
@@ -225,7 +224,6 @@ function newSegment(date?: Date): Segment {
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ─── UPDATED signature with external control props ───────────────────────────
 const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Props) => {
   const [open,          setOpen]          = useState(false);
   const [openLeaveType, setOpenLeaveType] = useState(false);
@@ -258,10 +256,15 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
     if (externalOpen !== undefined) setOpen(externalOpen);
   }, [externalOpen]);
 
-  // ─── Pre-select leave type when opened externally ─────────────────────────
+  // ─── FIX 1: Pre-select leave type AND auto-fill today when opened externally
   useEffect(() => {
     if (externalOpen && defaultLeave) {
       form.setValue("leave", defaultLeave);
+      // Auto-select today as start & end date for flexible leave types
+      if (["ANNUAL", "SICK", "PERSONAL"].includes(defaultLeave)) {
+        form.setValue("startDate", new Date(today), { shouldValidate: false });
+        form.setValue("endDate",   new Date(today), { shouldValidate: false });
+      }
     }
   }, [externalOpen, defaultLeave]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -343,6 +346,7 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
     return calcHours(drStartTime, drEndTime);
   })();
 
+  // ─── FIX 2: CUSTOM slot now shows "0 នាទី" instead of "—" so pill renders
   const drDurationLabel: string = (() => {
     if (drSlotType === "FULL") {
       if (!startDateValue || !endDateValue) return "";
@@ -351,8 +355,9 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
     }
     if (drSlotType === "HALF_AM") return formatDuration(SLOT_HOURS.HALF_AM * 60);
     if (drSlotType === "HALF_PM") return formatDuration(SLOT_HOURS.HALF_PM * 60);
+    // CUSTOM — always return a label so the pill stays visible
     const h = calcHours(drStartTime, drEndTime);
-    if (h <= 0) return "—";
+    if (h <= 0) return "0 នាទី";
     if (h >= 8) return "1 ថ្ងៃ";
     return formatDuration(Math.round(h * 60));
   })();
@@ -803,7 +808,6 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
       descrStyle={khmerFont}
       isBtn={true}
       open={open}
-      // ─── UPDATED: call onExternalClose when dialog closes ────────────────
       setOpen={() => {
         const next = !open;
         setOpen(next);
@@ -1120,7 +1124,8 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
                     />
                   )}
 
-                  {startDateValue && drDurationLabel && drDurationLabel !== "—" && (
+                  {/* ── FIX 2: removed drDurationLabel !== "—" check so CUSTOM pill always shows */}
+                  {startDateValue && drDurationLabel && (
                     <div className={cn(
                       "flex items-center gap-2 rounded-lg border px-4 py-3",
                       isAnnual ? "border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950"
