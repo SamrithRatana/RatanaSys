@@ -663,7 +663,12 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
                 key={slot} type="button"
                 onClick={() => {
                   const patch: Partial<Segment> = { slotType: slot, shortcutH: 0, shortcutM: 0 };
-                  if (slot === "CUSTOM") { patch.startTime = getCurrentTime(); patch.endTime = getCurrentTime(); }
+                  if (slot === "CUSTOM") {
+  const start = getCurrentTime();
+  const startMin = timeToMinutes(start);
+  patch.startTime = start;
+  patch.endTime = minutesToTime(Math.min(startMin + 60, 17 * 60));
+}
                   if (slot !== "FULL") patch.endDate = seg.date;
                   updateSegment(seg.id, patch);
                 }}
@@ -967,9 +972,12 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
                             setDrShortcutH(0);
                             setDrShortcutM(0);
                             if (slot === "CUSTOM") {
-                              setDrStartTime(getCurrentTime());
-                              setDrEndTime(getCurrentTime());
-                            }
+  const start = getCurrentTime();
+  const startMin = timeToMinutes(start);
+  const endMin = Math.min(startMin + 60, 17 * 60);
+  setDrStartTime(start);
+  setDrEndTime(minutesToTime(endMin));
+}
                           }}
                           style={khmerFont}
                           className={cn(
