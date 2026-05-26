@@ -15,11 +15,19 @@ import EditBalances from "./EditBalances";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import RequestForm from "@/app/(portal)/portal/RequestForm";
+import dynamic from "next/dynamic";
+import type { ComponentProps } from "react";
+import type RequestFormType from "@/app/(portal)/portal/RequestForm";
+
+// ── Dynamically import with correct type ─────────────────────────────────────
+const RequestForm = dynamic(
+  () => import("@/app/(portal)/portal/RequestForm"),
+  { ssr: false }
+) as React.ComponentType<ComponentProps<typeof RequestFormType>>;
 
 type BalanceProps = {
   balances: Balances[];
-  user: User; // ← pass the current user so RequestForm can submit
+  user: User;
 };
 
 const HOURS_PER_DAY = 8;
@@ -34,27 +42,27 @@ const balanceCategories = [
 
 const BalancesTable = ({ balances, user }: BalanceProps) => {
   const [isHours, setIsHours] = useState(true);
-
-  // ── Dialog state ──────────────────────────────────────────────────────────
   const [dialogLeave, setDialogLeave] = useState<string | null>(null);
 
   const convert = (val: number | undefined | null): { display: string; negative: boolean } => {
     if (val === undefined || val === null) val = 0;
-    const result  = isHours ? val * HOURS_PER_DAY : val;
-    const unit    = isHours ? " hrs" : "";
+    const result   = isHours ? val * HOURS_PER_DAY : val;
+    const unit     = isHours ? " hrs" : "";
     const negative = result < 0;
     return { display: `${result}${unit}`, negative };
   };
 
   return (
     <>
-      {/* ── Hidden RequestForm — driven externally by table clicks ── */}
-      <RequestForm
-        user={user}
-        defaultLeave={dialogLeave ?? undefined}
-        externalOpen={dialogLeave !== null}
-        onExternalClose={() => setDialogLeave(null)}
-      />
+      {/* Dynamically loaded RequestForm — only mounted when a header is clicked */}
+      {dialogLeave !== null && (
+        <RequestForm
+          user={user}
+          defaultLeave={dialogLeave}
+          externalOpen={true}
+          onExternalClose={() => setDialogLeave(null)}
+        />
+      )}
 
       <TableWrapper title="All Employee Balances">
         {/* Toggle */}
@@ -88,7 +96,6 @@ const BalancesTable = ({ balances, user }: BalanceProps) => {
                 >
                   <span className="inline-flex items-center gap-1.5">
                     {cat.title}
-                    {/* small "+" hint */}
                     <span className="opacity-0 group-hover:opacity-100 transition-opacity text-blue-500 text-[11px] font-bold">
                       + Request
                     </span>
