@@ -225,6 +225,9 @@ const RequestForm = ({ user }: Props) => {
   const [openStartDate, setOpenStartDate] = useState(false);
   const [openEndDate,   setOpenEndDate]   = useState(false);
 
+  // ── Submit loading state ──────────────────────────────────────────────────
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   // ── Segment mode ──────────────────────────────────────────────────────────
   const [isSegmentMode, setIsSegmentMode] = useState(false);
   const [segments, setSegments] = useState<Segment[]>([newSegment(new Date(today))]);
@@ -390,6 +393,7 @@ const RequestForm = ({ user }: Props) => {
 
   // ── Submit ────────────────────────────────────────────────────────────────
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    setIsSubmitting(true);
     try {
       const effectiveEmail =
         user.email ??
@@ -481,7 +485,6 @@ const RequestForm = ({ user }: Props) => {
       // Compute days / hours for non-segment flexible leave
       const submitDays: number = (() => {
         if (!isFlexibleLeave) {
-          // SPECIAL / MATERNITY — always day-based
           return values.startDate && values.endDate
             ? differenceInDays(values.endDate, values.startDate) + 1
             : 1;
@@ -491,7 +494,6 @@ const RequestForm = ({ user }: Props) => {
             ? differenceInDays(values.endDate, values.startDate) + 1
             : 1;
         }
-        // HALF or CUSTOM → 0 days (hours-only)
         return 0;
       })();
 
@@ -516,7 +518,6 @@ const RequestForm = ({ user }: Props) => {
         return drEndTime;
       })();
 
-      // For non-FULL slots, start and end date are the same
       const effectiveEndDate =
         isFlexibleLeave && drSlotType !== "FULL" && values.startDate
           ? values.startDate
@@ -530,7 +531,7 @@ const RequestForm = ({ user }: Props) => {
         startDate:       values.startDate ? format(values.startDate, "yyyy-MM-dd") : "",
         endDate:         effectiveEndDate  ? format(effectiveEndDate, "yyyy-MM-dd") : "",
         days:            submitDays,
-        ...(submitHours    !== undefined && { hours:     submitHours }),
+        ...(submitHours     !== undefined && { hours:     submitHours }),
         ...(submitStartTime !== undefined && { startTime: submitStartTime }),
         ...(submitEndTime   !== undefined && { endTime:   submitEndTime }),
         user: userPayload,
@@ -555,6 +556,8 @@ const RequestForm = ({ user }: Props) => {
     } catch (error) {
       console.error("An error occurred:", error);
       toast.error("An unexpected error occurred");
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -1061,7 +1064,6 @@ const RequestForm = ({ user }: Props) => {
                                 field.onChange(date);
                                 if (date) {
                                   if (drSlotType !== "FULL") {
-                                    // For hour-based, lock end = start
                                     form.setValue("endDate", date, { shouldValidate: false });
                                   } else if (!endDateValue) {
                                     form.setValue("endDate", date, { shouldValidate: false });
@@ -1287,11 +1289,43 @@ const RequestForm = ({ user }: Props) => {
             )}
           />
 
-          <Button type="submit" className="w-full" style={khmerFont}>
-            {isFlexibleLeave && isSegmentMode && segments.length > 1
+          {/* ── Submit Button with Loading State ── */}
+          <Button
+            type="submit"
+            className="w-full"
+            style={khmerFont}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg
+                  className="animate-spin h-4 w-4 text-white"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+                កំពុងដំណើរការ...
+              </span>
+            ) : isFlexibleLeave && isSegmentMode && segments.length > 1
               ? `Submit ${segments.length} Segments`
-              : "Submit"}
+              : "Submit"
+            }
           </Button>
+
         </form>
       </Form>
     </DialogWrapper>
