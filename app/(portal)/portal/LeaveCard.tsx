@@ -11,6 +11,7 @@ type LeaveCardProps = {
   used:      number;
   balance?:  number;
   isHours?:  boolean;
+  onClick?:  () => void; // ← add this
 };
 
 const VISIBLE_TYPES = ["ANNUAL", "SICK", "PERSONAL", "MATERNITY", "SPECIAL"];
@@ -29,15 +30,12 @@ const khmerFont: React.CSSProperties = {
 
 function formatValue(val: number, isHours: boolean): string {
   if (val === 0) return isHours ? "0 hrs" : "0 days";
-
   if (isHours) {
     const totalHours = Math.round(val * HOURS_PER_DAY * 100) / 100;
     return `${totalHours} hrs`;
   }
-
   const wholeDays    = Math.floor(val);
   const remainingHrs = Math.round((val - wholeDays) * HOURS_PER_DAY);
-
   if (wholeDays === 0)    return `${remainingHrs} hr${remainingHrs !== 1 ? "s" : ""}`;
   if (remainingHrs === 0) return `${wholeDays} day${wholeDays !== 1 ? "s" : ""}`;
   return `${wholeDays} day${wholeDays !== 1 ? "s" : ""} ${remainingHrs} hr${remainingHrs !== 1 ? "s" : ""}`;
@@ -56,6 +54,7 @@ const LeaveCard = ({
   used,
   balance,
   isHours = true,
+  onClick, // ← destructure
 }: LeaveCardProps) => {
   if (!VISIBLE_TYPES.includes(leaveType)) return null;
 
@@ -68,8 +67,14 @@ const LeaveCard = ({
   const notApplied = isMaternity && creditVal === 0 && usedVal === 0;
 
   return (
-    <tr className="border-b border-border/40 last:border-0 hover:bg-muted/30 transition-colors">
-
+    <tr
+      onClick={onClick}
+      className={`border-b border-border/40 last:border-0 transition-colors ${
+        onClick
+          ? "cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/60"
+          : "hover:bg-muted/30"
+      }`}
+    >
       {/* Leave type */}
       <td className="py-3 pl-3 pr-2">
         <div className="flex flex-col gap-0.5">
@@ -114,7 +119,6 @@ const LeaveCard = ({
           : <span className="text-[13px] font-medium text-green-700 dark:text-green-400">{formatValue(balanceVal, isHours)}</span>
         }
       </td>
-
     </tr>
   );
 };

@@ -3,7 +3,15 @@
 import { useState } from "react";
 import Container from "@/components/Common/Container";
 import LeaveCard from "./LeaveCard";
-import { Balances } from "@prisma/client";
+import { Balances, User } from "@prisma/client";
+import dynamic from "next/dynamic";
+import type { ComponentProps } from "react";
+import type RequestFormType from "@/app/(portal)/portal/RequestForm";
+
+const RequestForm = dynamic(
+  () => import("@/app/(portal)/portal/RequestForm"),
+  { ssr: false }
+) as React.ComponentType<ComponentProps<typeof RequestFormType>>;
 
 const khmerFont: React.CSSProperties = {
   fontFamily: "'Battambang', serif",
@@ -11,10 +19,12 @@ const khmerFont: React.CSSProperties = {
 
 type Props = {
   balances: Balances;
+  user?: User; // ← pass user down from the page
 };
 
-const UserBalances = ({ balances }: Props) => {
-  const [isHours, setIsHours] = useState(true);
+const UserBalances = ({ balances, user }: Props) => {
+  const [isHours,    setIsHours]    = useState(true);
+  const [dialogLeave, setDialogLeave] = useState<string | null>(null);
 
   const rows = [
     { leaveType: "ANNUAL",    credit: balances?.annualCredit,    used: balances?.annualUsed,    balance: balances?.annualAvailable    },
@@ -26,6 +36,16 @@ const UserBalances = ({ balances }: Props) => {
 
   return (
     <Container>
+      {/* Mount RequestForm only when a row is clicked and user exists */}
+      {dialogLeave !== null && user && (
+        <RequestForm
+          user={user}
+          defaultLeave={dialogLeave}
+          externalOpen={true}
+          onExternalClose={() => setDialogLeave(null)}
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mt-6 mb-3">
         <h2 className="text-base font-semibold text-foreground">Current Year Balances</h2>
@@ -71,6 +91,7 @@ const UserBalances = ({ balances }: Props) => {
                 used={row.used as number}
                 balance={row.balance as number}
                 isHours={isHours}
+                onClick={user ? () => setDialogLeave(row.leaveType) : undefined}
               />
             ))}
           </tbody>
