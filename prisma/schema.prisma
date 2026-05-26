@@ -92,7 +92,7 @@ model Leave {
   tasksLink String?
   userEmail String
   status    LeaveStatus @default(PENDING)
-
+  segments  Json?   
   // Head Department (1st approval)
   headDepartment         String?
   headDepartmentNote     String?
