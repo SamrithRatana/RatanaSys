@@ -14,7 +14,6 @@ import TotalBalanceSummary from './TotalBalanceSummary';
 const Portal = async () => {
   const user = await getCurrentUser();
 
-  // ✅ Safe fetch — won't crash the page if data is unavailable
   let CurrentYearBalances: Balances | null = null;
   let Events: any[] = [];
 
@@ -31,7 +30,6 @@ const Portal = async () => {
     <>
       <WelcomeBanner user={user as User} />
 
-      {/* ✅ Suspense prevents Calendar from crashing the whole page */}
       <Suspense fallback={<div className="p-4 text-center text-sm text-gray-400">Loading calendar...</div>}>
         <Calendar events={Events} />
       </Suspense>
@@ -54,7 +52,8 @@ const Portal = async () => {
           )}
         </Container>
 
-        <UserBalances balances={CurrentYearBalances as Balances} />
+        {/* ← only change: added user={user as User} */}
+        <UserBalances balances={CurrentYearBalances as Balances} user={user as User} />
       </div>
     </>
   );
