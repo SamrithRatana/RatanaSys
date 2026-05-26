@@ -16,8 +16,9 @@ type Props = {
   hasLeaveEvent: boolean;
 };
 
+// Leave events: English pattern OR Khmer "ឈប់សម្រាក"
 const isLeaveEvent = (title: string) =>
-  /\bon\s+\w.*Leave\b/i.test(title);
+  /\bon\s+\w.*Leave\b/i.test(title) || title.includes("ឈប់សម្រាក");
 
 export default function EventPopOver({
   events,
@@ -49,7 +50,6 @@ export default function EventPopOver({
         </button>
       </PopoverTrigger>
 
-      {/* ✅ side + align keep it inside viewport on mobile */}
       <PopoverContent
         side="bottom"
         align="center"

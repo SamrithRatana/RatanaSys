@@ -12,9 +12,9 @@ type Props = {
   events: Events[]
 }
 
-// ✅ Leave events are auto-generated and follow "X on Y Leave" pattern
+// Leave events: English pattern OR Khmer "ឈប់សម្រាក"
 const isLeaveEvent = (title: string) =>
-  /\bon\s+\w.*Leave\b/i.test(title);
+  /\bon\s+\w.*Leave\b/i.test(title) || title.includes("ឈប់សម្រាក");
 
 const Calendar = ({ events }: Props) => {
   const currentDate = dayjs()
@@ -59,7 +59,6 @@ const Calendar = ({ events }: Props) => {
               dayjs(event.startDate).isSame(date, 'day')
             ) ?? [];
 
-            // ✅ Check if any event on this day is a manual (non-leave) event
             const hasManualEvent = dayEvents.some(e => !isLeaveEvent(e.title));
             const hasLeaveEvent  = dayEvents.some(e =>  isLeaveEvent(e.title));
 
