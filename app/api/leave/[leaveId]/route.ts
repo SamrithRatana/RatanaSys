@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
 import { LeaveStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
-import { sendTelegramMessage } from "@/lib/sendTelegramMessage";
+import { sendTelegramMessage, deleteTelegramMessage } from "@/lib/sendTelegramMessage";
 import { format } from "date-fns";
 
 type EditBody = {
@@ -40,7 +40,6 @@ function formatHourLabel(h: number): string {
   return `${hrs} ម៉ោង ${min} នាទី`;
 }
 
-/** Build "DD MMM YYYY → DD MMM YYYY (X ថ្ងៃ)" or single-date variant */
 function buildDateRange(startDate: Date, endDate: Date, durationLabel: string): string {
   const s = format(startDate, "dd MMM yyyy");
   const e = format(endDate,   "dd MMM yyyy");
@@ -77,24 +76,47 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Leave not found" }, { status: 404 });
     }
 
-    // ── Compute duration label from DB (used in ALL Telegram messages) ────────
     const hoursFromDb = Number(leave.hours ?? 0);
     const daysFromDb  = Number(leave.days  ?? 0);
 
-    // Partial-hourly check: applies to PERSONAL, SICK, and ANNUAL
+    // ── Detect leave shape ────────────────────────────────────────────────────
+    // Combined segment: has BOTH whole days AND leftover hours (e.g. 1 day + 4 hours)
+    const hasBothDaysAndHours =
+      daysFromDb > 0 && hoursFromDb > 0;
+
+    // Partial-hourly only: hours > 0, days = 0 (classic sub-day leave)
     const isPartialHourly =
       (type === "PERSONAL" || type === "SICK" || type === "ANNUAL") &&
       hoursFromDb > 0 &&
-      (daysFromDb === 0 || daysFromDb == null);
+      daysFromDb === 0;
 
+    // ── Build duration label ──────────────────────────────────────────────────
     const durationLabel = (() => {
-      if (isShortLeave)    return formatHourLabel(hoursFromDb);
-      if (isPartialHourly) return formatHourLabel(hoursFromDb);
+      if (isShortLeave)         return formatHourLabel(hoursFromDb);
+      if (isPartialHourly)      return formatHourLabel(hoursFromDb);
+      if (hasBothDaysAndHours)  return `${daysFromDb} ថ្ងៃ ${formatHourLabel(hoursFromDb)}`;
       const d = daysFromDb > 0 ? daysFromDb : days;
       return `${d} ថ្ងៃ`;
     })();
 
     const dateRangeLabel = buildDateRange(leave.startDate, leave.endDate, durationLabel);
+
+    // ── Helper: delete old message then send new one, save new ID ────────────
+    async function replaceMessage(
+      newText: string,
+      newButtons: { text: string; url: string }[]
+    ): Promise<void> {
+      if (leave!.telegramMessageId) {
+        await deleteTelegramMessage(leave!.telegramMessageId);
+      }
+      const newMsgId = await sendTelegramMessage(newText, newButtons);
+      if (newMsgId) {
+        await prisma.leave.update({
+          where: { id },
+          data:  { telegramMessageId: newMsgId },
+        });
+      }
+    }
 
     // ── បដិសេធ ────────────────────────────────────────────────────────────────
     if (status === LeaveStatus.REJECTED) {
@@ -108,7 +130,7 @@ export async function PATCH(req: Request) {
         },
       });
 
-      await sendTelegramMessage(
+      await replaceMessage(
         [
           `❌ <b>ច្បាប់ត្រូវបានបដិសេធ</b>`,
           ``,
@@ -141,7 +163,7 @@ export async function PATCH(req: Request) {
         leave.headDepartmentApproved &&
         !leave.managerApproved;
 
-      // ── Step 1: Moderator approves as Head Dept ──────────────────────────────
+      // ── Step 1: Moderator approves as Head Dept ───────────────────────────
       if (canDoStep1) {
         await prisma.leave.update({
           where: { id },
@@ -155,7 +177,7 @@ export async function PATCH(req: Request) {
           },
         });
 
-        await sendTelegramMessage(
+        await replaceMessage(
           [
             `✅ <b>ច្បាប់ — អនុម័តដោយប្រធានផ្នែក</b>`,
             ``,
@@ -177,30 +199,42 @@ export async function PATCH(req: Request) {
         );
       }
 
-      // ── Final: Admin (bypass) OR Moderator (after Step 1) ───────────────────
+      // ── Final: Admin (bypass) OR Moderator (after Step 1) ────────────────
       if (canDoAdminFinal || canDoModeratorFinal) {
-        // Determine effective type for balance calculation:
-        // SHORT         → SHORT        (existing short leave)
-        // SICK partial  → SICK_SHORT   (hour-fraction from sick balance)
-        // ANNUAL partial → ANNUAL_SHORT (hour-fraction from annual balance)
-        // everything else → type as-is
-        const effectiveType = isShortLeave
-          ? "SHORT"
-          : isPartialHourly && type === "SICK"
-            ? "SICK_SHORT"
-            : isPartialHourly && type === "ANNUAL"
-              ? "ANNUAL_SHORT"
-              : type;
 
-        const effectiveValue = isShortLeave
-          ? hoursFromDb
-          : isPartialHourly
+        // ── Balance deduction ───────────────────────────────────────────────
+        if (hasBothDaysAndHours) {
+          // Combined segment leave: deduct whole days first, then leftover hours
+          await calculateAndUpdateBalances(email, year, type, daysFromDb);
+
+          // Deduct leftover hours as the appropriate _SHORT variant
+          const shortType =
+            type === "SICK"     ? "SICK_SHORT"   :
+            type === "ANNUAL"   ? "ANNUAL_SHORT" :
+            type === "PERSONAL" ? "SHORT"        :
+            "SHORT";
+          await calculateAndUpdateBalances(email, year, shortType, hoursFromDb);
+
+        } else {
+          // Original single-type logic
+          const effectiveType = isShortLeave
+            ? "SHORT"
+            : isPartialHourly && type === "SICK"
+              ? "SICK_SHORT"
+              : isPartialHourly && type === "ANNUAL"
+                ? "ANNUAL_SHORT"
+                : type;
+
+          const effectiveValue = isShortLeave
             ? hoursFromDb
-            : daysFromDb > 0
-              ? daysFromDb
-              : days;
+            : isPartialHourly
+              ? hoursFromDb
+              : daysFromDb > 0
+                ? daysFromDb
+                : days;
 
-        await calculateAndUpdateBalances(email, year, effectiveType, effectiveValue);
+          await calculateAndUpdateBalances(email, year, effectiveType, effectiveValue);
+        }
 
         await prisma.events.create({
           data: {
@@ -230,7 +264,7 @@ export async function PATCH(req: Request) {
           },
         });
 
-        await sendTelegramMessage(
+        await replaceMessage(
           [
             `🎉 <b>ច្បាប់ត្រូវបានអនុម័តទាំងស្រុង!</b>`,
             ``,

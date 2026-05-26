@@ -6,6 +6,7 @@ import { sendTelegramMessage } from "@/lib/sendTelegramMessage";
 
 type Segment = {
   date:       string;
+  endDate?:   string;
   hours?:     number;
   days?:      number;
   startTime?: string;
@@ -137,45 +138,61 @@ export async function POST(req: NextRequest) {
       segments.length > 0;
 
     // ────────────────────────────────────────────────────────────────────────
-    // SEGMENT MODE — one DB record per segment, one combined Telegram message
+    // SEGMENT MODE — ONE DB record (aggregated), one Telegram message
     // ────────────────────────────────────────────────────────────────────────
     if (isSegmentMode) {
       const year = safeParse(segments[0].date).getFullYear().toString();
 
-      const createdLeaves = await Promise.all(
-        segments.map(async (seg) => {
-          const h = seg.hours ?? 0;
-          const d = seg.days  ?? 0;
-          let calcDays:  number;
-          let calcHours: number;
+      // ── Aggregate all segments into a single days + hours total ──────────
+      let totalDays  = 0;
+      let totalHours = 0;
 
-          if (d >= 1) {
-            calcDays = 1; calcHours = 0;
-          } else if (h >= 8) {
-            calcDays = 1; calcHours = h;
-          } else {
-            calcDays = 0; calcHours = h;
-          }
+      for (const seg of segments) {
+        const h = seg.hours ?? 0;
+        const d = seg.days  ?? 0;
 
-          const dateObj = safeParse(seg.date);
-          return prisma.leave.create({
-            data: {
-              startDate: dateObj,
-              endDate:   dateObj,
-              userEmail: user.email,
-              type:      leaveType,
-              userNote:  notes,
-              userName:  user.name,
-              days:      calcDays,
-              hours:     calcHours,
-              year,
-            },
-          });
-        })
-      );
+        if (d >= 1) {
+          // Explicit full-day segment (could be multi-day range)
+          totalDays += d;
+        } else if (h >= 8) {
+          // Hours >= 8 counts as a full day
+          totalDays += 1;
+        } else {
+          // Partial-hour segment
+          totalHours += h;
+        }
+      }
 
+      // Normalise: every 8 accumulated hours → 1 extra day
+      if (totalHours >= 8) {
+        totalDays  += Math.floor(totalHours / 8);
+        totalHours  = totalHours % 8;
+      }
+
+      // Date range: earliest startDate → latest endDate across all segments
+      const allStartDates = segments.map(s => safeParse(s.date));
+      const allEndDates   = segments.map(s => safeParse(s.endDate ?? s.date));
+      const startDateObj  = new Date(Math.min(...allStartDates.map(d => d.getTime())));
+      const endDateObj    = new Date(Math.max(...allEndDates.map(d => d.getTime())));
+
+      // ── Single DB record ─────────────────────────────────────────────────
+      const createdLeave = await prisma.leave.create({
+        data: {
+          startDate: startDateObj,
+          endDate:   endDateObj,
+          userEmail: user.email,
+          type:      leaveType,
+          userNote:  notes,
+          userName:  user.name,
+          days:      totalDays,
+          hours:     totalHours,
+          year,
+        },
+      });
+
+      // ── Telegram message ─────────────────────────────────────────────────
       const baseUrl    = process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh";
-      const leaveUrl   = `${baseUrl}/dashboard/leaves/${createdLeaves[0].id}`;
+      const leaveUrl   = `${baseUrl}/dashboard/leaves/${createdLeave.id}`;
       const leaveLabel = getLeaveLabel(leaveType);
       const totalLabel = computeTotalLabel(segments);
       const segLines   = segments.map(formatSegmentLine);
@@ -199,21 +216,17 @@ export async function POST(req: NextRequest) {
       );
 
       if (telegramMessageId) {
-        await Promise.all(
-          createdLeaves.map((lv) =>
-            prisma.leave.update({
-              where: { id: lv.id },
-              data:  { telegramMessageId },
-            })
-          )
-        );
+        await prisma.leave.update({
+          where: { id: createdLeave.id },
+          data:  { telegramMessageId },
+        });
       }
 
       return NextResponse.json({ message: "Success" }, { status: 200 });
     }
 
     // ────────────────────────────────────────────────────────────────────────
-    // CLASSIC MODE — MATERNITY / SPECIAL (original logic, unchanged)
+    // CLASSIC MODE — MATERNITY / SPECIAL / date-range flexible leave
     // ────────────────────────────────────────────────────────────────────────
     const isHourlyLeave =
       (isPersonal || isSick || isAnnual) && !!hours && hours > 0;

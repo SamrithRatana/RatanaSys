@@ -6,7 +6,7 @@ type InlineButton = {
 export async function sendTelegramMessage(
   message: string,
   buttons?: InlineButton[]
-): Promise<number | null> {  // ← now returns messageId for later editing
+): Promise<number | null> {
   const token   = process.env.TELEGRAM_BOT_TOKEN;
   let   chatId  = process.env.TELEGRAM_GROUP_CHAT_ID;
   const topicId = process.env.TELEGRAM_LEAVES_TOPIC_ID;
@@ -45,7 +45,6 @@ export async function sendTelegramMessage(
     if (!res.ok) {
       const err = await res.json();
 
-      // ── Auto-handle supergroup migration ──────────────────────────────────
       if (err?.error_code === 400 && err?.parameters?.migrate_to_chat_id) {
         const newChatId = err.parameters.migrate_to_chat_id.toString();
         console.warn(`[Telegram] Group migrated. New chat_id: ${newChatId}`);
@@ -77,6 +76,41 @@ export async function sendTelegramMessage(
   } catch (error) {
     console.error("[Telegram] Network error:", error);
     return null;
+  }
+}
+
+// ── Delete a Telegram message ─────────────────────────────────────────────────
+export async function deleteTelegramMessage(
+  messageId: number
+): Promise<void> {
+  const token  = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_GROUP_CHAT_ID;
+
+  if (!token || !chatId || !messageId) {
+    console.warn("[Telegram] deleteTelegramMessage: missing token, chatId, or messageId");
+    return;
+  }
+
+  try {
+    const res = await fetch(
+      `https://api.telegram.org/bot${token}/deleteMessage`,
+      {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ chat_id: chatId, message_id: messageId }),
+      }
+    );
+
+    if (!res.ok) {
+      const err = await res.json();
+      // "message to delete not found" is harmless — already gone
+      if (err?.description?.includes("message to delete not found")) return;
+      // "message can't be deleted" — too old (>48h Telegram limit), ignore
+      if (err?.description?.includes("message can't be deleted")) return;
+      console.error("[Telegram] deleteMessage failed:", JSON.stringify(err));
+    }
+  } catch (error) {
+    console.error("[Telegram] Network error on delete:", error);
   }
 }
 
@@ -122,7 +156,6 @@ export async function editTelegramMessage(
 
     if (!res.ok) {
       const err = await res.json();
-      // 400 "message is not modified" is harmless — ignore it
       if (err?.description?.includes("message is not modified")) return;
       console.error("[Telegram] editMessageText failed:", JSON.stringify(err));
     }

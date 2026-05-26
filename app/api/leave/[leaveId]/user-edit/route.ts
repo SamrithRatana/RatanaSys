@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { LeaveStatus } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { differenceInDays, format } from "date-fns";
-import { editTelegramMessage } from "@/lib/sendTelegramMessage";
+import { sendTelegramMessage, deleteTelegramMessage } from "@/lib/sendTelegramMessage";
 
 type UserEditBody = {
   notes:            string;
@@ -103,9 +103,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       },
     });
 
-    // ── Build duration + date range for Telegram ──────────────────────────────
+    // ── Build duration + date range labels ────────────────────────────────────
+    const hoursFromDb = Number(leave.hours ?? 0);
+    const daysFromDb  = Number(calcDays);
+    const hasBothDaysAndHours = daysFromDb > 0 && hoursFromDb > 0;
+
     const durationLabel = (() => {
       if (isShortLeave) return formatHourLabel(calcHours);
+      if (hasBothDaysAndHours) return `${daysFromDb} ថ្ងៃ ${formatHourLabel(hoursFromDb)}`;
       return `${calcDays} ថ្ងៃ`;
     })();
 
@@ -117,31 +122,39 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       return `${s} → ${e} (${durationLabel})`;
     })();
 
-    // ── Edit the original Telegram message if we have its ID ─────────────────
+    // ── Delete old message, send fresh updated one ────────────────────────────
     const msgId = leave.telegramMessageId;
-    if (msgId) {
-      const baseUrl    = process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh";
-      const leaveUrl   = `${baseUrl}/dashboard/leaves/${leave.id}`;
-      const leaveLabel = getLeaveLabel(leave.type, maternityGender);
+    const baseUrl  = process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh";
+    const leaveUrl = `${baseUrl}/dashboard/leaves/${leave.id}`;
+    const leaveLabel = getLeaveLabel(leave.type, maternityGender);
 
-      await editTelegramMessage(
-        msgId,
-        [
-          `✏️ <b>សំណើច្បាប់បានកែប្រែ</b>`,
-          ``,
-          `👤 <b>ឈ្មោះ៖</b> ${leave.userName}`,
-          `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
-          ...(isMaternity && maternityGender
-            ? [`⚧ <b>ភេទ៖</b> ${maternityGender === "MALE" ? "បុរស 👨" : "ស្ត្រី 👩"}`]
-            : []),
-          `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRange}`,
-          `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
-          `📝 <b>មូលហេតុ៖</b> ${notes || "—"}`,
-          ``,
-          `✏️ <i>បានកែប្រែដោយអ្នកស្នើ · រង់ចាំអនុម័តពីប្រធានផ្នែក</i>`,
-        ].join("\n"),
-        [{ text: "👀 មើល និងអនុម័តប្រធានផ្នែក →", url: leaveUrl }]
-      );
+    if (msgId) {
+      await deleteTelegramMessage(msgId);
+    }
+
+    const newMsgId = await sendTelegramMessage(
+      [
+        `✏️ <b>សំណើច្បាប់បានកែប្រែ</b>`,
+        ``,
+        `👤 <b>ឈ្មោះ៖</b> ${leave.userName}`,
+        `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
+        ...(isMaternity && maternityGender
+          ? [`⚧ <b>ភេទ៖</b> ${maternityGender === "MALE" ? "បុរស 👨" : "ស្ត្រី 👩"}`]
+          : []),
+        `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRange}`,
+        `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
+        `📝 <b>មូលហេតុ៖</b> ${notes || "—"}`,
+        ``,
+        `✏️ <i>បានកែប្រែដោយអ្នកស្នើ · រង់ចាំអនុម័តពីប្រធានផ្នែក</i>`,
+      ].join("\n"),
+      [{ text: "👀 មើល និងអនុម័តប្រធានផ្នែក →", url: leaveUrl }]
+    );
+
+    if (newMsgId) {
+      await prisma.leave.update({
+        where: { id: params.leaveId },
+        data:  { telegramMessageId: newMsgId },
+      });
     }
 
     return NextResponse.json({ message: "Leave updated" }, { status: 200 });
@@ -177,38 +190,44 @@ export async function DELETE(req: NextRequest, { params }: Params) {
 
     await prisma.leave.delete({ where: { id: params.leaveId } });
 
-    // ── Edit Telegram to show cancelled ──────────────────────────────────────
+    // ── Delete old message, send a clean "cancelled" notice ──────────────────
     const msgId = leave.telegramMessageId;
+
     if (msgId) {
-      const leaveLabel = getLeaveLabel(leave.type);
-
-      // Re-build date range from original DB values
-      const s = format(leave.startDate, "dd MMM yyyy");
-      const e = format(leave.endDate,   "dd MMM yyyy");
-      const storedDays  = Number(leave.days  ?? 0);
-      const storedHours = Number(leave.hours ?? 0);
-      const isShort     = leave.type === "SHORT";
-      const durationLabel = isShort
-        ? formatHourLabel(storedHours)
-        : `${storedDays} ថ្ងៃ`;
-      const dateRange = (isShort || s === e)
-        ? `${s} (${durationLabel})`
-        : `${s} → ${e} (${durationLabel})`;
-
-      await editTelegramMessage(
-        msgId,
-        [
-          `🚫 <b>សំណើច្បាប់បានលុបចោល</b>`,
-          ``,
-          `👤 <b>ឈ្មោះ៖</b> ${leave.userName}`,
-          `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
-          `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRange}`,
-          `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
-          ``,
-          `❌ <i>លុបចោលដោយអ្នកស្នើ</i>`,
-        ].join("\n")
-      );
+      await deleteTelegramMessage(msgId);
     }
+
+    const leaveLabel = getLeaveLabel(leave.type);
+    const s = format(leave.startDate, "dd MMM yyyy");
+    const e = format(leave.endDate,   "dd MMM yyyy");
+    const storedDays  = Number(leave.days  ?? 0);
+    const storedHours = Number(leave.hours ?? 0);
+    const isShort     = leave.type === "SHORT";
+
+    const hasBothDaysAndHours = storedDays > 0 && storedHours > 0;
+
+    const durationLabel = (() => {
+      if (isShort) return formatHourLabel(storedHours);
+      if (hasBothDaysAndHours) return `${storedDays} ថ្ងៃ ${formatHourLabel(storedHours)}`;
+      return `${storedDays} ថ្ងៃ`;
+    })();
+
+    const dateRange = (isShort || s === e)
+      ? `${s} (${durationLabel})`
+      : `${s} → ${e} (${durationLabel})`;
+
+    await sendTelegramMessage(
+      [
+        `🚫 <b>សំណើច្បាប់បានលុបចោល</b>`,
+        ``,
+        `👤 <b>ឈ្មោះ៖</b> ${leave.userName}`,
+        `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
+        `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRange}`,
+        `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
+        ``,
+        `❌ <i>លុបចោលដោយអ្នកស្នើ</i>`,
+      ].join("\n")
+    );
 
     return NextResponse.json({ message: "Leave cancelled" }, { status: 200 });
   } catch (error) {
