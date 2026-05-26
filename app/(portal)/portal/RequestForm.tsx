@@ -80,7 +80,13 @@ const SLOT_TIMES: Record<Exclude<SlotType, "CUSTOM">, [string, string]> = {
   HALF_PM: ["13:00", "17:00"],
 };
 
-type Props = { user: User };
+// ─── UPDATED Props type with external control ────────────────────────────────
+type Props = {
+  user: User;
+  defaultLeave?: string;
+  externalOpen?: boolean;
+  onExternalClose?: () => void;
+};
 
 const today = new Date();
 today.setHours(0, 0, 0, 0);
@@ -219,20 +225,18 @@ function newSegment(date?: Date): Segment {
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-const RequestForm = ({ user }: Props) => {
+// ─── UPDATED signature with external control props ───────────────────────────
+const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Props) => {
   const [open,          setOpen]          = useState(false);
   const [openLeaveType, setOpenLeaveType] = useState(false);
   const [openStartDate, setOpenStartDate] = useState(false);
   const [openEndDate,   setOpenEndDate]   = useState(false);
 
-  // ── Submit loading state ──────────────────────────────────────────────────
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ── Segment mode ──────────────────────────────────────────────────────────
   const [isSegmentMode, setIsSegmentMode] = useState(false);
   const [segments, setSegments] = useState<Segment[]>([newSegment(new Date(today))]);
 
-  // ── Date-range mode slot (hour picker) ───────────────────────────────────
   const [drSlotType,  setDrSlotType]  = useState<SlotType>("FULL");
   const [drStartTime, setDrStartTime] = useState(getCurrentTime());
   const [drEndTime,   setDrEndTime]   = useState(getCurrentTime());
@@ -249,6 +253,18 @@ const RequestForm = ({ user }: Props) => {
     },
   });
 
+  // ─── Sync external open state ─────────────────────────────────────────────
+  useEffect(() => {
+    if (externalOpen !== undefined) setOpen(externalOpen);
+  }, [externalOpen]);
+
+  // ─── Pre-select leave type when opened externally ─────────────────────────
+  useEffect(() => {
+    if (externalOpen && defaultLeave) {
+      form.setValue("leave", defaultLeave);
+    }
+  }, [externalOpen, defaultLeave]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const selectedLeave   = form.watch("leave");
   const maternityGender = form.watch("maternityGender");
   const startDateValue  = form.watch("startDate");
@@ -263,7 +279,6 @@ const RequestForm = ({ user }: Props) => {
 
   const currentYear = today.getFullYear();
 
-  // Reset everything when leave type changes
   useEffect(() => {
     setIsSegmentMode(false);
     setSegments([newSegment(new Date(today))]);
@@ -306,7 +321,6 @@ const RequestForm = ({ user }: Props) => {
     }
   }, [startDateValue]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When a non-FULL slot is chosen in date-range mode, lock end date = start date
   useEffect(() => {
     if (drSlotType !== "FULL" && startDateValue) {
       form.setValue("endDate", startDateValue, { shouldValidate: false });
@@ -322,7 +336,6 @@ const RequestForm = ({ user }: Props) => {
     return today;
   };
 
-  // ── Date-range slot derived values ────────────────────────────────────────
   const drHours: number = (() => {
     if (drSlotType === "FULL")    return 0;
     if (drSlotType === "HALF_AM") return SLOT_HOURS.HALF_AM;
@@ -351,7 +364,6 @@ const RequestForm = ({ user }: Props) => {
     return "";
   })();
 
-  // ── Toggle segment mode ───────────────────────────────────────────────────
   const handleToggleSegment = () => {
     setIsSegmentMode(prev => {
       const next = !prev;
@@ -370,7 +382,6 @@ const RequestForm = ({ user }: Props) => {
     });
   };
 
-  // ── Segment helpers ───────────────────────────────────────────────────────
   const updateSegment = useCallback((id: string, patch: Partial<Segment>) => {
     setSegments(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
   }, []);
@@ -379,7 +390,6 @@ const RequestForm = ({ user }: Props) => {
   const removeSegment = (id: string) =>
     setSegments(prev => prev.filter(s => s.id !== id));
 
-  // Segment total
   const totalFraction = segments.reduce((sum, s) => sum + segmentDayFraction(s), 0);
   const totalLabel = (() => {
     if (totalFraction === 0) return null;
@@ -391,7 +401,6 @@ const RequestForm = ({ user }: Props) => {
     return `${daysStr}${formatDuration(remMin)}`;
   })();
 
-  // ── Submit ────────────────────────────────────────────────────────────────
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsSubmitting(true);
     try {
@@ -403,7 +412,6 @@ const RequestForm = ({ user }: Props) => {
 
       const userPayload = { ...user, email: effectiveEmail };
 
-      // ── Segment mode ─────────────────────────────────────────────────────
       if (isFlexibleLeave && isSegmentMode) {
         const missing = segments.some(s => !s.date);
         if (missing) {
@@ -456,6 +464,7 @@ const RequestForm = ({ user }: Props) => {
             { duration: 4000 }
           );
           setOpen(false);
+          onExternalClose?.();
           setIsSegmentMode(false);
           setSegments([newSegment(new Date(today))]);
           form.reset({ personalStartTime: getCurrentTime(), personalEndTime: getCurrentTime() });
@@ -466,7 +475,6 @@ const RequestForm = ({ user }: Props) => {
         return;
       }
 
-      // ── Date range mode (flexible) ────────────────────────────────────────
       if (isFlexibleLeave && !isSegmentMode) {
         if (!values.startDate) {
           toast.error("សូមជ្រើសរើសកាលបរិច្ឆេទ!");
@@ -482,7 +490,6 @@ const RequestForm = ({ user }: Props) => {
         }
       }
 
-      // Compute days / hours for non-segment flexible leave
       const submitDays: number = (() => {
         if (!isFlexibleLeave) {
           return values.startDate && values.endDate
@@ -545,6 +552,7 @@ const RequestForm = ({ user }: Props) => {
       if (res.ok) {
         toast.success("Leave Submitted", { duration: 4000 });
         setOpen(false);
+        onExternalClose?.();
         setDrSlotType("FULL");
         setDrShortcutH(0);
         setDrShortcutM(0);
@@ -587,7 +595,6 @@ const RequestForm = ({ user }: Props) => {
           )}
         </div>
 
-        {/* Start date */}
         <div className="flex flex-col gap-1">
           <span style={khmerFont} className="text-[12px] text-gray-600 dark:text-gray-400">
             {isFull ? "ថ្ងៃចាប់ផ្តើម" : "កាលបរិច្ឆេទ"}
@@ -617,7 +624,6 @@ const RequestForm = ({ user }: Props) => {
           </Popover>
         </div>
 
-        {/* End date — only for FULL slot */}
         {isFull && (
           <div className="flex flex-col gap-1">
             <span style={khmerFont} className="text-[12px] text-gray-600 dark:text-gray-400">ថ្ងៃបញ្ចប់</span>
@@ -644,7 +650,6 @@ const RequestForm = ({ user }: Props) => {
           </div>
         )}
 
-        {/* Slot type */}
         <div className="flex flex-col gap-1">
           <span style={khmerFont} className="text-[12px] text-gray-600 dark:text-gray-400">ប្រភេទ</span>
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
@@ -671,7 +676,6 @@ const RequestForm = ({ user }: Props) => {
           </div>
         </div>
 
-        {/* Custom time inputs */}
         {isCustom && (
           <div className="space-y-2">
             <div className="flex items-center gap-2 flex-wrap">
@@ -715,7 +719,6 @@ const RequestForm = ({ user }: Props) => {
           </div>
         )}
 
-        {/* Per-segment preview */}
         {seg.date && (
           <div className={cn(
             "text-[12px] rounded-md px-3 py-1.5 flex items-center gap-1.5",
@@ -800,7 +803,12 @@ const RequestForm = ({ user }: Props) => {
       descrStyle={khmerFont}
       isBtn={true}
       open={open}
-      setOpen={() => setOpen(!open)}
+      // ─── UPDATED: call onExternalClose when dialog closes ────────────────
+      setOpen={() => {
+        const next = !open;
+        setOpen(next);
+        if (!next) onExternalClose?.();
+      }}
     >
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -915,7 +923,6 @@ const RequestForm = ({ user }: Props) => {
           {isFlexibleLeave && (
             <div className="space-y-4">
 
-              {/* Mode toggle header */}
               <div className="flex items-center justify-between">
                 <span style={khmerFont} className="text-[13px] font-semibold text-gray-700 dark:text-gray-300">
                   {isSegmentMode ? "កាលបរិច្ឆេទ & ប្រភេទ" : "កាលបរិច្ឆេទ"}
@@ -943,8 +950,6 @@ const RequestForm = ({ user }: Props) => {
               {/* ── DATE RANGE MODE ── */}
               {!isSegmentMode && (
                 <div className="space-y-3">
-
-                  {/* Slot type selector */}
                   <div className="flex flex-col gap-1.5">
                     <span style={khmerFont} className="text-[12px] font-medium text-gray-600 dark:text-gray-400">
                       ប្រភេទពេលវេលា
@@ -976,7 +981,6 @@ const RequestForm = ({ user }: Props) => {
                     </div>
                   </div>
 
-                  {/* CUSTOM time inputs */}
                   {drSlotType === "CUSTOM" && (
                     <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-3 space-y-2">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -1037,7 +1041,6 @@ const RequestForm = ({ user }: Props) => {
                     </div>
                   )}
 
-                  {/* Start date */}
                   <FormField
                     control={form.control}
                     name="startDate"
@@ -1081,7 +1084,6 @@ const RequestForm = ({ user }: Props) => {
                     )}
                   />
 
-                  {/* End date — only for FULL slot */}
                   {drSlotType === "FULL" && (
                     <FormField
                       control={form.control}
@@ -1118,7 +1120,6 @@ const RequestForm = ({ user }: Props) => {
                     />
                   )}
 
-                  {/* Duration preview */}
                   {startDateValue && drDurationLabel && drDurationLabel !== "—" && (
                     <div className={cn(
                       "flex items-center gap-2 rounded-lg border px-4 py-3",
@@ -1289,7 +1290,7 @@ const RequestForm = ({ user }: Props) => {
             )}
           />
 
-          {/* ── Submit Button with Loading State ── */}
+          {/* ── Submit Button ── */}
           <Button
             type="submit"
             className="w-full"
@@ -1304,19 +1305,8 @@ const RequestForm = ({ user }: Props) => {
                   fill="none"
                   viewBox="0 0 24 24"
                 >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                  />
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
                 កំពុងដំណើរការ...
               </span>
