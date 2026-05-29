@@ -298,7 +298,7 @@ export async function PATCH(req: Request) {
             ``,
             `⏳ <i>កំពុងរង់ចាំការអនុម័តពីអ្នកគ្រប់គ្រង</i>`,
           ].join("\n"),
-          [{ text: "✅ អនុម័តក្នុងនាមអ្នកគ្រប់គ្រង →", url: leaveUrl }]
+          [{ text: "✅ អនុម័តដោយអ្នកគ្រប់គ្រង →", url: leaveUrl }]
         );
 
         return NextResponse.json(

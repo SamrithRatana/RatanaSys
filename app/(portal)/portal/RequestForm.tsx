@@ -37,7 +37,7 @@ const khmerFont: React.CSSProperties = { fontFamily: "'Battambang', serif" };
 
 const leaveKhmerLabels: Record<string, string> = {
   ANNUAL:    "ច្បាប់ប្រចាំឆ្នាំ-Annual Leave",
-  SICK:      "ច្បាប់ឈឺផ្ទាល់ខ្លួន-Sick Leave",
+  SICK:      "ច្បាប់ឈឺ-Sick Leave",
   PERSONAL:  "ច្បាប់ផ្ទាល់ខ្លួន-Personal Leave",
   MATERNITY: "ច្បាប់មាតុភាព-Maternity Leave",
   SPECIAL:   "ច្បាប់ពិសេស-Special Leave",

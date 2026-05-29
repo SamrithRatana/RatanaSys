@@ -83,7 +83,7 @@ const AuthComponent = () => {
           LOGIN
         </h1>
         <p className="text-xs text-gray-500 mt-1 whitespace-nowrap">
-          Access your Leave Management System
+          Access your Employee Leave Management System
         </p>
       </div>
       <div className="relative w-32 h-14 sm:w-48 sm:h-20">
