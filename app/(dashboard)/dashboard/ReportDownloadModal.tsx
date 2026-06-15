@@ -81,7 +81,7 @@ export const ReportDownloadModal = ({
       setLoading(false);
     }
   };
-
+  
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-lg">
