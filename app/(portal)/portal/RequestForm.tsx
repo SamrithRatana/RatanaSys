@@ -163,7 +163,7 @@ function segmentDurationLabel(seg: Segment): string {
 
 const formSchema = z
   .object({
-    notes:             z.string().min(1, "Notes are required.").max(500),
+   notes: z.string().max(500).optional().default(""),
     leave:             z.string({ required_error: "Please select a leave type." }),
     maternityGender:   z.enum(["MALE", "FEMALE"]).optional(),
     startDate:         z.date().optional(),
