@@ -88,13 +88,9 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
   const isStep1 = !leave.headDepartmentApproved;
   const isStep2 = leave.headDepartmentApproved && !leave.managerApproved && !isDone;
 
-  // ── MODERATOR: can only act on Step 1 (head dept approval) ───────────────
   const canActAsModerator = currentUserRole === "MODERATOR" && isStep1 && !isDone;
-
-  // ── ADMIN: skips Step 1, goes straight to final — always available if not done
-  const canActAsAdmin = currentUserRole === "ADMIN" && !isDone;
-
-  const canAct = canActAsModerator || canActAsAdmin;
+  const canActAsAdmin     = currentUserRole === "ADMIN" && !isDone;
+  const canAct            = canActAsModerator || canActAsAdmin;
 
   const actionLabel = canActAsAdmin
     ? "សេចក្តីសម្រេចរបស់អ្នកគ្រប់គ្រង (Final)"
@@ -205,11 +201,11 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
             icon={<Clock className="h-4 w-4" />}
             label="រយៈពេល"
             value={
-               leave.hours && leave.hours > 0
-    ? leave.days && leave.days > 0
-      ? `${leave.days} ថ្ងៃ ${formatHourLabel(Number(leave.hours))}`
-      : formatHourLabel(Number(leave.hours))
-    : `${leave.days} ថ្ងៃ`
+              leave.hours && leave.hours > 0
+                ? leave.days && leave.days > 0
+                  ? `${leave.days} ថ្ងៃ ${formatHourLabel(Number(leave.hours))}`
+                  : formatHourLabel(Number(leave.hours))
+                : `${leave.days} ថ្ងៃ`
             }
           />
 
@@ -324,7 +320,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         </CardContent>
       </Card>
 
-      {/* ── Action Card (shown to MODERATOR on Step 1, or ADMIN at any time) ── */}
+      {/* ── Action Card ── */}
       {canAct && (
         <Card className="border-blue-200 bg-blue-50/50 dark:bg-blue-950/10">
           <CardHeader>
@@ -388,7 +384,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
         </Card>
       )}
 
-      {/* ── Moderator waiting notice (Step 2 — Admin's turn) ── */}
+      {/* ── Moderator waiting notice ── */}
       {currentUserRole === "MODERATOR" && isStep2 && (
         <Card className="border-amber-200 bg-amber-50/50 dark:bg-amber-950/10">
           <CardContent className="py-4 text-center">
