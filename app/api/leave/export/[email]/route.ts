@@ -176,14 +176,26 @@ function cloneRowAfter(
 // wrapping that fits the column" when generating the file headlessly, we
 // estimate how many lines the text will need at the given column width and
 // font size, then grow the row to fit — exactly like Excel does visually.
-const KHMER_CHAR_WIDTH_PX = 7.3;     // approx average glyph width for Khmer OS Battambang @ 10pt
-const COLUMN_WIDTH_TO_PX  = 7;       // Excel "character width" units → px (Calibri 11 baseline)
-const LINE_HEIGHT_PX      = 18;      // px per wrapped line at 10pt Khmer font
-const MIN_ROW_HEIGHT      = 32.25;   // never shrink below the template's original row height
+const KHMER_CHAR_WIDTH_PX = 8.4;      // avg glyph width for Khmer OS Battambang @ 10pt
+                                       // (Khmer stacks subscripts/diacritics and runs wider
+                                       // than a Latin-font average — 7.3 under-counted lines
+                                       // and caused wrapped text to clip against row borders)
+const COLUMN_WIDTH_TO_PX  = 7;        // Excel "character width" units → px (Calibri 11 baseline)
+const LINE_HEIGHT_PX      = 20;       // px per wrapped line at 10pt Khmer font
+                                       // (raised from 18 — Khmer vowel signs/subscripts extend
+                                       // above & below the baseline more than Latin text)
+const ROW_PADDING_PX      = 6;        // extra top+bottom buffer per row, mirrors the small
+                                       // internal cell padding Excel itself renders around
+                                       // wrapped text — without this, the last line of wrapped
+                                       // text sits flush against the cell border and looks cut off
+const WRAP_SAFETY_MARGIN  = 0.92;     // shrink the usable line width slightly so a line that's
+                                       // right at the wrap boundary rounds up to break a line
+                                       // earlier, instead of risking an overflow/clip
+const MIN_ROW_HEIGHT      = 32.25;    // never shrink below the template's original row height
 
 function estimateWrappedLines(text: string, colWidthChars: number): number {
   if (!text) return 1;
-  const colWidthPx = colWidthChars * COLUMN_WIDTH_TO_PX;
+  const colWidthPx = colWidthChars * COLUMN_WIDTH_TO_PX * WRAP_SAFETY_MARGIN;
   const charsPerLine = Math.max(1, Math.floor(colWidthPx / KHMER_CHAR_WIDTH_PX));
   // Respect manual newlines (\n) as hard breaks, then estimate wraps within each segment
   const segments = text.split("\n");
@@ -220,9 +232,12 @@ function writeRow(
 
   // Grow row height to fit the wrapped note text (the longest field by far),
   // mirroring what "Alt+Enter" + auto-fit row height looks like in Excel.
+  // ROW_PADDING_PX accounts for the small internal top/bottom padding Excel
+  // itself renders around wrapped text — without it the last line sits flush
+  // against the cell border and reads as clipped even though it's fully there.
   const noteColWidth = (ws.getColumn(noteCol).width as number) ?? 20;
   const lines = estimateWrappedLines(lv.note, noteColWidth);
-  const neededHeight = lines * LINE_HEIGHT_PX;
+  const neededHeight = lines * LINE_HEIGHT_PX + ROW_PADDING_PX;
   r.height = Math.max(MIN_ROW_HEIGHT, neededHeight);
 
   r.commit();
