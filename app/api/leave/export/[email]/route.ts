@@ -49,9 +49,20 @@ type LeaveRow = {
   dur:                  string;
   balance:              string;
   note:                 string;
+  status:               string;
   headDeptApproved:     boolean;
   managerApproved:      boolean;
 };
+
+function statusLabel(s: string): string {
+  const map: Record<string, string> = {
+    PENDING:      "រង់ចាំ",
+    INMODERATION: "កំពុងពិនិត្យ",
+    APPROVED:     "បានអនុម័ត",
+    REJECTED:     "បដិសេធ",
+  };
+  return map[s] ?? s;
+}
 
 // ── Column helpers ────────────────────────────────────────────────────────────
 function colNum(letters: string): number {
@@ -195,7 +206,7 @@ function writeRow(
   r.getCell(5).value = lv.balance;   // E – Balance
   r.getCell(6).value = lv.note;      // F – Note / Reason
 
-  // ── Column G : always "បានស្នើរ" (submitted) ─────────────────────────────
+  // ── Column G : always "បានស្នើរ" (submitted) ────────────────────────────
   r.getCell(7).value = "បានស្នើរ";
   r.getCell(7).font      = { ...r.getCell(7).font, size: 10 };
   r.getCell(7).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
@@ -242,7 +253,7 @@ export async function GET(req: NextRequest, { params }: Params) {
   // ── Fetch ───────────────────────────────────────────────────────────────────
   const [leaves, balance, userRecord] = await Promise.all([
     prisma.leave.findMany({
-      where: { userEmail: email, year, status: "APPROVED" },
+      where: { userEmail: email, year },
       orderBy: { startDate: "asc" },
     }),
     prisma.balances.findFirst({ where: { email, year } }),
@@ -270,6 +281,7 @@ export async function GET(req: NextRequest, { params }: Params) {
         dur:              durLabel(d, h),
         balance:          `${kh(Math.max(0, annualBal))} ថ្ងៃ`,
         note:             lv.userNote ?? "",
+        status:           lv.status,
         headDeptApproved: lv.headDepartmentApproved === true,
         managerApproved:  lv.managerApproved === true,
       };
@@ -288,6 +300,7 @@ export async function GET(req: NextRequest, { params }: Params) {
         dur:              durLabel(d, h),
         balance:          `${kh(Math.max(0, sickBal))} ថ្ងៃ`,
         note:             lv.userNote ?? "",
+        status:           lv.status,
         headDeptApproved: lv.headDepartmentApproved === true,
         managerApproved:  lv.managerApproved === true,
       };
@@ -304,6 +317,7 @@ export async function GET(req: NextRequest, { params }: Params) {
         dur:              durLabel(d, h),
         balance:          "០ ថ្ងៃ",
         note:             lv.userNote ?? "",
+        status:           lv.status,
         headDeptApproved: lv.headDepartmentApproved === true,
         managerApproved:  lv.managerApproved === true,
       };
