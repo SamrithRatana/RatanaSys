@@ -259,7 +259,7 @@ export async function GET(req: NextRequest, { params }: Params) {
   // ── Build sections ──────────────────────────────────────────────────────────
   let annualBal = annualCredit;
   const sec1: LeaveRow[] = leaves
-    .filter(l => ["ANNUAL","PERSONAL","SHORT"].includes(l.type))
+    .filter(l => ["ANNUAL","PERSONAL"].includes(l.type))
     .map(lv => {
       const d = Number(lv.days ?? 0), h = Number(lv.hours ?? 0);
       annualBal -= d;
