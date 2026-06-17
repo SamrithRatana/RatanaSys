@@ -8,7 +8,7 @@ import ExcelJS from "exceljs";
 
 type Params = { params: { email: string } };
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+// ── KH digit helpers ──────────────────────────────────────────────────────────
 const KH: Record<string, string> = {
   "0":"០","1":"១","2":"២","3":"៣","4":"៤",
   "5":"៥","6":"៦","7":"៧","8":"៨","9":"៩",
@@ -37,35 +37,11 @@ function durLabel(days: number, hours: number): string {
   return "—";
 }
 
-// ── Parse merged cells that belong to a given row ─────────────────────────────
-// Returns an array of {top,left,bottom,right} for every merge that starts on srcRowNum
-function getMergesForRow(ws: ExcelJS.Worksheet, srcRowNum: number): Array<{
-  top: number; left: number; bottom: number; right: number;
-}> {
-  const result: Array<{ top: number; left: number; bottom: number; right: number }> = [];
-  // ExcelJS stores merges in the internal model
-  const model = (ws as any).model;
-  if (!model?.merges) return result;
-  for (const mergeStr of model.merges as string[]) {
-    // format: "A15:E15" or "A15:A17" etc.
-    const match = mergeStr.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
-    if (!match) continue;
-    const top  = parseInt(match[2], 10);
-    const bottom = parseInt(match[4], 10);
-    if (top === srcRowNum) {
-      const left  = colLetterToNum(match[1]);
-      const right = colLetterToNum(match[3]);
-      result.push({ top, left, bottom: bottom - top + srcRowNum, right });
-    }
-  }
-  return result;
-}
-
+// ── Column helpers ────────────────────────────────────────────────────────────
 function colLetterToNum(letters: string): number {
   let col = 0;
-  for (let i = 0; i < letters.length; i++) {
+  for (let i = 0; i < letters.length; i++)
     col = col * 26 + letters.charCodeAt(i) - 64;
-  }
   return col;
 }
 
@@ -79,58 +55,90 @@ function numToColLetter(num: number): string {
   return col;
 }
 
-// ── Copy style AND merges from template row to a destination row ──────────────
-function copyRowStyleAndMerges(
-  ws: ExcelJS.Worksheet,
-  srcRowNum: number,
-  dstRowNum: number,
-) {
-  const srcRow = ws.getRow(srcRowNum);
-  const dstRow = ws.getRow(dstRowNum);
-  dstRow.height = srcRow.height ?? 31.35;
+// ── Merge region type ─────────────────────────────────────────────────────────
+type MergeRegion = { top: number; left: number; bottom: number; right: number };
 
-  // Copy cell styles
-  srcRow.eachCell({ includeEmpty: true }, (srcCell, colNum) => {
-    const dstCell = dstRow.getCell(colNum);
-    dstCell.style = JSON.parse(JSON.stringify(srcCell.style));
+// ── Snapshot ALL merges from the worksheet BEFORE any row mutations ────────────
+// This is critical — spliceRows shifts merge addresses in the model, so we must
+// capture the original positions first.
+function snapshotMerges(ws: ExcelJS.Worksheet): MergeRegion[] {
+  const model = (ws as any).model;
+  if (!model?.merges) return [];
+  return (model.merges as string[]).map((m: string) => {
+    const match = m.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+    if (!match) return null;
+    return {
+      top:    parseInt(match[2], 10),
+      left:   colLetterToNum(match[1]),
+      bottom: parseInt(match[4], 10),
+      right:  colLetterToNum(match[3]),
+    };
+  }).filter(Boolean) as MergeRegion[];
+}
+
+// ── Snapshot cell styles for a specific row (BEFORE mutations) ────────────────
+type CellStyleSnapshot = { colNum: number; style: ExcelJS.Style }[];
+
+function snapshotRowStyle(ws: ExcelJS.Worksheet, rowNum: number): { height: number; cells: CellStyleSnapshot } {
+  const row = ws.getRow(rowNum);
+  const cells: CellStyleSnapshot = [];
+  row.eachCell({ includeEmpty: true }, (cell, colNum) => {
+    cells.push({ colNum, style: JSON.parse(JSON.stringify(cell.style)) });
   });
+  return { height: (row.height as number) ?? 31.35, cells };
+}
 
-  // Re-apply merged regions that were on the template row, shifted to dstRowNum
-  const merges = getMergesForRow(ws, srcRowNum);
-  for (const m of merges) {
-    const offset = dstRowNum - srcRowNum;
-    const topLeft     = `${numToColLetter(m.left)}${m.top + offset}`;
-    const bottomRight = `${numToColLetter(m.right)}${m.bottom + offset}`;
-    try {
-      ws.mergeCells(`${topLeft}:${bottomRight}`);
-    } catch {
-      // Already merged or invalid — skip
-    }
+// ── Apply a style snapshot to a destination row ───────────────────────────────
+function applyRowStyle(
+  ws: ExcelJS.Worksheet,
+  dstRowNum: number,
+  snapshot: ReturnType<typeof snapshotRowStyle>,
+  allMerges: MergeRegion[],
+  srcRowNum: number,
+) {
+  const dstRow = ws.getRow(dstRowNum);
+  dstRow.height = snapshot.height;
+
+  // Apply cell styles
+  for (const { colNum, style } of snapshot.cells) {
+    dstRow.getCell(colNum).style = JSON.parse(JSON.stringify(style));
+  }
+
+  // Apply merges that originated on srcRowNum, shifted to dstRowNum
+  const offset = dstRowNum - srcRowNum;
+  const rowMerges = allMerges.filter(m => m.top === srcRowNum);
+  for (const m of rowMerges) {
+    const tl = `${numToColLetter(m.left)}${m.top + offset}`;
+    const br = `${numToColLetter(m.right)}${m.bottom + offset}`;
+    try { ws.mergeCells(`${tl}:${br}`); } catch { /* skip if already merged */ }
   }
 
   dstRow.commit();
 }
 
-// ── Insert blank rows after a given row, copy style+merges from template row ──
+// ── Insert extra data rows after `afterRow`, styled from `styleFromRow` ───────
+// Takes pre-captured snapshots so spliceRows mutations don't corrupt the lookup.
 function insertDataRows(
   ws: ExcelJS.Worksheet,
   afterRow: number,
   count: number,
-  styleFromRow: number,
+  styleSnapshot: ReturnType<typeof snapshotRowStyle>,
+  allMerges: MergeRegion[],
+  srcRowNum: number,
 ) {
   if (count <= 0) return;
+  // Insert `count` blank rows immediately after afterRow
   ws.spliceRows(afterRow + 1, 0, ...Array(count).fill([]));
+  // Apply style + merges to each inserted row
   for (let i = 0; i < count; i++) {
-    copyRowStyleAndMerges(ws, styleFromRow, afterRow + 1 + i);
+    applyRowStyle(ws, afterRow + 1 + i, styleSnapshot, allMerges, srcRowNum);
   }
 }
 
-// ── Write a single data row ───────────────────────────────────────────────────
-// Uses the SAME column layout as the template (col A–E for dates/duration/balance,
-// col F for annual/personal/special note, col G for sick note).
+// ── Write values into a data row ──────────────────────────────────────────────
 function writeDataRow(
   ws: ExcelJS.Worksheet,
-  row: number,
+  rowNum: number,
   applied: string,
   start:   string,
   end:     string,
@@ -140,21 +148,16 @@ function writeDataRow(
   note:    string,
   isSick = false,
 ) {
-  const r = ws.getRow(row);
-  // Clear all cells first to avoid stale merged-cell ghost values
+  const r = ws.getRow(rowNum);
+  // Clear all cells first — prevents ghost values from broken merges
   r.eachCell({ includeEmpty: true }, (cell) => { cell.value = null; });
 
-  r.getCell(1).value = applied;          // A - Date applied
-  r.getCell(2).value = start;            // B - Start date
-  r.getCell(3).value = end;              // C - End date
-  r.getCell(4).value = durLabel(days, hours); // D - Duration
-  r.getCell(5).value = kh(Math.max(0, balance)); // E - Balance remaining
-  // F = annual/personal/special note | G = sick note
-  if (isSick) {
-    r.getCell(7).value = note;
-  } else {
-    r.getCell(6).value = note;
-  }
+  r.getCell(1).value = applied;
+  r.getCell(2).value = start;
+  r.getCell(3).value = end;
+  r.getCell(4).value = durLabel(days, hours);
+  r.getCell(5).value = kh(Math.max(0, balance));
+  r.getCell(isSick ? 7 : 6).value = note;
   r.commit();
 }
 
@@ -187,7 +190,6 @@ export async function GET(req: NextRequest, { params }: Params) {
   const userPos  = (userRecord as any)?.position   ?? "";
   const userDept = (userRecord as any)?.department ?? "";
 
-  // Section buckets
   const sec1 = leaves.filter(l => ["ANNUAL","PERSONAL","SHORT"].includes(l.type));
   const sec2 = leaves.filter(l => l.type === "SICK");
   const sec3 = leaves.filter(l => ["SPECIAL","MATERNITY"].includes(l.type));
@@ -210,18 +212,23 @@ export async function GET(req: NextRequest, { params }: Params) {
   await wb.xlsx.load(buf as any);
   const ws = wb.worksheets[0];
 
-  // ── Template row positions ──────────────────────────────────────────────────
-  // These must exactly match your leave-card.xlsx template layout:
-  // Row 15 = first (template) Annual data row
-  // Row 16 = Sick section header  ← shifts down when annual rows are added
-  // Row 22 = first (template) Sick data row
-  // Row 23 = Special section header
-  // Row 28 = first (template) Special data row
-  let ANNUAL_DATA   = 15;
-  let SICK_SECT     = 16;
-  let SICK_DATA     = 22;
-  let SPECIAL_SECT  = 23;
-  let SPECIAL_DATA  = 28;
+  // ── SNAPSHOT merges and row styles BEFORE any mutation ──────────────────────
+  // This is the key fix: spliceRows mutates model.merges addresses in-place,
+  // so we must read everything we need before touching the sheet.
+  const allMerges = snapshotMerges(ws);
+
+  const ANNUAL_TMPL  = 15;
+  const SICK_TMPL    = 22;
+  const SPECIAL_TMPL = 28;
+
+  const annualStyleSnap  = snapshotRowStyle(ws, ANNUAL_TMPL);
+  const sickStyleSnap    = snapshotRowStyle(ws, SICK_TMPL);
+  const specialStyleSnap = snapshotRowStyle(ws, SPECIAL_TMPL);
+
+  // ── Mutable row pointers (shift as rows are inserted) ──────────────────────
+  let ANNUAL_DATA   = ANNUAL_TMPL;
+  let SICK_DATA     = SICK_TMPL;
+  let SPECIAL_DATA  = SPECIAL_TMPL;
 
   // ── Fill employee header ────────────────────────────────────────────────────
   ws.getCell("A7").value  = `ឈ្មោះបុគ្គលិក៖  ${userName}`;
@@ -230,62 +237,52 @@ export async function GET(req: NextRequest, { params }: Params) {
   ws.getCell("A11").value = `ច្បាប់ឈប់សម្រាកប្រចាំឆ្នាំរយៈពេល ${kh(annualCredit)} ថ្ងៃ`;
 
   // ── SECTION 1: Annual / Personal / Short ───────────────────────────────────
-  // If 0 leaves, leave template row blank. If >1, insert extra rows.
   const extra1 = Math.max(0, sec1.length - 1);
   if (extra1 > 0) {
-    insertDataRows(ws, ANNUAL_DATA, extra1, ANNUAL_DATA);
-    SICK_SECT    += extra1;
+    insertDataRows(ws, ANNUAL_DATA, extra1, annualStyleSnap, allMerges, ANNUAL_TMPL);
     SICK_DATA    += extra1;
-    SPECIAL_SECT += extra1;
     SPECIAL_DATA += extra1;
   }
 
   let annualRunning = annualCredit;
   sec1.forEach((lv, i) => {
-    const d = Number(lv.days  ?? 0);
+    const d = Number(lv.days ?? 0);
     const h = Number(lv.hours ?? 0);
     annualRunning -= d;
-    writeDataRow(
-      ws, ANNUAL_DATA + i,
+    writeDataRow(ws, ANNUAL_DATA + i,
       fmtDate(lv.createdAt), fmtDate(lv.startDate), fmtDate(lv.endDate ?? lv.startDate),
-      d, h, annualRunning, lv.userNote ?? "",
-    );
+      d, h, annualRunning, lv.userNote ?? "");
   });
 
   // ── SECTION 2: Sick ────────────────────────────────────────────────────────
   const extra2 = Math.max(0, sec2.length - 1);
   if (extra2 > 0) {
-    insertDataRows(ws, SICK_DATA, extra2, SICK_DATA);
-    SPECIAL_SECT += extra2;
+    insertDataRows(ws, SICK_DATA, extra2, sickStyleSnap, allMerges, SICK_TMPL);
     SPECIAL_DATA += extra2;
   }
 
   let sickRunning = sickCredit;
   sec2.forEach((lv, i) => {
-    const d = Number(lv.days  ?? 0);
+    const d = Number(lv.days ?? 0);
     const h = Number(lv.hours ?? 0);
     sickRunning -= d;
-    writeDataRow(
-      ws, SICK_DATA + i,
+    writeDataRow(ws, SICK_DATA + i,
       fmtDate(lv.createdAt), fmtDate(lv.startDate), fmtDate(lv.endDate ?? lv.startDate),
-      d, h, sickRunning, lv.userNote ?? "", true,
-    );
+      d, h, sickRunning, lv.userNote ?? "", true);
   });
 
   // ── SECTION 3: Special / Maternity ────────────────────────────────────────
   const extra3 = Math.max(0, sec3.length - 1);
   if (extra3 > 0) {
-    insertDataRows(ws, SPECIAL_DATA, extra3, SPECIAL_DATA);
+    insertDataRows(ws, SPECIAL_DATA, extra3, specialStyleSnap, allMerges, SPECIAL_TMPL);
   }
 
   sec3.forEach((lv, i) => {
-    const d = Number(lv.days  ?? 0);
+    const d = Number(lv.days ?? 0);
     const h = Number(lv.hours ?? 0);
-    writeDataRow(
-      ws, SPECIAL_DATA + i,
+    writeDataRow(ws, SPECIAL_DATA + i,
       fmtDate(lv.createdAt), fmtDate(lv.startDate), fmtDate(lv.endDate ?? lv.startDate),
-      d, h, 0, lv.userNote ?? "",
-    );
+      d, h, 0, lv.userNote ?? "");
   });
 
   // ── Output ──────────────────────────────────────────────────────────────────
