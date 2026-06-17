@@ -92,7 +92,11 @@ model Leave {
   tasksLink String?
   userEmail String
   status    LeaveStatus @default(PENDING)
-  segments  Json?   
+  segments  Json?
+
+  // Substitute (អ្នកជំនួស) — name of person covering during leave
+  substitute  String?
+
   // Head Department (1st approval)
   headDepartment         String?
   headDepartmentNote     String?
@@ -153,10 +157,10 @@ model Balances {
 
 model Events {
   id          String    @id @default(cuid())
-  title       String
-  description String?
   startDate   DateTime
   endDate     DateTime?
+  title       String
+  description String?
 }
 
 // ✅ Dynamic departments — managed by admin from UI
@@ -171,26 +175,25 @@ model Department {
 // ✅ Dynamic job titles — managed by admin from UI
 model JobTitle {
   id          String   @id @default(cuid())
-  label       String   @unique  // e.g. "Senior Developer", "CEO", "HR Manager"
+  label       String   @unique
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
 
-// ✅ Dynamic roles — managed by admin from UI (no more hardcoded enum)
+// ✅ Dynamic roles — managed by admin from UI
 model Role {
   id          String   @id @default(cuid())
-  label       String   @unique  // e.g. "ADMIN", "USER", "MODERATOR"
+  label       String   @unique
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
-
 
 model Team {
   id          String       @id @default(cuid())
   name        String
-  department  String       // matches Department.label
+  department  String
   members     TeamMember[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
@@ -199,7 +202,7 @@ model Team {
 model TeamMember {
   id        String   @id @default(cuid())
   teamId    String
-  userEmail String   // matches User.email
+  userEmail String
   team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 

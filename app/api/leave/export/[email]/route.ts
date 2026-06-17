@@ -50,6 +50,7 @@ type LeaveRow = {
   balance:              string;
   note:                 string;
   status:               string;
+  substitute:           string;   // អ្នកជំនួស
   headDeptApproved:     boolean;
   managerApproved:      boolean;
 };
@@ -211,6 +212,18 @@ function writeRow(
   r.getCell(7).font      = { ...r.getCell(7).font, size: 10 };
   r.getCell(7).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
 
+  // ── Column H : Substitute name (អ្នកជំនួស) ───────────────────────────────
+  if (lv.substitute) {
+    r.getCell(8).value = lv.substitute;
+    r.getCell(8).font      = { ...r.getCell(8).font, size: 10 };
+    r.getCell(8).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+
+    // ── Column I : always "បានចាត់តាំង" when substitute exists ──────────────
+    r.getCell(9).value = "បានចាត់តាំង";
+    r.getCell(9).font      = { ...r.getCell(9).font, size: 10 };
+    r.getCell(9).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+  }
+
   // ── Column J : Head Department approval ──────────────────────────────────
   r.getCell(10).value = lv.headDeptApproved ? "បានអនុម័ត" : "";
   applyApprovalStyle(r.getCell(10));
@@ -282,6 +295,7 @@ export async function GET(req: NextRequest, { params }: Params) {
         balance:          `${kh(Math.max(0, annualBal))} ថ្ងៃ`,
         note:             lv.userNote ?? "",
         status:           lv.status,
+        substitute:       (lv as any).substitute ?? "",
         headDeptApproved: lv.headDepartmentApproved === true,
         managerApproved:  lv.managerApproved === true,
       };
@@ -301,6 +315,7 @@ export async function GET(req: NextRequest, { params }: Params) {
         balance:          `${kh(Math.max(0, sickBal))} ថ្ងៃ`,
         note:             lv.userNote ?? "",
         status:           lv.status,
+        substitute:       (lv as any).substitute ?? "",
         headDeptApproved: lv.headDepartmentApproved === true,
         managerApproved:  lv.managerApproved === true,
       };
@@ -318,6 +333,7 @@ export async function GET(req: NextRequest, { params }: Params) {
         balance:          "០ ថ្ងៃ",
         note:             lv.userNote ?? "",
         status:           lv.status,
+        substitute:       (lv as any).substitute ?? "",
         headDeptApproved: lv.headDepartmentApproved === true,
         managerApproved:  lv.managerApproved === true,
       };

@@ -27,7 +27,9 @@ import { Calendar } from "@/components/ui/calendar";
 import DialogWrapper from "@/components/Common/DialogWrapper";
 import { User } from "@prisma/client";
 import toast from "react-hot-toast";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import Image from "next/image";
+import { Search, User as UserIcon, X } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants & types
@@ -45,7 +47,17 @@ const leaveKhmerLabels: Record<string, string> = {
 
 const MATERNITY_DAYS: Record<string, number> = { MALE: 7, FEMALE: 90 };
 
+// Leave types that require a substitute
+const SUBSTITUTE_LEAVE_TYPES = ["ANNUAL", "PERSONAL", "SPECIAL", "MATERNITY"];
+
 type SlotType = "FULL" | "HALF_AM" | "HALF_PM" | "CUSTOM";
+
+type UserItem = {
+  id:    string;
+  name:  string | null;
+  email: string | null;
+  image: string | null;
+};
 
 // ── Segment (for segment mode) ────────────────────────────────────────────────
 type Segment = {
@@ -81,9 +93,10 @@ const SLOT_TIMES: Record<Exclude<SlotType, "CUSTOM">, [string, string]> = {
 };
 
 type Props = {
-  user: User;
-  defaultLeave?: string;
-  externalOpen?: boolean;
+  user:             User;
+  users?:           UserItem[];   // ← list for substitute picker
+  defaultLeave?:    string;
+  externalOpen?:    boolean;
   onExternalClose?: () => void;
 };
 
@@ -163,7 +176,7 @@ function segmentDurationLabel(seg: Segment): string {
 
 const formSchema = z
   .object({
-   notes: z.string().max(500).optional().default(""),
+    notes:             z.string().max(500).optional().default(""),
     leave:             z.string({ required_error: "Please select a leave type." }),
     maternityGender:   z.enum(["MALE", "FEMALE"]).optional(),
     startDate:         z.date().optional(),
@@ -221,16 +234,163 @@ function newSegment(date?: Date): Segment {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SubstitutePicker sub-component
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SubstitutePicker({
+  users,
+  selected,
+  onSelect,
+  currentUserEmail,
+}: {
+  users:            UserItem[];
+  selected:         UserItem | null;
+  onSelect:         (u: UserItem | null) => void;
+  currentUserEmail: string | null | undefined;
+}) {
+  const [search, setSearch] = useState("");
+  const [open,   setOpen]   = useState(false);
+  const wrapRef             = useRef<HTMLDivElement>(null);
+
+  const filtered =
+    search.trim().length === 0
+      ? []
+      : users
+          .filter(
+            (u) =>
+              u.email !== currentUserEmail &&
+              ((u.name  ?? "").toLowerCase().includes(search.toLowerCase()) ||
+               (u.email ?? "").toLowerCase().includes(search.toLowerCase()))
+          )
+          .slice(0, 6);
+
+  // close dropdown on outside click
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div className="space-y-2">
+      <label style={khmerFont} className="text-sm font-medium text-foreground">
+        អ្នកជំនួស <span className="text-muted-foreground font-normal">(Substitute)</span>
+        <span className="text-muted-foreground text-xs ml-1">· optional</span>
+      </label>
+
+      {selected ? (
+        /* ── Selected card ── */
+        <div className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/40 px-3 py-2.5">
+          {selected.image ? (
+            <Image
+              src={selected.image}
+              alt={selected.name ?? ""}
+              width={32}
+              height={32}
+              className="rounded-full object-cover shrink-0"
+            />
+          ) : (
+            <div className="h-8 w-8 rounded-full bg-blue-200 dark:bg-blue-800 flex items-center justify-center shrink-0">
+              <UserIcon className="h-4 w-4 text-blue-600 dark:text-blue-300" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p style={khmerFont} className="text-sm font-medium truncate text-blue-900 dark:text-blue-100">
+              {selected.name ?? "—"}
+            </p>
+            <p className="text-xs text-blue-600 dark:text-blue-400 truncate">{selected.email}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onSelect(null)}
+            className="text-blue-400 hover:text-red-500 transition-colors shrink-0 p-1 rounded-full hover:bg-red-50 dark:hover:bg-red-950"
+            aria-label="Remove substitute"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : (
+        /* ── Search box ── */
+        <div ref={wrapRef} className="relative">
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              style={khmerFont}
+              placeholder="វាយឈ្មោះ ឬអ៊ីម៉ែល..."
+              value={search}
+              className="pl-9 text-[13px]"
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setOpen(true);
+              }}
+              onFocus={() => setOpen(true)}
+            />
+          </div>
+
+          {open && filtered.length > 0 && (
+            <div className="absolute z-50 mt-1 w-full rounded-xl border bg-popover shadow-lg overflow-hidden divide-y">
+              {filtered.map((u) => (
+                <button
+                  key={u.id}
+                  type="button"
+                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted/60 transition-colors text-left"
+                  onClick={() => {
+                    onSelect(u);
+                    setSearch("");
+                    setOpen(false);
+                  }}
+                >
+                  {u.image ? (
+                    <Image
+                      src={u.image}
+                      alt={u.name ?? ""}
+                      width={28}
+                      height={28}
+                      className="rounded-full object-cover shrink-0"
+                    />
+                  ) : (
+                    <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center shrink-0">
+                      <UserIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                    </div>
+                  )}
+                  <div className="flex flex-col min-w-0">
+                    <span style={khmerFont} className="text-[13px] font-medium truncate">
+                      {u.name ?? "—"}
+                    </span>
+                    <span className="text-xs text-muted-foreground truncate">{u.email}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {open && search.trim().length > 0 && filtered.length === 0 && (
+            <div className="absolute z-50 mt-1 w-full rounded-xl border bg-popover shadow-lg px-4 py-3">
+              <p style={khmerFont} className="text-sm text-muted-foreground">រកមិនឃើញបុគ្គលិក</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Props) => {
+const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalClose }: Props) => {
   const [open,          setOpen]          = useState(false);
   const [openLeaveType, setOpenLeaveType] = useState(false);
   const [openStartDate, setOpenStartDate] = useState(false);
   const [openEndDate,   setOpenEndDate]   = useState(false);
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting,    setIsSubmitting]    = useState(false);
+  const [substituteUser,  setSubstituteUser]  = useState<UserItem | null>(null);
 
   const [isSegmentMode, setIsSegmentMode] = useState(false);
   const [segments, setSegments] = useState<Segment[]>([newSegment(new Date(today))]);
@@ -257,8 +417,6 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
   }, [externalOpen]);
 
   // ─── Set leave type when opened externally ────────────────────────────────
-  // NOTE: date auto-fill is handled by the selectedLeave effect below,
-  // which fires automatically when the leave value changes here.
   useEffect(() => {
     if (externalOpen && defaultLeave) {
       form.setValue("leave", defaultLeave);
@@ -274,14 +432,18 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
   const isSick      = selectedLeave === "SICK";
   const isAnnual    = selectedLeave === "ANNUAL";
   const isMaternity = selectedLeave === "MATERNITY";
+  const isSpecial   = selectedLeave === "SPECIAL";
 
   const isFlexibleLeave = isAnnual || isPersonal || isSick;
+
+  // Whether this leave type needs a substitute picker
+  const needsSubstitute =
+    users.length > 0 &&
+    SUBSTITUTE_LEAVE_TYPES.includes(selectedLeave ?? "");
 
   const currentYear = today.getFullYear();
 
   // ─── Reset UI state when leave type changes ───────────────────────────────
-  // Also auto-fills today's date for ANNUAL / SICK / PERSONAL regardless of
-  // whether the form was opened via the button or a UserBalances row click.
   useEffect(() => {
     setIsSegmentMode(false);
     setSegments([newSegment(new Date(today))]);
@@ -290,8 +452,8 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
     setDrEndTime(getCurrentTime());
     setDrShortcutH(0);
     setDrShortcutM(0);
+    setSubstituteUser(null);   // clear substitute when leave type changes
 
-    // Auto-fill today for flexible leave types (manual select OR external open)
     if (selectedLeave && ["ANNUAL", "SICK", "PERSONAL"].includes(selectedLeave)) {
       form.setValue("startDate", new Date(today), { shouldValidate: false });
       form.setValue("endDate",   new Date(today), { shouldValidate: false });
@@ -360,7 +522,6 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
     }
     if (drSlotType === "HALF_AM") return formatDuration(SLOT_HOURS.HALF_AM * 60);
     if (drSlotType === "HALF_PM") return formatDuration(SLOT_HOURS.HALF_PM * 60);
-    // CUSTOM — always return a label so the pill stays visible
     const h = calcHours(drStartTime, drEndTime);
     if (h <= 0) return "0 នាទី";
     if (h >= 8) return "1 ថ្ងៃ";
@@ -422,6 +583,9 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
 
       const userPayload = { ...user, email: effectiveEmail };
 
+      // ── Substitute name ───────────────────────────────────────────────────
+      const substituteName = substituteUser?.name ?? null;
+
       if (isFlexibleLeave && isSegmentMode) {
         const missing = segments.some(s => !s.date);
         if (missing) {
@@ -454,13 +618,14 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
         });
 
         const payload = {
-          notes:     values.notes,
-          leave:     values.leave,
-          type:      values.leave,
-          startDate: format(segments[0].date!, "yyyy-MM-dd"),
-          endDate:   format(segments[segments.length - 1].endDate ?? segments[segments.length - 1].date!, "yyyy-MM-dd"),
-          segments:  segmentPayloads,
-          user:      userPayload,
+          notes:      values.notes,
+          leave:      values.leave,
+          type:       values.leave,
+          startDate:  format(segments[0].date!, "yyyy-MM-dd"),
+          endDate:    format(segments[segments.length - 1].endDate ?? segments[segments.length - 1].date!, "yyyy-MM-dd"),
+          segments:   segmentPayloads,
+          substitute: substituteName,
+          user:       userPayload,
         };
 
         const res = await fetch("/api/leave", {
@@ -477,6 +642,7 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
           onExternalClose?.();
           setIsSegmentMode(false);
           setSegments([newSegment(new Date(today))]);
+          setSubstituteUser(null);
           form.reset({ personalStartTime: getCurrentTime(), personalEndTime: getCurrentTime() });
         } else {
           const errData = await res.json().catch(() => ({}));
@@ -548,6 +714,7 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
         startDate:       values.startDate ? format(values.startDate, "yyyy-MM-dd") : "",
         endDate:         effectiveEndDate  ? format(effectiveEndDate, "yyyy-MM-dd") : "",
         days:            submitDays,
+        substitute:      substituteName,
         ...(submitHours     !== undefined && { hours:     submitHours }),
         ...(submitStartTime !== undefined && { startTime: submitStartTime }),
         ...(submitEndTime   !== undefined && { endTime:   submitEndTime }),
@@ -566,6 +733,7 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
         setDrSlotType("FULL");
         setDrShortcutH(0);
         setDrShortcutM(0);
+        setSubstituteUser(null);
         form.reset({ personalStartTime: getCurrentTime(), personalEndTime: getCurrentTime() });
       } else {
         const data = await res.json();
@@ -1287,6 +1455,20 @@ const RequestForm = ({ user, defaultLeave, externalOpen, onExternalClose }: Prop
                 រយៈពេល: <strong>{MATERNITY_DAYS[maternityGender]} ថ្ងៃ</strong>
                 {" "}({format(startDateValue, "dd MMM")} – {format(endDateValue, "dd MMM yyyy")})
               </span>
+            </div>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              SUBSTITUTE PICKER — Annual, Personal, Special, Maternity
+          ══════════════════════════════════════════════════════════════════ */}
+          {needsSubstitute && (
+            <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-4">
+              <SubstitutePicker
+                users={users}
+                selected={substituteUser}
+                onSelect={setSubstituteUser}
+                currentUserEmail={user.email}
+              />
             </div>
           )}
 
