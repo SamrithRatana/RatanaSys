@@ -170,6 +170,30 @@ function cloneRowAfter(
   }
 }
 
+// ── Text wrapping helpers ──────────────────────────────────────────────────
+// Excel/ExcelJS doesn't auto-calculate row height when wrap_text is enabled
+// (that's a UI-only behavior in the real Excel app). To replicate "Alt+Enter
+// wrapping that fits the column" when generating the file headlessly, we
+// estimate how many lines the text will need at the given column width and
+// font size, then grow the row to fit — exactly like Excel does visually.
+const KHMER_CHAR_WIDTH_PX = 7.3;     // approx average glyph width for Khmer OS Battambang @ 10pt
+const COLUMN_WIDTH_TO_PX  = 7;       // Excel "character width" units → px (Calibri 11 baseline)
+const LINE_HEIGHT_PX      = 18;      // px per wrapped line at 10pt Khmer font
+const MIN_ROW_HEIGHT      = 32.25;   // never shrink below the template's original row height
+
+function estimateWrappedLines(text: string, colWidthChars: number): number {
+  if (!text) return 1;
+  const colWidthPx = colWidthChars * COLUMN_WIDTH_TO_PX;
+  const charsPerLine = Math.max(1, Math.floor(colWidthPx / KHMER_CHAR_WIDTH_PX));
+  // Respect manual newlines (\n) as hard breaks, then estimate wraps within each segment
+  const segments = text.split("\n");
+  let totalLines = 0;
+  for (const seg of segments) {
+    totalLines += Math.max(1, Math.ceil(seg.length / charsPerLine));
+  }
+  return totalLines;
+}
+
 // ── Write data into one row ───────────────────────────────────────────────────
 function writeRow(
   ws: ExcelJS.Worksheet,
@@ -185,7 +209,22 @@ function writeRow(
   r.getCell(3).value = lv.end;
   r.getCell(4).value = lv.dur;
   r.getCell(5).value = lv.balance;
-  r.getCell(isSick ? 7 : 6).value = lv.note;
+  const noteCol = isSick ? 7 : 6;
+  r.getCell(noteCol).value = lv.note;
+
+  // Font size 10 + wrap text for every populated cell in this data row
+  r.eachCell({ includeEmpty: true }, cell => {
+    cell.font = { ...cell.font, size: 10 };
+    cell.alignment = { ...cell.alignment, wrapText: true };
+  });
+
+  // Grow row height to fit the wrapped note text (the longest field by far),
+  // mirroring what "Alt+Enter" + auto-fit row height looks like in Excel.
+  const noteColWidth = (ws.getColumn(noteCol).width as number) ?? 20;
+  const lines = estimateWrappedLines(lv.note, noteColWidth);
+  const neededHeight = lines * LINE_HEIGHT_PX;
+  r.height = Math.max(MIN_ROW_HEIGHT, neededHeight);
+
   r.commit();
 }
 
@@ -264,6 +303,13 @@ export async function GET(req: NextRequest, { params }: Params) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buf as any);
   const ws = wb.worksheets[0];
+
+  // ── Widen the "reason / មូលហេតុ" column so wrapped text (Alt+Enter style)
+  //    has room to breathe instead of being squeezed/cut off at width ~21.
+  const noteColumn = ws.getColumn(6); // column F
+  if (!noteColumn.width || noteColumn.width < 30) {
+    noteColumn.width = 30;
+  }
 
   // ── Header ──────────────────────────────────────────────────────────────────
   ws.getCell("A7").value  = `ឈ្មោះបុគ្គលិក៖  ${userName}`;
