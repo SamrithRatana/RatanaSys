@@ -162,11 +162,17 @@ function estimateWrappedLines(text: string, colWidthChars: number): number {
 }
 
 // ── Write data into one row ───────────────────────────────────────────────────
+// All three sections now share the same column layout:
+//   Col 1 (A) = date applied
+//   Col 2 (B) = start date
+//   Col 3 (C) = end date
+//   Col 4 (D) = duration
+//   Col 5 (E) = balance remaining
+//   Col 6 (F) = note / reason / illness type  ← same for annual, sick, special
 function writeRow(
   ws: ExcelJS.Worksheet,
   rowNum: number,
   lv: LeaveRow,
-  isSick = false,
 ) {
   const r = ws.getRow(rowNum);
   r.eachCell({ includeEmpty: true }, c => { c.value = null; });
@@ -175,15 +181,14 @@ function writeRow(
   r.getCell(3).value = lv.end;
   r.getCell(4).value = lv.dur;
   r.getCell(5).value = lv.balance;
-  const noteCol = isSick ? 7 : 6;
-  r.getCell(noteCol).value = lv.note;
+  r.getCell(6).value = lv.note;   // col F for all sections
 
   r.eachCell({ includeEmpty: true }, cell => {
     cell.font = { ...cell.font, size: 10 };
     cell.alignment = { ...cell.alignment, wrapText: true };
   });
 
-  const noteColWidth = (ws.getColumn(noteCol).width as number) ?? 20;
+  const noteColWidth = (ws.getColumn(6).width as number) ?? 20;
   const lines = estimateWrappedLines(lv.note, noteColWidth);
   const neededHeight = lines * LINE_HEIGHT_PX + ROW_PADDING_PX;
   r.height = Math.max(MIN_ROW_HEIGHT, neededHeight);
@@ -267,7 +272,7 @@ export async function GET(req: NextRequest, { params }: Params) {
   await wb.xlsx.load(buf as any);
   const ws = wb.worksheets[0];
 
-  // ── Widen the "reason / មូលហេតុ" column ────────────────────────────────────
+  // ── Widen col F (note / reason / illness) ───────────────────────────────────
   const noteColumn = ws.getColumn(6);
   if (!noteColumn.width || noteColumn.width < 30) {
     noteColumn.width = 30;
@@ -284,7 +289,7 @@ export async function GET(req: NextRequest, { params }: Params) {
   //   Annual:  rows 15–19
   //   Sick:    rows 26–30
   //   Special: rows 36–40
-  // We fill those first; only clone new rows when data exceeds the slot count.
+  // Fill existing slots first; only clone when data exceeds slot count.
   const ANNUAL_SLOTS  = 5;
   const SICK_SLOTS    = 5;
   const SPECIAL_SLOTS = 5;
@@ -309,7 +314,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     R3 += extra2;
   }
   for (let i = 0; i < Math.max(sec2.length, 1); i++) {
-    if (sec2[i]) writeRow(ws, R2 + i, sec2[i], true);
+    if (sec2[i]) writeRow(ws, R2 + i, sec2[i]);
   }
 
   // ── Section 3: special ──────────────────────────────────────────────────────
