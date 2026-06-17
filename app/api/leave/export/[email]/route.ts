@@ -173,13 +173,8 @@ function estimateWrappedLines(text: string, colWidthChars: number): number {
 }
 
 // ── Approval cell style helper ────────────────────────────────────────────────
-function applyApprovalStyle(cell: ExcelJS.Cell, approved: boolean) {
-  cell.font = {
-    ...cell.font,
-    size:  10,
-    bold:  approved,
-    color: approved ? { argb: "FF1D6F42" } : { argb: "FF9E9E9E" },
-  };
+function applyApprovalStyle(cell: ExcelJS.Cell) {
+  cell.font      = { ...cell.font, size: 10 };
   cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
 }
 
@@ -202,18 +197,16 @@ function writeRow(
 
   // ── Column G : always "បានស្នើរ" (submitted) ─────────────────────────────
   r.getCell(7).value = "បានស្នើរ";
-  r.getCell(7).font = { ...r.getCell(7).font, size: 10, color: { argb: "FF1565C0" } };
+  r.getCell(7).font      = { ...r.getCell(7).font, size: 10 };
   r.getCell(7).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
 
   // ── Column J : Head Department approval ──────────────────────────────────
-  // col 10 = J
   r.getCell(10).value = lv.headDeptApproved ? "បានអនុម័ត" : "";
-  applyApprovalStyle(r.getCell(10), lv.headDeptApproved);
+  applyApprovalStyle(r.getCell(10));
 
   // ── Column K : HR / Manager (Admin) approval ─────────────────────────────
-  // col 11 = K
   r.getCell(11).value = lv.managerApproved ? "បានអនុម័ត" : "";
-  applyApprovalStyle(r.getCell(11), lv.managerApproved);
+  applyApprovalStyle(r.getCell(11));
 
   // ── Base font + wrap for A–F ─────────────────────────────────────────────
   for (let c = 1; c <= 6; c++) {
