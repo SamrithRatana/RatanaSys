@@ -37,18 +37,81 @@ function durLabel(days: number, hours: number): string {
   return "—";
 }
 
-// ── Copy style from one row to another (exceljs) ──────────────────────────────
-function copyRowStyle(ws: ExcelJS.Worksheet, srcRowNum: number, dstRowNum: number) {
+// ── Parse merged cells that belong to a given row ─────────────────────────────
+// Returns an array of {top,left,bottom,right} for every merge that starts on srcRowNum
+function getMergesForRow(ws: ExcelJS.Worksheet, srcRowNum: number): Array<{
+  top: number; left: number; bottom: number; right: number;
+}> {
+  const result: Array<{ top: number; left: number; bottom: number; right: number }> = [];
+  // ExcelJS stores merges in the internal model
+  const model = (ws as any).model;
+  if (!model?.merges) return result;
+  for (const mergeStr of model.merges as string[]) {
+    // format: "A15:E15" or "A15:A17" etc.
+    const match = mergeStr.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+    if (!match) continue;
+    const top  = parseInt(match[2], 10);
+    const bottom = parseInt(match[4], 10);
+    if (top === srcRowNum) {
+      const left  = colLetterToNum(match[1]);
+      const right = colLetterToNum(match[3]);
+      result.push({ top, left, bottom: bottom - top + srcRowNum, right });
+    }
+  }
+  return result;
+}
+
+function colLetterToNum(letters: string): number {
+  let col = 0;
+  for (let i = 0; i < letters.length; i++) {
+    col = col * 26 + letters.charCodeAt(i) - 64;
+  }
+  return col;
+}
+
+function numToColLetter(num: number): string {
+  let col = "";
+  while (num > 0) {
+    const rem = (num - 1) % 26;
+    col = String.fromCharCode(65 + rem) + col;
+    num = Math.floor((num - 1) / 26);
+  }
+  return col;
+}
+
+// ── Copy style AND merges from template row to a destination row ──────────────
+function copyRowStyleAndMerges(
+  ws: ExcelJS.Worksheet,
+  srcRowNum: number,
+  dstRowNum: number,
+) {
   const srcRow = ws.getRow(srcRowNum);
   const dstRow = ws.getRow(dstRowNum);
   dstRow.height = srcRow.height ?? 31.35;
+
+  // Copy cell styles
   srcRow.eachCell({ includeEmpty: true }, (srcCell, colNum) => {
     const dstCell = dstRow.getCell(colNum);
-    dstCell.style = { ...srcCell.style };
+    dstCell.style = JSON.parse(JSON.stringify(srcCell.style));
   });
+
+  // Re-apply merged regions that were on the template row, shifted to dstRowNum
+  const merges = getMergesForRow(ws, srcRowNum);
+  for (const m of merges) {
+    const offset = dstRowNum - srcRowNum;
+    const topLeft     = `${numToColLetter(m.left)}${m.top + offset}`;
+    const bottomRight = `${numToColLetter(m.right)}${m.bottom + offset}`;
+    try {
+      ws.mergeCells(`${topLeft}:${bottomRight}`);
+    } catch {
+      // Already merged or invalid — skip
+    }
+  }
+
+  dstRow.commit();
 }
 
-// ── Insert blank rows after a given row, copy style from template row ─────────
+// ── Insert blank rows after a given row, copy style+merges from template row ──
 function insertDataRows(
   ws: ExcelJS.Worksheet,
   afterRow: number,
@@ -56,14 +119,15 @@ function insertDataRows(
   styleFromRow: number,
 ) {
   if (count <= 0) return;
-  // Splice rows: shift everything below afterRow down by count
   ws.spliceRows(afterRow + 1, 0, ...Array(count).fill([]));
   for (let i = 0; i < count; i++) {
-    copyRowStyle(ws, styleFromRow, afterRow + 1 + i);
+    copyRowStyleAndMerges(ws, styleFromRow, afterRow + 1 + i);
   }
 }
 
 // ── Write a single data row ───────────────────────────────────────────────────
+// Uses the SAME column layout as the template (col A–E for dates/duration/balance,
+// col F for annual/personal/special note, col G for sick note).
 function writeDataRow(
   ws: ExcelJS.Worksheet,
   row: number,
@@ -77,12 +141,20 @@ function writeDataRow(
   isSick = false,
 ) {
   const r = ws.getRow(row);
-  r.getCell(1).value = applied;
-  r.getCell(2).value = start;
-  r.getCell(3).value = end;
-  r.getCell(4).value = durLabel(days, hours);
-  r.getCell(5).value = kh(Math.max(0, balance));
-  r.getCell(isSick ? 7 : 6).value = note;
+  // Clear all cells first to avoid stale merged-cell ghost values
+  r.eachCell({ includeEmpty: true }, (cell) => { cell.value = null; });
+
+  r.getCell(1).value = applied;          // A - Date applied
+  r.getCell(2).value = start;            // B - Start date
+  r.getCell(3).value = end;              // C - End date
+  r.getCell(4).value = durLabel(days, hours); // D - Duration
+  r.getCell(5).value = kh(Math.max(0, balance)); // E - Balance remaining
+  // F = annual/personal/special note | G = sick note
+  if (isSick) {
+    r.getCell(7).value = note;
+  } else {
+    r.getCell(6).value = note;
+  }
   r.commit();
 }
 
@@ -136,12 +208,15 @@ export async function GET(req: NextRequest, { params }: Params) {
 
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buf as any);
-  const ws = wb.worksheets[0]; // "Level Card"
+  const ws = wb.worksheets[0];
 
-  // ── Template row positions (from template analysis) ─────────────────────────
-  // Row 15 = Annual data template row   (1 blank row, then row 16 = Sick header)
-  // Row 22 = Sick data template row     (1 blank row, then row 23 = Special header)
-  // Row 28 = Special data template row  (1 blank row at bottom)
+  // ── Template row positions ──────────────────────────────────────────────────
+  // These must exactly match your leave-card.xlsx template layout:
+  // Row 15 = first (template) Annual data row
+  // Row 16 = Sick section header  ← shifts down when annual rows are added
+  // Row 22 = first (template) Sick data row
+  // Row 23 = Special section header
+  // Row 28 = first (template) Special data row
   let ANNUAL_DATA   = 15;
   let SICK_SECT     = 16;
   let SICK_DATA     = 22;
@@ -155,49 +230,62 @@ export async function GET(req: NextRequest, { params }: Params) {
   ws.getCell("A11").value = `ច្បាប់ឈប់សម្រាកប្រចាំឆ្នាំរយៈពេល ${kh(annualCredit)} ថ្ងៃ`;
 
   // ── SECTION 1: Annual / Personal / Short ───────────────────────────────────
+  // If 0 leaves, leave template row blank. If >1, insert extra rows.
   const extra1 = Math.max(0, sec1.length - 1);
-  insertDataRows(ws, ANNUAL_DATA, extra1, ANNUAL_DATA);
-  SICK_SECT    += extra1;
-  SICK_DATA    += extra1;
-  SPECIAL_SECT += extra1;
-  SPECIAL_DATA += extra1;
+  if (extra1 > 0) {
+    insertDataRows(ws, ANNUAL_DATA, extra1, ANNUAL_DATA);
+    SICK_SECT    += extra1;
+    SICK_DATA    += extra1;
+    SPECIAL_SECT += extra1;
+    SPECIAL_DATA += extra1;
+  }
 
   let annualRunning = annualCredit;
   sec1.forEach((lv, i) => {
     const d = Number(lv.days  ?? 0);
     const h = Number(lv.hours ?? 0);
     annualRunning -= d;
-    writeDataRow(ws, ANNUAL_DATA + i,
+    writeDataRow(
+      ws, ANNUAL_DATA + i,
       fmtDate(lv.createdAt), fmtDate(lv.startDate), fmtDate(lv.endDate ?? lv.startDate),
-      d, h, annualRunning, lv.userNote ?? "");
+      d, h, annualRunning, lv.userNote ?? "",
+    );
   });
 
   // ── SECTION 2: Sick ────────────────────────────────────────────────────────
   const extra2 = Math.max(0, sec2.length - 1);
-  insertDataRows(ws, SICK_DATA, extra2, SICK_DATA);
-  SPECIAL_SECT += extra2;
-  SPECIAL_DATA += extra2;
+  if (extra2 > 0) {
+    insertDataRows(ws, SICK_DATA, extra2, SICK_DATA);
+    SPECIAL_SECT += extra2;
+    SPECIAL_DATA += extra2;
+  }
 
   let sickRunning = sickCredit;
   sec2.forEach((lv, i) => {
     const d = Number(lv.days  ?? 0);
     const h = Number(lv.hours ?? 0);
     sickRunning -= d;
-    writeDataRow(ws, SICK_DATA + i,
+    writeDataRow(
+      ws, SICK_DATA + i,
       fmtDate(lv.createdAt), fmtDate(lv.startDate), fmtDate(lv.endDate ?? lv.startDate),
-      d, h, sickRunning, lv.userNote ?? "", true);
+      d, h, sickRunning, lv.userNote ?? "", true,
+    );
   });
 
   // ── SECTION 3: Special / Maternity ────────────────────────────────────────
   const extra3 = Math.max(0, sec3.length - 1);
-  insertDataRows(ws, SPECIAL_DATA, extra3, SPECIAL_DATA);
+  if (extra3 > 0) {
+    insertDataRows(ws, SPECIAL_DATA, extra3, SPECIAL_DATA);
+  }
 
   sec3.forEach((lv, i) => {
     const d = Number(lv.days  ?? 0);
     const h = Number(lv.hours ?? 0);
-    writeDataRow(ws, SPECIAL_DATA + i,
+    writeDataRow(
+      ws, SPECIAL_DATA + i,
       fmtDate(lv.createdAt), fmtDate(lv.startDate), fmtDate(lv.endDate ?? lv.startDate),
-      d, h, 0, lv.userNote ?? "");
+      d, h, 0, lv.userNote ?? "",
+    );
   });
 
   // ── Output ──────────────────────────────────────────────────────────────────
