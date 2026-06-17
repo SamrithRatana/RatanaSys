@@ -14,6 +14,8 @@ const nextConfig = {
   },
 
   experimental: {
+    workerThreads: false,
+    cpus: 1,
     serverActions: {
       allowedOrigins: [
         "system.camprotec.com.kh",
@@ -22,7 +24,7 @@ const nextConfig = {
     },
   },
 
-  staticPageGenerationTimeout: 120,
+  staticPageGenerationTimeout: 300,
 }
 
 module.exports = nextConfig
