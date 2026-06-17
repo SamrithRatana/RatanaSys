@@ -43,8 +43,14 @@ function durLabel(days: number, hours: number): string {
 }
 
 type LeaveRow = {
-  applied: string; start: string; end: string;
-  dur: string; balance: string; note: string;
+  applied:              string;
+  start:                string;
+  end:                  string;
+  dur:                  string;
+  balance:              string;
+  note:                 string;
+  headDeptApproved:     boolean;
+  managerApproved:      boolean;
 };
 
 // ── Column helpers ────────────────────────────────────────────────────────────
@@ -166,6 +172,17 @@ function estimateWrappedLines(text: string, colWidthChars: number): number {
   return totalLines;
 }
 
+// ── Approval cell style helper ────────────────────────────────────────────────
+function applyApprovalStyle(cell: ExcelJS.Cell, approved: boolean) {
+  cell.font = {
+    ...cell.font,
+    size:  10,
+    bold:  approved,
+    color: approved ? { argb: "FF1D6F42" } : { argb: "FF9E9E9E" },
+  };
+  cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+}
+
 // ── Write data into one row ───────────────────────────────────────────────────
 function writeRow(
   ws: ExcelJS.Worksheet,
@@ -174,20 +191,40 @@ function writeRow(
 ) {
   const r = ws.getRow(rowNum);
   r.eachCell({ includeEmpty: true }, c => { c.value = null; });
-  r.getCell(1).value = lv.applied;
-  r.getCell(2).value = lv.start;
-  r.getCell(3).value = lv.end;
-  r.getCell(4).value = lv.dur;
-  r.getCell(5).value = lv.balance;
-  r.getCell(6).value = lv.note;
 
-  r.eachCell({ includeEmpty: true }, cell => {
-    cell.font = { ...cell.font, size: 10 };
+  // ── Columns A–F : existing data ──────────────────────────────────────────
+  r.getCell(1).value = lv.applied;   // A – Date Applied
+  r.getCell(2).value = lv.start;     // B – Start Date
+  r.getCell(3).value = lv.end;       // C – End Date
+  r.getCell(4).value = lv.dur;       // D – Duration
+  r.getCell(5).value = lv.balance;   // E – Balance
+  r.getCell(6).value = lv.note;      // F – Note / Reason
+
+  // ── Column G : always "បានស្នើរ" (submitted) ─────────────────────────────
+  r.getCell(7).value = "បានស្នើរ";
+  r.getCell(7).font = { ...r.getCell(7).font, size: 10, color: { argb: "FF1565C0" } };
+  r.getCell(7).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+
+  // ── Column J : Head Department approval ──────────────────────────────────
+  // col 10 = J
+  r.getCell(10).value = lv.headDeptApproved ? "បានអនុម័ត" : "";
+  applyApprovalStyle(r.getCell(10), lv.headDeptApproved);
+
+  // ── Column K : HR / Manager (Admin) approval ─────────────────────────────
+  // col 11 = K
+  r.getCell(11).value = lv.managerApproved ? "បានអនុម័ត" : "";
+  applyApprovalStyle(r.getCell(11), lv.managerApproved);
+
+  // ── Base font + wrap for A–F ─────────────────────────────────────────────
+  for (let c = 1; c <= 6; c++) {
+    const cell = r.getCell(c);
+    cell.font      = { ...cell.font, size: 10 };
     cell.alignment = { ...cell.alignment, wrapText: true };
-  });
+  }
 
+  // ── Row height driven by note column ────────────────────────────────────
   const noteColWidth = (ws.getColumn(6).width as number) ?? 20;
-  const lines = estimateWrappedLines(lv.note, noteColWidth);
+  const lines        = estimateWrappedLines(lv.note, noteColWidth);
   const neededHeight = lines * LINE_HEIGHT_PX + ROW_PADDING_PX;
   r.height = Math.max(MIN_ROW_HEIGHT, neededHeight);
 
@@ -234,12 +271,14 @@ export async function GET(req: NextRequest, { params }: Params) {
       const d = Number(lv.days ?? 0), h = Number(lv.hours ?? 0);
       annualBal -= d;
       return {
-        applied: fmtDate(lv.createdAt),
-        start:   fmtDate(lv.startDate),
-        end:     fmtDate(lv.endDate ?? lv.startDate),
-        dur:     durLabel(d, h),
-        balance: `${kh(Math.max(0, annualBal))} ថ្ងៃ`,
-        note:    lv.userNote ?? "",
+        applied:          fmtDate(lv.createdAt),
+        start:            fmtDate(lv.startDate),
+        end:              fmtDate(lv.endDate ?? lv.startDate),
+        dur:              durLabel(d, h),
+        balance:          `${kh(Math.max(0, annualBal))} ថ្ងៃ`,
+        note:             lv.userNote ?? "",
+        headDeptApproved: lv.headDepartmentApproved === true,
+        managerApproved:  lv.managerApproved === true,
       };
     });
 
@@ -250,12 +289,14 @@ export async function GET(req: NextRequest, { params }: Params) {
       const d = Number(lv.days ?? 0), h = Number(lv.hours ?? 0);
       sickBal -= d;
       return {
-        applied: fmtDate(lv.createdAt),
-        start:   fmtDate(lv.startDate),
-        end:     fmtDate(lv.endDate ?? lv.startDate),
-        dur:     durLabel(d, h),
-        balance: `${kh(Math.max(0, sickBal))} ថ្ងៃ`,
-        note:    lv.userNote ?? "",
+        applied:          fmtDate(lv.createdAt),
+        start:            fmtDate(lv.startDate),
+        end:              fmtDate(lv.endDate ?? lv.startDate),
+        dur:              durLabel(d, h),
+        balance:          `${kh(Math.max(0, sickBal))} ថ្ងៃ`,
+        note:             lv.userNote ?? "",
+        headDeptApproved: lv.headDepartmentApproved === true,
+        managerApproved:  lv.managerApproved === true,
       };
     });
 
@@ -264,12 +305,14 @@ export async function GET(req: NextRequest, { params }: Params) {
     .map(lv => {
       const d = Number(lv.days ?? 0), h = Number(lv.hours ?? 0);
       return {
-        applied: fmtDate(lv.createdAt),
-        start:   fmtDate(lv.startDate),
-        end:     fmtDate(lv.endDate ?? lv.startDate),
-        dur:     durLabel(d, h),
-        balance: "០ ថ្ងៃ",
-        note:    lv.userNote ?? "",
+        applied:          fmtDate(lv.createdAt),
+        start:            fmtDate(lv.startDate),
+        end:              fmtDate(lv.endDate ?? lv.startDate),
+        dur:              durLabel(d, h),
+        balance:          "០ ថ្ងៃ",
+        note:             lv.userNote ?? "",
+        headDeptApproved: lv.headDepartmentApproved === true,
+        managerApproved:  lv.managerApproved === true,
       };
     });
 
@@ -292,17 +335,13 @@ export async function GET(req: NextRequest, { params }: Params) {
   }
 
   // ── Header ──────────────────────────────────────────────────────────────────
-  ws.getCell("A6").value  = `ប័ណ្ណសុំច្បាប់របស់បុគ្គលិក ឆ្នាំ(${khYear(year)})`;  // ← dynamic year in Khmer digits
+  ws.getCell("A6").value  = `ប័ណ្ណសុំច្បាប់របស់បុគ្គលិក ឆ្នាំ(${khYear(year)})`;
   ws.getCell("A7").value  = `ឈ្មោះបុគ្គលិក៖  ${userName}`;
   ws.getCell("A8").value  = `តួនាទី៖  ${userPos}`;
   ws.getCell("A9").value  = `ផ្នែក/សាខា  ${userDept}`;
   ws.getCell("A11").value = `ច្បាប់ឈប់សម្រាកប្រចាំឆ្នាំរយៈពេល ${kh(annualCredit)} ថ្ងៃ`;
 
   // ── Template data row positions ─────────────────────────────────────────────
-  // Each section has 5 pre-existing empty rows in the template:
-  //   Annual:  rows 15–19
-  //   Sick:    rows 26–30
-  //   Special: rows 36–40
   const ANNUAL_SLOTS  = 5;
   const SICK_SLOTS    = 5;
   const SPECIAL_SLOTS = 5;
