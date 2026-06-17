@@ -171,33 +171,17 @@ function cloneRowAfter(
 }
 
 // ── Text wrapping helpers ──────────────────────────────────────────────────
-// Excel/ExcelJS doesn't auto-calculate row height when wrap_text is enabled
-// (that's a UI-only behavior in the real Excel app). To replicate "Alt+Enter
-// wrapping that fits the column" when generating the file headlessly, we
-// estimate how many lines the text will need at the given column width and
-// font size, then grow the row to fit — exactly like Excel does visually.
-const KHMER_CHAR_WIDTH_PX = 8.4;      // avg glyph width for Khmer OS Battambang @ 10pt
-                                       // (Khmer stacks subscripts/diacritics and runs wider
-                                       // than a Latin-font average — 7.3 under-counted lines
-                                       // and caused wrapped text to clip against row borders)
-const COLUMN_WIDTH_TO_PX  = 7;        // Excel "character width" units → px (Calibri 11 baseline)
-const LINE_HEIGHT_PX      = 20;       // px per wrapped line at 10pt Khmer font
-                                       // (raised from 18 — Khmer vowel signs/subscripts extend
-                                       // above & below the baseline more than Latin text)
-const ROW_PADDING_PX      = 6;        // extra top+bottom buffer per row, mirrors the small
-                                       // internal cell padding Excel itself renders around
-                                       // wrapped text — without this, the last line of wrapped
-                                       // text sits flush against the cell border and looks cut off
-const WRAP_SAFETY_MARGIN  = 0.92;     // shrink the usable line width slightly so a line that's
-                                       // right at the wrap boundary rounds up to break a line
-                                       // earlier, instead of risking an overflow/clip
-const MIN_ROW_HEIGHT      = 32.25;    // never shrink below the template's original row height
+const KHMER_CHAR_WIDTH_PX = 8.4;
+const COLUMN_WIDTH_TO_PX  = 7;
+const LINE_HEIGHT_PX      = 20;
+const ROW_PADDING_PX      = 6;
+const WRAP_SAFETY_MARGIN  = 0.92;
+const MIN_ROW_HEIGHT      = 32.25;
 
 function estimateWrappedLines(text: string, colWidthChars: number): number {
   if (!text) return 1;
   const colWidthPx = colWidthChars * COLUMN_WIDTH_TO_PX * WRAP_SAFETY_MARGIN;
   const charsPerLine = Math.max(1, Math.floor(colWidthPx / KHMER_CHAR_WIDTH_PX));
-  // Respect manual newlines (\n) as hard breaks, then estimate wraps within each segment
   const segments = text.split("\n");
   let totalLines = 0;
   for (const seg of segments) {
@@ -214,7 +198,6 @@ function writeRow(
   isSick = false,
 ) {
   const r = ws.getRow(rowNum);
-  // Clear first (avoids stale values)
   r.eachCell({ includeEmpty: true }, c => { c.value = null; });
   r.getCell(1).value = lv.applied;
   r.getCell(2).value = lv.start;
@@ -224,17 +207,11 @@ function writeRow(
   const noteCol = isSick ? 7 : 6;
   r.getCell(noteCol).value = lv.note;
 
-  // Font size 10 + wrap text for every populated cell in this data row
   r.eachCell({ includeEmpty: true }, cell => {
     cell.font = { ...cell.font, size: 10 };
     cell.alignment = { ...cell.alignment, wrapText: true };
   });
 
-  // Grow row height to fit the wrapped note text (the longest field by far),
-  // mirroring what "Alt+Enter" + auto-fit row height looks like in Excel.
-  // ROW_PADDING_PX accounts for the small internal top/bottom padding Excel
-  // itself renders around wrapped text — without it the last line sits flush
-  // against the cell border and reads as clipped even though it's fully there.
   const noteColWidth = (ws.getColumn(noteCol).width as number) ?? 20;
   const lines = estimateWrappedLines(lv.note, noteColWidth);
   const neededHeight = lines * LINE_HEIGHT_PX + ROW_PADDING_PX;
@@ -319,9 +296,8 @@ export async function GET(req: NextRequest, { params }: Params) {
   await wb.xlsx.load(buf as any);
   const ws = wb.worksheets[0];
 
-  // ── Widen the "reason / មូលហេតុ" column so wrapped text (Alt+Enter style)
-  //    has room to breathe instead of being squeezed/cut off at width ~21.
-  const noteColumn = ws.getColumn(6); // column F
+  // ── Widen the "reason / មូលហេតុ" column ────────────────────────────────────
+  const noteColumn = ws.getColumn(6);
   if (!noteColumn.width || noteColumn.width < 30) {
     noteColumn.width = 30;
   }
@@ -332,20 +308,19 @@ export async function GET(req: NextRequest, { params }: Params) {
   ws.getCell("A9").value  = `ផ្នែក/សាខា  ${userDept}`;
   ws.getCell("A11").value = `ច្បាប់ឈប់សម្រាកប្រចាំឆ្នាំរយៈពេល ${kh(annualCredit)} ថ្ងៃ`;
 
-  // ── Template data row positions (verified from leave-card.xlsx analysis) ────
-  // Row 15 = annual data row
-  // Row 22 = sick data row   (these are the ONLY rows we clone — no section headers touched)
-  // Row 28 = special data row
-  let R1 = 15, R2 = 22, R3 = 28;
+  // ── Template data row positions (verified from leave-card.xlsx) ─────────────
+  // Row 15 = first annual data row  (template has rows 15–19 empty)
+  // Row 26 = first sick data row    (template has rows 26–30 empty)
+  // Row 36 = first special data row (template has rows 36–40 empty)
+  let R1 = 15, R2 = 26, R3 = 36;
 
   // ── Section 1: insert extra annual rows ────────────────────────────────────
-  const extra1 = sec1.length - 1;  // template already has 1 row
+  const extra1 = sec1.length - 1;
   if (extra1 > 0) {
     cloneRowAfter(ws, R1, extra1);
     R2 += extra1;
     R3 += extra1;
   }
-  // Write annual data (or clear if no leaves)
   for (let i = 0; i < Math.max(sec1.length, 1); i++) {
     if (sec1[i]) writeRow(ws, R1 + i, sec1[i]);
   }
@@ -371,13 +346,6 @@ export async function GET(req: NextRequest, { params }: Params) {
   const outBuf   = await wb.xlsx.writeBuffer();
   const safeYear = year.replace(/\D/g, "");
 
-  // Header VALUES must be ByteStrings (Latin-1 only). userName can contain
-  // Khmer text (code points far above 255), which crashes `new Response()`
-  // if placed directly in a header. So we build two filenames:
-  //   - asciiName: ASCII-only fallback for the legacy `filename=` param
-  //   - the full Unicode name, percent-encoded, for `filename*=UTF-8''...`
-  //     (RFC 5987/6266 — what modern browsers actually use to read the
-  //     real, non-ASCII filename)
   const asciiName = userName.replace(/[^\x20-\x7E]/g, "").trim().replace(/\s+/g, "_") || "leave-card";
   const fallbackFilename = `leave-card-${asciiName}-${safeYear}.xlsx`;
   const utf8Filename = encodeURIComponent(`leave-card-${userName}-${safeYear}.xlsx`);
