@@ -15,6 +15,11 @@ const KH: Record<string, string> = {
 };
 const kh = (n: number) => String(Math.round(n)).replace(/[0-9]/g, d => KH[d]);
 
+// ── Convert a 4-digit year string like "2026" → "២០២៦" ──────────────────────
+function khYear(y: string): string {
+  return y.replace(/[0-9]/g, d => KH[d]);
+}
+
 function fmtDate(d: Date | string): string {
   const dt = typeof d === "string" ? new Date(d.split("T")[0] + "T12:00:00Z") : d;
   return `${String(dt.getUTCDate()).padStart(2,"0")}/${String(dt.getUTCMonth()+1).padStart(2,"0")}/${dt.getUTCFullYear()}`;
@@ -233,7 +238,7 @@ export async function GET(req: NextRequest, { params }: Params) {
         start:   fmtDate(lv.startDate),
         end:     fmtDate(lv.endDate ?? lv.startDate),
         dur:     durLabel(d, h),
-        balance: `${kh(Math.max(0, annualBal))} ថ្ងៃ`,   // ← e.g. "៧ ថ្ងៃ"
+        balance: `${kh(Math.max(0, annualBal))} ថ្ងៃ`,
         note:    lv.userNote ?? "",
       };
     });
@@ -249,7 +254,7 @@ export async function GET(req: NextRequest, { params }: Params) {
         start:   fmtDate(lv.startDate),
         end:     fmtDate(lv.endDate ?? lv.startDate),
         dur:     durLabel(d, h),
-        balance: `${kh(Math.max(0, sickBal))} ថ្ងៃ`,     // ← e.g. "៥ ថ្ងៃ"
+        balance: `${kh(Math.max(0, sickBal))} ថ្ងៃ`,
         note:    lv.userNote ?? "",
       };
     });
@@ -263,7 +268,7 @@ export async function GET(req: NextRequest, { params }: Params) {
         start:   fmtDate(lv.startDate),
         end:     fmtDate(lv.endDate ?? lv.startDate),
         dur:     durLabel(d, h),
-        balance: "០ ថ្ងៃ",                                // ← special leaves show "០ ថ្ងៃ"
+        balance: "០ ថ្ងៃ",
         note:    lv.userNote ?? "",
       };
     });
@@ -287,6 +292,7 @@ export async function GET(req: NextRequest, { params }: Params) {
   }
 
   // ── Header ──────────────────────────────────────────────────────────────────
+  ws.getCell("A6").value  = `ប័ណ្ណសុំច្បាប់របស់បុគ្គលិក ឆ្នាំ(${khYear(year)})`;  // ← dynamic year in Khmer digits
   ws.getCell("A7").value  = `ឈ្មោះបុគ្គលិក៖  ${userName}`;
   ws.getCell("A8").value  = `តួនាទី៖  ${userPos}`;
   ws.getCell("A9").value  = `ផ្នែក/សាខា  ${userDept}`;
