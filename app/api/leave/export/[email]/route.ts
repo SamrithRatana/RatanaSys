@@ -42,12 +42,47 @@ type LeaveRow = {
   dur: string; balance: string; note: string;
 };
 
+// ── Column helpers ────────────────────────────────────────────────────────────
+function colNum(letters: string): number {
+  let n = 0;
+  for (let i = 0; i < letters.length; i++)
+    n = n * 26 + letters.charCodeAt(i) - 64;
+  return n;
+}
+function colLetter(num: number): string {
+  let s = "";
+  while (num > 0) { const r = (num - 1) % 26; s = String.fromCharCode(65 + r) + s; num = Math.floor((num - 1) / 26); }
+  return s;
+}
+
+interface MergeRange { left: number; top: number; right: number; bottom: number; raw: string }
+
+function parseMerge(raw: string): MergeRange | null {
+  const m = raw.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+  if (!m) return null;
+  return {
+    left:  colNum(m[1]),
+    top:   parseInt(m[2], 10),
+    right: colNum(m[3]),
+    bottom: parseInt(m[4], 10),
+    raw,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Core: duplicate a source row `count` times immediately after it,
-// replicating values, styles AND merged regions — without touching any other row.
+// replicating values, styles AND merged regions — without corrupting any
+// merged cells that live further down the sheet.
 //
-// Key insight: instead of spliceRows (which corrupts adjacent merged regions),
-// we manually clone the ExcelJS row object and re-apply it.
+// IMPORTANT: ExcelJS's spliceRows() does NOT safely preserve merges that sit
+// below the insertion point — it can silently break them apart and "fan out"
+// the master cell's value into every formerly-merged cell. To avoid this we:
+//   1. Snapshot every merge that starts at or below srcRowNum.
+//   2. Un-merge all of those BEFORE calling spliceRows.
+//   3. Splice in the new blank rows.
+//   4. Re-apply the merges that originated at srcRowNum to each new row.
+//   5. Re-apply all the OTHER merges (the ones that were below srcRowNum),
+//      shifted down by `count` rows, restoring them exactly as they were.
 // ─────────────────────────────────────────────────────────────────────────────
 function cloneRowAfter(
   ws: ExcelJS.Worksheet,
@@ -60,7 +95,6 @@ function cloneRowAfter(
   const srcRow    = ws.getRow(srcRowNum);
   const srcHeight = (srcRow.height as number) ?? 20;
 
-  // Capture cell styles and values from source
   const cellSnapshots: Array<{ col: number; style: ExcelJS.Style; value: ExcelJS.CellValue }> = [];
   srcRow.eachCell({ includeEmpty: true }, (cell, col) => {
     cellSnapshots.push({
@@ -70,36 +104,37 @@ function cloneRowAfter(
     });
   });
 
-  // 2. Collect ALL current merge strings from the model BEFORE splicing
-  //    (spliceRows will mutate these, so we read them now)
-  const modelBefore = (ws as any)._merges as Record<string, ExcelJS.Range> | undefined;
-  // Alternative access path used by different ExcelJS versions:
-  const mergeModel  = (ws as any).model?.merges as string[] | undefined;
+  // 2. Snapshot ALL merges, splitting into "starts on srcRowNum" (to be
+  //    replicated onto each new row) vs "starts below srcRowNum" (needs to
+  //    be preserved as-is, just shifted down by `count`).
+  const mergeModel = (ws as any).model?.merges as string[] | undefined;
 
-  // Build a map of merges that start on srcRowNum
   interface MergeInfo { left: number; right: number; rowSpan: number }
   const srcMerges: MergeInfo[] = [];
+  const belowMerges: MergeRange[] = [];
 
   if (mergeModel) {
-    for (const ms of mergeModel) {
-      // format: "A15:E15"
-      const m = ms.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
-      if (!m) continue;
-      const top = parseInt(m[2], 10);
-      if (top !== srcRowNum) continue;
-      srcMerges.push({
-        left:    colNum(m[1]),
-        right:   colNum(m[3]),
-        rowSpan: parseInt(m[4], 10) - top,
-      });
+    for (const raw of mergeModel) {
+      const mg = parseMerge(raw);
+      if (!mg) continue;
+      if (mg.top === srcRowNum) {
+        srcMerges.push({ left: mg.left, right: mg.right, rowSpan: mg.bottom - mg.top });
+      } else if (mg.top > srcRowNum) {
+        belowMerges.push(mg);
+      }
     }
   }
 
-  // 3. Shift everything below srcRowNum down by `count` using spliceRows
+  // 3. Un-merge everything below srcRowNum FIRST so spliceRows can't corrupt it.
+  for (const bm of belowMerges) {
+    try { ws.unMergeCells(bm.raw); } catch { /* already unmerged, ignore */ }
+  }
+
+  // 4. Shift everything below srcRowNum down by `count` using spliceRows.
   //    We splice AFTER the source row so the source row itself is untouched.
   ws.spliceRows(srcRowNum + 1, 0, ...Array(count).fill([]));
 
-  // 4. Apply styles and merges to each newly inserted blank row
+  // 5. Apply styles and merges to each newly inserted blank row
   for (let i = 0; i < count; i++) {
     const dstRowNum = srcRowNum + 1 + i;
     const dstRow    = ws.getRow(dstRowNum);
@@ -121,19 +156,18 @@ function cloneRowAfter(
 
     dstRow.commit();
   }
-}
 
-// ── Column helpers ────────────────────────────────────────────────────────────
-function colNum(letters: string): number {
-  let n = 0;
-  for (let i = 0; i < letters.length; i++)
-    n = n * 26 + letters.charCodeAt(i) - 64;
-  return n;
-}
-function colLetter(num: number): string {
-  let s = "";
-  while (num > 0) { const r = (num - 1) % 26; s = String.fromCharCode(65 + r) + s; num = Math.floor((num - 1) / 26); }
-  return s;
+  // 6. Restore the merges that were below srcRowNum, shifted down by `count`.
+  //    This is what keeps section headers like "ច្បាប់សម្រាកឈឺ" /
+  //    "ច្បាប់សម្រាកពិសេស" (and the long note rows) as single merged cells
+  //    instead of fanning their text out into every column.
+  for (const bm of belowMerges) {
+    const newTop    = bm.top    + count;
+    const newBottom = bm.bottom + count;
+    const tl = `${colLetter(bm.left)}${newTop}`;
+    const br = `${colLetter(bm.right)}${newBottom}`;
+    try { ws.mergeCells(`${tl}:${br}`); } catch { /* skip duplicates */ }
+  }
 }
 
 // ── Write data into one row ───────────────────────────────────────────────────
