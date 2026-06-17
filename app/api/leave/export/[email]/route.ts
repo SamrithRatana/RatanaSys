@@ -309,13 +309,23 @@ export async function GET(req: NextRequest, { params }: Params) {
   // ── Output ──────────────────────────────────────────────────────────────────
   const outBuf   = await wb.xlsx.writeBuffer();
   const safeYear = year.replace(/\D/g, "");
-  const safeName = userName.replace(/[^\w\u1780-\u17FF]/g, "_");
+
+  // Header VALUES must be ByteStrings (Latin-1 only). userName can contain
+  // Khmer text (code points far above 255), which crashes `new Response()`
+  // if placed directly in a header. So we build two filenames:
+  //   - asciiName: ASCII-only fallback for the legacy `filename=` param
+  //   - the full Unicode name, percent-encoded, for `filename*=UTF-8''...`
+  //     (RFC 5987/6266 — what modern browsers actually use to read the
+  //     real, non-ASCII filename)
+  const asciiName = userName.replace(/[^\x20-\x7E]/g, "").trim().replace(/\s+/g, "_") || "leave-card";
+  const fallbackFilename = `leave-card-${asciiName}-${safeYear}.xlsx`;
+  const utf8Filename = encodeURIComponent(`leave-card-${userName}-${safeYear}.xlsx`);
 
   return new NextResponse(new Uint8Array(outBuf as ArrayBuffer), {
     status: 200,
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="leave-card-${safeName}-${safeYear}.xlsx"`,
+      "Content-Disposition": `attachment; filename="${fallbackFilename}"; filename*=UTF-8''${utf8Filename}`,
     },
   });
 }
