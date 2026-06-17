@@ -162,13 +162,6 @@ function estimateWrappedLines(text: string, colWidthChars: number): number {
 }
 
 // ── Write data into one row ───────────────────────────────────────────────────
-// All three sections now share the same column layout:
-//   Col 1 (A) = date applied
-//   Col 2 (B) = start date
-//   Col 3 (C) = end date
-//   Col 4 (D) = duration
-//   Col 5 (E) = balance remaining
-//   Col 6 (F) = note / reason / illness type  ← same for annual, sick, special
 function writeRow(
   ws: ExcelJS.Worksheet,
   rowNum: number,
@@ -181,7 +174,7 @@ function writeRow(
   r.getCell(3).value = lv.end;
   r.getCell(4).value = lv.dur;
   r.getCell(5).value = lv.balance;
-  r.getCell(6).value = lv.note;   // col F for all sections
+  r.getCell(6).value = lv.note;
 
   r.eachCell({ includeEmpty: true }, cell => {
     cell.font = { ...cell.font, size: 10 };
@@ -235,9 +228,14 @@ export async function GET(req: NextRequest, { params }: Params) {
     .map(lv => {
       const d = Number(lv.days ?? 0), h = Number(lv.hours ?? 0);
       annualBal -= d;
-      return { applied: fmtDate(lv.createdAt), start: fmtDate(lv.startDate),
-               end: fmtDate(lv.endDate ?? lv.startDate), dur: durLabel(d, h),
-               balance: kh(Math.max(0, annualBal)), note: lv.userNote ?? "" };
+      return {
+        applied: fmtDate(lv.createdAt),
+        start:   fmtDate(lv.startDate),
+        end:     fmtDate(lv.endDate ?? lv.startDate),
+        dur:     durLabel(d, h),
+        balance: `${kh(Math.max(0, annualBal))} ថ្ងៃ`,   // ← e.g. "៧ ថ្ងៃ"
+        note:    lv.userNote ?? "",
+      };
     });
 
   let sickBal = sickCredit;
@@ -246,18 +244,28 @@ export async function GET(req: NextRequest, { params }: Params) {
     .map(lv => {
       const d = Number(lv.days ?? 0), h = Number(lv.hours ?? 0);
       sickBal -= d;
-      return { applied: fmtDate(lv.createdAt), start: fmtDate(lv.startDate),
-               end: fmtDate(lv.endDate ?? lv.startDate), dur: durLabel(d, h),
-               balance: kh(Math.max(0, sickBal)), note: lv.userNote ?? "" };
+      return {
+        applied: fmtDate(lv.createdAt),
+        start:   fmtDate(lv.startDate),
+        end:     fmtDate(lv.endDate ?? lv.startDate),
+        dur:     durLabel(d, h),
+        balance: `${kh(Math.max(0, sickBal))} ថ្ងៃ`,     // ← e.g. "៥ ថ្ងៃ"
+        note:    lv.userNote ?? "",
+      };
     });
 
   const sec3: LeaveRow[] = leaves
     .filter(l => ["SPECIAL","MATERNITY"].includes(l.type))
     .map(lv => {
       const d = Number(lv.days ?? 0), h = Number(lv.hours ?? 0);
-      return { applied: fmtDate(lv.createdAt), start: fmtDate(lv.startDate),
-               end: fmtDate(lv.endDate ?? lv.startDate), dur: durLabel(d, h),
-               balance: "០", note: lv.userNote ?? "" };
+      return {
+        applied: fmtDate(lv.createdAt),
+        start:   fmtDate(lv.startDate),
+        end:     fmtDate(lv.endDate ?? lv.startDate),
+        dur:     durLabel(d, h),
+        balance: "០ ថ្ងៃ",                                // ← special leaves show "០ ថ្ងៃ"
+        note:    lv.userNote ?? "",
+      };
     });
 
   // ── Load template ───────────────────────────────────────────────────────────
@@ -289,7 +297,6 @@ export async function GET(req: NextRequest, { params }: Params) {
   //   Annual:  rows 15–19
   //   Sick:    rows 26–30
   //   Special: rows 36–40
-  // Fill existing slots first; only clone when data exceeds slot count.
   const ANNUAL_SLOTS  = 5;
   const SICK_SLOTS    = 5;
   const SPECIAL_SLOTS = 5;
