@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Container from "@/components/Common/Container";
 import LeaveCard from "./LeaveCard";
+import ExportLeaveCardButton from "./ExportLeaveCardButton";
 import { Balances, User } from "@prisma/client";
 import dynamic from "next/dynamic";
 import type { ComponentProps } from "react";
@@ -19,11 +20,11 @@ const khmerFont: React.CSSProperties = {
 
 type Props = {
   balances: Balances;
-  user?: User; // ← pass user down from the page
+  user?: User;
 };
 
 const UserBalances = ({ balances, user }: Props) => {
-  const [isHours,    setIsHours]    = useState(true);
+  const [isHours,     setIsHours]     = useState(true);
   const [dialogLeave, setDialogLeave] = useState<string | null>(null);
 
   const rows = [
@@ -50,23 +51,34 @@ const UserBalances = ({ balances, user }: Props) => {
       <div className="flex items-center justify-between mt-6 mb-3">
         <h2 className="text-base font-semibold text-foreground">Current Year Balances</h2>
 
-        {/* Days / Hours toggle */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Days</span>
-          <button
-            onClick={() => setIsHours(!isHours)}
-            aria-label="Toggle hours or days"
-            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-              isHours ? "bg-blue-500" : "bg-muted-foreground/40"
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${
-                isHours ? "translate-x-4" : "translate-x-0.5"
-              }`}
+        <div className="flex items-center gap-3">
+          {/* Export button */}
+          {user?.email && (
+            <ExportLeaveCardButton
+              email={user.email}
+              userName={user.name ?? undefined}
+              year={balances?.year}
             />
-          </button>
-          <span className="text-xs text-muted-foreground">Hours</span>
+          )}
+
+          {/* Days / Hours toggle */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Days</span>
+            <button
+              onClick={() => setIsHours(!isHours)}
+              aria-label="Toggle hours or days"
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                isHours ? "bg-blue-500" : "bg-muted-foreground/40"
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${
+                  isHours ? "translate-x-4" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+            <span className="text-xs text-muted-foreground">Hours</span>
+          </div>
         </div>
       </div>
 
