@@ -69,21 +69,6 @@ function parseMerge(raw: string): MergeRange | null {
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Core: duplicate a source row `count` times immediately after it,
-// replicating values, styles AND merged regions — without corrupting any
-// merged cells that live further down the sheet.
-//
-// IMPORTANT: ExcelJS's spliceRows() does NOT safely preserve merges that sit
-// below the insertion point — it can silently break them apart and "fan out"
-// the master cell's value into every formerly-merged cell. To avoid this we:
-//   1. Snapshot every merge that starts at or below srcRowNum.
-//   2. Un-merge all of those BEFORE calling spliceRows.
-//   3. Splice in the new blank rows.
-//   4. Re-apply the merges that originated at srcRowNum to each new row.
-//   5. Re-apply all the OTHER merges (the ones that were below srcRowNum),
-//      shifted down by `count` rows, restoring them exactly as they were.
-// ─────────────────────────────────────────────────────────────────────────────
 function cloneRowAfter(
   ws: ExcelJS.Worksheet,
   srcRowNum: number,
@@ -91,7 +76,6 @@ function cloneRowAfter(
 ) {
   if (count <= 0) return;
 
-  // 1. Capture source row data BEFORE we touch anything
   const srcRow    = ws.getRow(srcRowNum);
   const srcHeight = (srcRow.height as number) ?? 20;
 
@@ -104,9 +88,6 @@ function cloneRowAfter(
     });
   });
 
-  // 2. Snapshot ALL merges, splitting into "starts on srcRowNum" (to be
-  //    replicated onto each new row) vs "starts below srcRowNum" (needs to
-  //    be preserved as-is, just shifted down by `count`).
   const mergeModel = (ws as any).model?.merges as string[] | undefined;
 
   interface MergeInfo { left: number; right: number; rowSpan: number }
@@ -125,29 +106,23 @@ function cloneRowAfter(
     }
   }
 
-  // 3. Un-merge everything below srcRowNum FIRST so spliceRows can't corrupt it.
   for (const bm of belowMerges) {
     try { ws.unMergeCells(bm.raw); } catch { /* already unmerged, ignore */ }
   }
 
-  // 4. Shift everything below srcRowNum down by `count` using spliceRows.
-  //    We splice AFTER the source row so the source row itself is untouched.
   ws.spliceRows(srcRowNum + 1, 0, ...Array(count).fill([]));
 
-  // 5. Apply styles and merges to each newly inserted blank row
   for (let i = 0; i < count; i++) {
     const dstRowNum = srcRowNum + 1 + i;
     const dstRow    = ws.getRow(dstRowNum);
     dstRow.height   = srcHeight;
 
-    // Apply cell styles (no values — data rows stay blank until written)
     for (const snap of cellSnapshots) {
       const dstCell = dstRow.getCell(snap.col);
       dstCell.style = JSON.parse(JSON.stringify(snap.style));
       dstCell.value = null;
     }
 
-    // Re-apply merges shifted to this row
     for (const mg of srcMerges) {
       const tl = `${colLetter(mg.left)}${dstRowNum}`;
       const br = `${colLetter(mg.right)}${dstRowNum + mg.rowSpan}`;
@@ -157,10 +132,6 @@ function cloneRowAfter(
     dstRow.commit();
   }
 
-  // 6. Restore the merges that were below srcRowNum, shifted down by `count`.
-  //    This is what keeps section headers like "ច្បាប់សម្រាកឈឺ" /
-  //    "ច្បាប់សម្រាកពិសេស" (and the long note rows) as single merged cells
-  //    instead of fanning their text out into every column.
   for (const bm of belowMerges) {
     const newTop    = bm.top    + count;
     const newBottom = bm.bottom + count;
@@ -170,7 +141,7 @@ function cloneRowAfter(
   }
 }
 
-// ── Text wrapping helpers ──────────────────────────────────────────────────
+// ── Text wrapping helpers ─────────────────────────────────────────────────────
 const KHMER_CHAR_WIDTH_PX = 8.4;
 const COLUMN_WIDTH_TO_PX  = 7;
 const LINE_HEIGHT_PX      = 20;
@@ -308,16 +279,22 @@ export async function GET(req: NextRequest, { params }: Params) {
   ws.getCell("A9").value  = `ផ្នែក/សាខា  ${userDept}`;
   ws.getCell("A11").value = `ច្បាប់ឈប់សម្រាកប្រចាំឆ្នាំរយៈពេល ${kh(annualCredit)} ថ្ងៃ`;
 
-  // ── Template data row positions (verified from leave-card.xlsx) ─────────────
-  // Row 15 = first annual data row  (template has rows 15–19 empty)
-  // Row 26 = first sick data row    (template has rows 26–30 empty)
-  // Row 36 = first special data row (template has rows 36–40 empty)
+  // ── Template data row positions ─────────────────────────────────────────────
+  // Each section has 5 pre-existing empty rows in the template:
+  //   Annual:  rows 15–19
+  //   Sick:    rows 26–30
+  //   Special: rows 36–40
+  // We fill those first; only clone new rows when data exceeds the slot count.
+  const ANNUAL_SLOTS  = 5;
+  const SICK_SLOTS    = 5;
+  const SPECIAL_SLOTS = 5;
+
   let R1 = 15, R2 = 26, R3 = 36;
 
-  // ── Section 1: insert extra annual rows ────────────────────────────────────
-  const extra1 = sec1.length - 1;
+  // ── Section 1: annual ───────────────────────────────────────────────────────
+  const extra1 = Math.max(0, sec1.length - ANNUAL_SLOTS);
   if (extra1 > 0) {
-    cloneRowAfter(ws, R1, extra1);
+    cloneRowAfter(ws, R1 + ANNUAL_SLOTS - 1, extra1);
     R2 += extra1;
     R3 += extra1;
   }
@@ -325,19 +302,19 @@ export async function GET(req: NextRequest, { params }: Params) {
     if (sec1[i]) writeRow(ws, R1 + i, sec1[i]);
   }
 
-  // ── Section 2: insert extra sick rows ──────────────────────────────────────
-  const extra2 = sec2.length - 1;
+  // ── Section 2: sick ─────────────────────────────────────────────────────────
+  const extra2 = Math.max(0, sec2.length - SICK_SLOTS);
   if (extra2 > 0) {
-    cloneRowAfter(ws, R2, extra2);
+    cloneRowAfter(ws, R2 + SICK_SLOTS - 1, extra2);
     R3 += extra2;
   }
   for (let i = 0; i < Math.max(sec2.length, 1); i++) {
     if (sec2[i]) writeRow(ws, R2 + i, sec2[i], true);
   }
 
-  // ── Section 3: insert extra special rows ───────────────────────────────────
-  const extra3 = sec3.length - 1;
-  if (extra3 > 0) cloneRowAfter(ws, R3, extra3);
+  // ── Section 3: special ──────────────────────────────────────────────────────
+  const extra3 = Math.max(0, sec3.length - SPECIAL_SLOTS);
+  if (extra3 > 0) cloneRowAfter(ws, R3 + SPECIAL_SLOTS - 1, extra3);
   for (let i = 0; i < Math.max(sec3.length, 1); i++) {
     if (sec3[i]) writeRow(ws, R3 + i, sec3[i]);
   }
