@@ -84,17 +84,13 @@ function formatSegmentLine(seg: StoredSegment): string {
   const h = seg.hours ?? 0;
   const d = seg.days  ?? 0;
 
-  // multi-day full range — no time
   if (d > 1) {
     const endLabel = safeFormat(seg.endDate ?? seg.date, "dd MMM yyyy");
     return `  📌 ${startLabel} → ${endLabel} · ${d} ថ្ងៃ`;
   }
-  // exactly 1 full day — no time
   if (d === 1) return `  📌 ${startLabel} · 1 ថ្ងៃ`;
-  // >= 8h treated as full day — no time
   if (h >= 8)  return `  📌 ${startLabel} · 1 ថ្ងៃ`;
 
-  // sub-day hourly — show time range
   const timeRange =
     seg.startTime && seg.endTime
       ? ` (${seg.startTime}–${seg.endTime})`
@@ -124,7 +120,6 @@ function buildDateRange(startDate: Date, endDate: Date, durationLabel: string): 
     : `${s} → ${e} (${durationLabel})`;
 }
 
-// ── Date/segment block for approval messages ──────────────────────────────────
 function buildDateBlock(
   storedSegments: StoredSegment[] | null,
   startDate:      Date,
@@ -147,6 +142,48 @@ function buildDateBlock(
     `📅 <b>កាលបរិច្ឆេទ៖</b> ${buildDateRange(startDate, endDate, durationLabel)}`,
     `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
   ];
+}
+
+// ── Shared balance deduction logic ────────────────────────────────────────────
+async function deductBalance(
+  email:        string,
+  year:         string,
+  type:         string,
+  days:         number,
+  daysFromDb:   number,
+  hoursFromDb:  number,
+  isShortLeave: boolean,
+  isPartialHourly: boolean,
+): Promise<void> {
+  const hasBothDaysAndHours = daysFromDb > 0 && hoursFromDb > 0;
+
+  if (hasBothDaysAndHours) {
+    await calculateAndUpdateBalances(email, year, type, daysFromDb);
+    const shortType =
+      type === "SICK"     ? "SICK_SHORT"   :
+      type === "ANNUAL"   ? "ANNUAL_SHORT" :
+      type === "PERSONAL" ? "SHORT"        :
+      "SHORT";
+    await calculateAndUpdateBalances(email, year, shortType, hoursFromDb);
+  } else {
+    const effectiveType = isShortLeave
+      ? "SHORT"
+      : isPartialHourly && type === "SICK"
+        ? "SICK_SHORT"
+        : isPartialHourly && type === "ANNUAL"
+          ? "ANNUAL_SHORT"
+          : type;
+
+    const effectiveValue = isShortLeave
+      ? hoursFromDb
+      : isPartialHourly
+        ? hoursFromDb
+        : daysFromDb > 0
+          ? daysFromDb
+          : days;
+
+    await calculateAndUpdateBalances(email, year, effectiveType, effectiveValue);
+  }
 }
 
 export async function PATCH(req: Request) {
@@ -272,7 +309,22 @@ export async function PATCH(req: Request) {
         !leave.managerApproved;
 
       // ── Step 1: Moderator approves as Head Dept ───────────────────────────
+      // ✅ កាត់ Balance នៅទីនេះ — ដំបូងដែល Approve
       if (canDoStep1) {
+        await deductBalance(
+          email, year, type, days,
+          daysFromDb, hoursFromDb,
+          isShortLeave, isPartialHourly,
+        );
+
+        await prisma.events.create({
+          data: {
+            startDate,
+            title:       `${user} ឈប់សម្រាក ${getLeaveLabel(type)}`,
+            description: `រយៈពេល ${durationLabel}`,
+          },
+        });
+
         await prisma.leave.update({
           where: { id },
           data: {
@@ -307,48 +359,27 @@ export async function PATCH(req: Request) {
         );
       }
 
-      // ── Final: Admin (bypass) OR Moderator (after Step 1) ────────────────
+      // ── Final: Admin bypass OR Moderator (after Step 1) ──────────────────
       if (canDoAdminFinal || canDoModeratorFinal) {
-
-        const hasBothDaysAndHours = daysFromDb > 0 && hoursFromDb > 0;
-
-        if (hasBothDaysAndHours) {
-          await calculateAndUpdateBalances(email, year, type, daysFromDb);
-          const shortType =
-            type === "SICK"     ? "SICK_SHORT"   :
-            type === "ANNUAL"   ? "ANNUAL_SHORT" :
-            type === "PERSONAL" ? "SHORT"        :
-            "SHORT";
-          await calculateAndUpdateBalances(email, year, shortType, hoursFromDb);
-        } else {
-          const effectiveType = isShortLeave
-            ? "SHORT"
-            : isPartialHourly && type === "SICK"
-              ? "SICK_SHORT"
-              : isPartialHourly && type === "ANNUAL"
-                ? "ANNUAL_SHORT"
-                : type;
-
-          const effectiveValue = isShortLeave
-            ? hoursFromDb
-            : isPartialHourly
-              ? hoursFromDb
-              : daysFromDb > 0
-                ? daysFromDb
-                : days;
-
-          await calculateAndUpdateBalances(email, year, effectiveType, effectiveValue);
-        }
-
-        await prisma.events.create({
-          data: {
-            startDate,
-            title:       `${user} ឈប់សម្រាក ${getLeaveLabel(type)}`,
-            description: `រយៈពេល ${durationLabel}`,
-          },
-        });
-
+        // Admin bypass = Step 1 មិនដែលបានដំណើរការ → ត្រូវកាត់ Balance នៅទីនេះ
+        // Moderator final = Step 1 បានកាត់រួចហើយ → មិនកាត់ទៀតទេ
         const adminBypassed = canDoAdminFinal && !leave.headDepartmentApproved;
+
+        if (adminBypassed) {
+          await deductBalance(
+            email, year, type, days,
+            daysFromDb, hoursFromDb,
+            isShortLeave, isPartialHourly,
+          );
+
+          await prisma.events.create({
+            data: {
+              startDate,
+              title:       `${user} ឈប់សម្រាក ${getLeaveLabel(type)}`,
+              description: `រយៈពេល ${durationLabel}`,
+            },
+          });
+        }
 
         await prisma.leave.update({
           where: { id },
