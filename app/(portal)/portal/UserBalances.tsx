@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import Container from "@/components/Common/Container";
 import LeaveCard from "./LeaveCard";
 import ExportLeaveCardButton from "./ExportLeaveCardButton";
@@ -35,8 +35,6 @@ const UserBalances = ({ balances, user, teammates = [] }: Props) => {
   const [isHours,     setIsHours]     = useState(true);
   const [dialogLeave, setDialogLeave] = useState<string | null>(null);
 
-  // Stable reference — prevent unnecessary re-renders
-const stableTeammates = useMemo(() => teammates, [teammates]);
   const rows = [
     { leaveType: "ANNUAL",    credit: balances?.annualCredit,    used: balances?.annualUsed,    balance: balances?.annualAvailable    },
     { leaveType: "SICK",      credit: balances?.sickCredit,      used: balances?.sickUsed,      balance: balances?.sickAvailable      },
@@ -47,14 +45,13 @@ const stableTeammates = useMemo(() => teammates, [teammates]);
 
   return (
     <Container>
-      {/* Always mount RequestForm when user exists — avoid dynamic re-mount issue */}
-      {user && (
+      {/* Mount only when dialog is open — pass teammates at mount time */}
+      {dialogLeave !== null && user && (
         <RequestForm
-          key={dialogLeave ?? "idle"}
           user={user}
-          users={stableTeammates}
-          defaultLeave={dialogLeave ?? undefined}
-          externalOpen={dialogLeave !== null}
+          users={teammates}
+          defaultLeave={dialogLeave}
+          externalOpen={true}
           onExternalClose={() => setDialogLeave(null)}
         />
       )}
@@ -62,7 +59,6 @@ const stableTeammates = useMemo(() => teammates, [teammates]);
       {/* Header */}
       <div className="flex items-center justify-between mt-6 mb-3">
         <h2 className="text-base font-semibold text-foreground">Current Year Balances</h2>
-
         <div className="flex items-center gap-3">
           {user?.email && (
             <ExportLeaveCardButton
@@ -71,7 +67,6 @@ const stableTeammates = useMemo(() => teammates, [teammates]);
               year={balances?.year}
             />
           )}
-
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Days</span>
             <button
