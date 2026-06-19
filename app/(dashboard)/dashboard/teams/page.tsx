@@ -8,8 +8,8 @@ import CreateTeamModal from "./CreateTeamModal";
 import prisma from "@/lib/prisma";
 
 const TeamsPage = async () => {
-  const user = await getCurrentUser();
-  const teams = await getTeamsData();
+  const user                  = await getCurrentUser();
+  const { teams, teammates }  = await getTeamsData();
 
   const allUsers = await prisma.user.findMany({
     select: { id: true, name: true, email: true, role: true, department: true },
@@ -34,6 +34,7 @@ const TeamsPage = async () => {
         currentUserRole={user?.role ?? ""}
         allUsers={allUsers}
         departments={departments}
+        teammates={teammates}
       />
     </Container>
   );

@@ -3,25 +3,24 @@ import { getCurrentUser } from "@/lib/session";
 
 export async function getTeamsData() {
   const sessionUser = await getCurrentUser();
-  if (!sessionUser) return [];
+  if (!sessionUser) return { teams: [], teammates: [] };
 
   const user = await prisma.user.findUnique({
     where: { id: sessionUser.id },
-    select: { role: true, department: true },
+    select: { role: true, department: true, email: true },
   });
-  if (!user) return [];
+  if (!user) return { teams: [], teammates: [] };
 
   const year = new Date().getFullYear().toString();
 
-  const teams = await prisma.team.findMany({
+  const rawTeams = await prisma.team.findMany({
     where: user.role === "ADMIN" ? {} : { department: user.department ?? "" },
     include: { members: true },
     orderBy: { createdAt: "desc" },
   });
 
-  const result = await Promise.all(
-    teams.map(async (team) => {
-      // ✅ Auto-query moderators by department — no extra table
+  const teams = await Promise.all(
+    rawTeams.map(async (team) => {
       const moderators = await prisma.user.findMany({
         where: { role: "MODERATOR", department: team.department },
         select: { id: true, name: true, email: true, image: true },
@@ -31,7 +30,7 @@ export async function getTeamsData() {
         team.members.map(async (m: { userEmail: string }) => {
           const memberUser = await prisma.user.findUnique({
             where: { email: m.userEmail },
-            select: { name: true, email: true, image: true, title: true },
+            select: { id: true, name: true, email: true, image: true, title: true },
           });
           const balances = await prisma.balances.findFirst({
             where: { email: m.userEmail, year },
@@ -44,5 +43,21 @@ export async function getTeamsData() {
     })
   );
 
-  return result;
+  // ── Find current user's team → extract teammates ──────────────────────────
+  const myTeam = teams.find((team) =>
+    team.members.some((m) => m.email === user.email)
+  );
+
+  const teammates = myTeam
+    ? myTeam.members
+        .filter((m) => m.email !== user.email)
+        .map((m) => ({
+          id:    m.id    ?? "",
+          name:  m.name  ?? null,
+          email: m.email ?? null,
+          image: m.image ?? null,
+        }))
+    : [];
+
+  return { teams, teammates };
 }

@@ -46,33 +46,41 @@ type UserOption = {
   department: string | null;
 };
 
+type Teammate = {
+  id:    string;
+  name:  string | null;
+  email: string | null;
+  image: string | null;
+};
+
 type Department = { id: string; label: string };
 
 type Props = {
-  teams: Team[];
+  teams:           Team[];
   currentUserRole: string;
-  allUsers?: UserOption[];
-  departments?: Department[];
+  allUsers?:       UserOption[];
+  departments?:    Department[];
+  teammates?:      Teammate[];   // ✅ បន្ថែម
 };
 
 export default function TeamsTable({
   teams,
   currentUserRole,
-  allUsers = [],
+  allUsers    = [],
   departments = [],
+  teammates   = [],             // ✅ បន្ថែម
 }: Props) {
   const router = useRouter();
 
-  // ✅ All teams expanded by default
   const [expandedIds, setExpandedIds] = useState<Set<string>>(
     () => new Set(teams.map((t) => t.id))
   );
 
-  const [editTeam, setEditTeam] = useState<Team | null>(null);
+  const [editTeam,       setEditTeam]       = useState<Team | null>(null);
   const [editDepartment, setEditDepartment] = useState("");
-  const [memberEmails, setMemberEmails] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [memberEmails,   setMemberEmails]   = useState<string[]>([]);
+  const [loading,        setLoading]        = useState(false);
+  const [deleteId,       setDeleteId]       = useState<string | null>(null);
 
   const regularUsers = allUsers.filter((u) => u.role === "USER");
 
@@ -208,7 +216,7 @@ export default function TeamsTable({
                 </div>
               </div>
 
-              {/* ✅ All moderators */}
+              {/* Moderators */}
               <div className="flex flex-wrap items-center gap-2 mt-2">
                 {team.moderators.length > 0 ? (
                   team.moderators.map((mod) => (
@@ -227,9 +235,25 @@ export default function TeamsTable({
                   <span className="text-xs text-amber-500">⚠️ មិនទាន់មាន Moderator</span>
                 )}
               </div>
+
+              {/* ✅ Teammates preview — shown only for non-admin */}
+              {currentUserRole !== "ADMIN" && teammates.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                  <span className="text-xs text-muted-foreground">អ្នកជំនួស:</span>
+                  {teammates.map((t) => (
+                    <div key={t.id} className="flex items-center gap-1">
+                      <Avatar className="h-5 w-5">
+                        <AvatarImage src={t.image ?? ""} />
+                        <AvatarFallback>{t.name?.[0] ?? "U"}</AvatarFallback>
+                      </Avatar>
+                      <span className="text-xs">{t.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardHeader>
 
-            {/* ✅ Members table — expanded by default */}
+            {/* Members table */}
             {expandedIds.has(team.id) && (
               <CardContent className="pt-0">
                 <div className="rounded-lg border overflow-hidden">

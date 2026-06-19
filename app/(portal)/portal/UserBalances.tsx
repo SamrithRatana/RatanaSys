@@ -18,12 +18,20 @@ const khmerFont: React.CSSProperties = {
   fontFamily: "'Battambang', serif",
 };
 
-type Props = {
-  balances: Balances;
-  user?: User;
+type Teammate = {
+  id:    string;
+  name:  string | null;
+  email: string | null;
+  image: string | null;
 };
 
-const UserBalances = ({ balances, user }: Props) => {
+type Props = {
+  balances:   Balances;
+  user?:      User;
+  teammates?: Teammate[];
+};
+
+const UserBalances = ({ balances, user, teammates = [] }: Props) => {
   const [isHours,     setIsHours]     = useState(true);
   const [dialogLeave, setDialogLeave] = useState<string | null>(null);
 
@@ -41,6 +49,7 @@ const UserBalances = ({ balances, user }: Props) => {
       {dialogLeave !== null && user && (
         <RequestForm
           user={user}
+          users={teammates}
           defaultLeave={dialogLeave}
           externalOpen={true}
           onExternalClose={() => setDialogLeave(null)}
