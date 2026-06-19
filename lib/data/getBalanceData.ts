@@ -9,82 +9,104 @@ const LEAVE_TYPE_TO_KEY: Record<string, string> = {
   SPECIAL:   "special",
 };
 
-/**
- * Recomputes Used/Available for each leave type directly from APPROVED
- * Leave records, instead of trusting the (sometimes manually-edited)
- * Balances.xxxUsed fields. Credit still comes from the Balances row.
- */
-async function reconcileBalanceWithLeaves(email: string, year: string, balance: any) {
-  const leaves = await prisma.leave.findMany({
-    where: { userEmail: email, year, status: "APPROVED" },
-    select: { type: true, days: true, hours: true },
-  });
+const BALANCE_KEYS = ["annual", "sick", "personal", "maternity", "special"] as const;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Single-row reconcile (uses pre-fetched leaves — no extra DB call)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function applyLeaves(
+  balance: any,
+  leaves: { type: string | null; days: number | null; hours: number | null }[]
+): any {
   const sums: Record<string, number> = {
     annual: 0, sick: 0, personal: 0, maternity: 0, special: 0,
   };
 
   for (const l of leaves) {
     const key = LEAVE_TYPE_TO_KEY[l.type?.toUpperCase() ?? ""];
-    if (!key) continue; // ignore SHORT or unknown types here
-    const dayUnits = (l.days ?? 0) + (l.hours ?? 0) / 8;
-    sums[key] += dayUnits;
+    if (!key) continue;
+    sums[key] += (l.days ?? 0) + (l.hours ?? 0) / 8;
   }
 
   const result = { ...balance };
-
-  for (const key of Object.keys(sums)) {
-    const creditField    = `${key}Credit`;
-    const usedField       = `${key}Used`;
-    const availableField  = `${key}Available`;
-
-    const credit = Number(balance?.[creditField] ?? 0);
-    const used   = sums[key];
-
-    result[usedField]      = used;
-    result[availableField] = credit - used;
+  for (const key of BALANCE_KEYS) {
+    const credit = Number(balance[`${key}Credit`] ?? 0);
+    result[`${key}Used`]      = sums[key];
+    result[`${key}Available`] = credit - sums[key];
   }
-
   return result;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getUserBalances — single user
+// ─────────────────────────────────────────────────────────────────────────────
 
 export async function getUserBalances() {
   try {
     const loggedInUser = await getCurrentUser();
-    if (!loggedInUser || !loggedInUser.email) return null;
+    if (!loggedInUser?.email) return null;
 
     const year = new Date().getFullYear().toString();
 
-    const balance = await prisma.balances.findFirst({
-      where: { email: loggedInUser.email, year },
-    });
+    const [balance, leaves] = await Promise.all([
+      prisma.balances.findFirst({ where: { email: loggedInUser.email, year } }),
+      prisma.leave.findMany({
+        where:  { userEmail: loggedInUser.email, year, status: "APPROVED" },
+        select: { type: true, days: true, hours: true },
+      }),
+    ]);
+
     if (!balance) return null;
 
-    // ── Recompute Used/Available from real approved leaves ──────────────
-    const reconciled = await reconcileBalanceWithLeaves(loggedInUser.email, year, balance);
-
-    return reconciled;
+    return applyLeaves(balance, leaves);
   } catch (error) {
     console.error("Error fetching user balances:", error);
     return null;
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// getAllBalances — admin / moderator view
+// Fetches all balances + all relevant leaves in exactly 2 queries (no N+1).
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function getAllBalances() {
   try {
     const loggedInUser = await getCurrentUser();
-    if (!loggedInUser || !["ADMIN", "MODERATOR"].includes(loggedInUser.role as string)) return [];
+    if (!loggedInUser || !["ADMIN", "MODERATOR"].includes(loggedInUser.role as string)) {
+      return [];
+    }
 
+    const year = new Date().getFullYear().toString();
+
+    // 1️⃣  All balance rows for the current year
     const balances = await prisma.balances.findMany({
-      orderBy: [{ year: "desc" }],
+      orderBy: { year: "desc" },
     });
 
-    // ── Reconcile every row so the admin table also reflects real usage ──
-    const reconciled = await Promise.all(
-      balances.map((b) => reconcileBalanceWithLeaves(b.email!, b.year!, b))
-    );
+    if (balances.length === 0) return [];
 
-    return reconciled;
+    // 2️⃣  All approved leaves for those emails in ONE query
+    const emails = [...new Set(balances.map((b) => b.email).filter(Boolean) as string[])];
+
+    const allLeaves = await prisma.leave.findMany({
+      where:  { userEmail: { in: emails }, year, status: "APPROVED" },
+      select: { userEmail: true, type: true, days: true, hours: true },
+    });
+
+    // 3️⃣  Group leaves by email for O(1) lookup
+    const leavesByEmail = new Map<string, typeof allLeaves>();
+    for (const l of allLeaves) {
+      if (!l.userEmail) continue;
+      if (!leavesByEmail.has(l.userEmail)) leavesByEmail.set(l.userEmail, []);
+      leavesByEmail.get(l.userEmail)!.push(l);
+    }
+
+    // 4️⃣  Reconcile each balance row without any extra DB calls
+    return balances.map((b) =>
+      applyLeaves(b, leavesByEmail.get(b.email ?? "") ?? [])
+    );
   } catch (error) {
     console.error("Error fetching all balances:", error);
     return [];
