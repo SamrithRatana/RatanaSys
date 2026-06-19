@@ -12,6 +12,13 @@ import { getEventsData } from '@/lib/data/getEventData';
 import TotalBalanceSummary from './TotalBalanceSummary';
 import prisma from '@/lib/prisma';
 
+type Teammate = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  image: string | null;
+};
+
 const Portal = async () => {
   const user = await getCurrentUser();
 
@@ -27,8 +34,8 @@ const Portal = async () => {
     console.error("Portal data fetch error:", err);
   }
 
-  // ── Find teammates based on Team (not by email) ───────────────────────────
-  let teammates: { id: string; name: string | null; email: string | null; image: string | null }[] = [];
+  // ── Find teammates (members + co-moderators in same team/department) ──────
+  let teammates: Teammate[] = [];
 
   try {
     if (user?.id) {
@@ -38,41 +45,79 @@ const Portal = async () => {
       });
 
       if (currentUser) {
-        let myTeam: { id: string } | null = null;
+        let myTeamId: string | null = null;
 
         if (currentUser.role === "MODERATOR" || currentUser.role === "ADMIN") {
-          // Moderator/Admin → រក team ដោយ department
-          myTeam = await prisma.team.findFirst({
+          // Moderator/Admin → find team by department
+          const myTeam = await prisma.team.findFirst({
             where: { department: currentUser.department ?? "" },
             select: { id: true },
           });
+          myTeamId = myTeam?.id ?? null;
         } else {
-          // Regular USER → រក team ដោយ TeamMember record
+          // Regular USER → find team via TeamMember record
           const membership = await prisma.teamMember.findFirst({
             where: { userEmail: currentUser.email ?? "" },
             select: { teamId: true },
           });
-          if (membership) {
-            myTeam = { id: membership.teamId };
-          }
+          myTeamId = membership?.teamId ?? null;
         }
 
-        if (myTeam) {
-          // ទាញ members ទាំងអស់ក្នុង team លើកលែង current user
-          const members = await prisma.teamMember.findMany({
-            where: { teamId: myTeam.id },
+        if (myTeamId) {
+          // ── Get all TeamMember emails in that team ──
+          const teamMembers = await prisma.teamMember.findMany({
+            where: { teamId: myTeamId },
             select: { userEmail: true },
           });
 
-          const memberEmails = members
+          // Also get the team's department so we can find co-moderators
+          const myTeamRecord = await prisma.team.findUnique({
+            where: { id: myTeamId },
+            select: { department: true },
+          });
+
+          const memberEmails = teamMembers
             .map((m) => m.userEmail)
             .filter((e) => e !== currentUser.email);
 
-          teammates = await prisma.user.findMany({
-            where: { email: { in: memberEmails } },
-            select: { id: true, name: true, email: true, image: true },
-            orderBy: { name: "asc" },
-          });
+          // ── Get member users ──
+          const memberUsers = memberEmails.length > 0
+            ? await prisma.user.findMany({
+                where: { email: { in: memberEmails } },
+                select: { id: true, name: true, email: true, image: true },
+                orderBy: { name: "asc" },
+              })
+            : [];
+
+          // ── Get co-moderators in same department (exclude self) ──
+          const moderatorUsers = myTeamRecord?.department
+            ? await prisma.user.findMany({
+                where: {
+                  role: "MODERATOR",
+                  department: myTeamRecord.department,
+                  email: { not: currentUser.email ?? "" },
+                },
+                select: { id: true, name: true, email: true, image: true },
+                orderBy: { name: "asc" },
+              })
+            : [];
+
+          // ── Merge & deduplicate by email ──
+          const seen = new Set<string>();
+          const merged: Teammate[] = [];
+
+          for (const u of [...memberUsers, ...moderatorUsers]) {
+            if (!u.email || seen.has(u.email)) continue;
+            seen.add(u.email);
+            merged.push({
+              id:    u.id,
+              name:  u.name,
+              email: u.email,
+              image: u.image,
+            });
+          }
+
+          teammates = merged;
         }
       }
     }
