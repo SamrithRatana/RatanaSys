@@ -30,7 +30,7 @@ import toast from "react-hot-toast";
 import Image from "next/image";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, User as UserIcon, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants & types
@@ -62,16 +62,17 @@ type UserItem = {
 
 // ── Segment (for segment mode) ────────────────────────────────────────────────
 type Segment = {
-  id:         string;
-  date:       Date | undefined;
-  endDate:    Date | undefined;
-  slotType:   SlotType;
-  startTime:  string;
-  endTime:    string;
-  shortcutH:  number;
-  shortcutM:  number;
-  calOpen:    boolean;
-  calEndOpen: boolean;
+  id:             string;
+  date:           Date | undefined;
+  endDate:        Date | undefined;
+  slotType:       SlotType;
+  startTime:      string;
+  endTime:        string;
+  shortcutH:      number;
+  shortcutM:      number;
+  calOpen:        boolean;
+  calEndOpen:     boolean;
+  substituteUser: UserItem | null;
 };
 
 const SLOT_LABELS: Record<SlotType, string> = {
@@ -95,7 +96,7 @@ const SLOT_TIMES: Record<Exclude<SlotType, "CUSTOM">, [string, string]> = {
 
 type Props = {
   user:             User;
-  users?:           UserItem[];   // ← list for substitute picker
+  users?:           UserItem[];
   defaultLeave?:    string;
   externalOpen?:    boolean;
   onExternalClose?: () => void;
@@ -221,17 +222,47 @@ const formSchema = z
 let _segId = 0;
 function newSegment(date?: Date): Segment {
   return {
-    id:         `seg-${++_segId}`,
+    id:             `seg-${++_segId}`,
     date,
-    endDate:    date,
-    slotType:   "FULL",
-    startTime:  getCurrentTime(),
-    endTime:    getCurrentTime(),
-    shortcutH:  0,
-    shortcutM:  0,
-    calOpen:    false,
-    calEndOpen: false,
+    endDate:        date,
+    slotType:       "FULL",
+    startTime:      getCurrentTime(),
+    endTime:        getCurrentTime(),
+    shortcutH:      0,
+    shortcutM:      0,
+    calOpen:        false,
+    calEndOpen:     false,
+    substituteUser: null,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UserAvatar helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+function UserAvatar({ src, name, size = "md" }: { src: string | null; name: string | null; size?: "sm" | "md" }) {
+  const dim = size === "sm" ? "h-7 w-7" : "h-8 w-8";
+  const px  = size === "sm" ? 28 : 32;
+  const initials = name?.charAt(0).toUpperCase() ?? "U";
+
+  if (src) {
+    return (
+      <Image
+        src={src}
+        alt={name ?? ""}
+        width={px}
+        height={px}
+        unoptimized
+        referrerPolicy="no-referrer"
+        className={`${dim} rounded-full object-cover shrink-0`}
+      />
+    );
+  }
+  return (
+    <div className={`${dim} rounded-full bg-muted flex items-center justify-center shrink-0 text-[11px] font-medium text-muted-foreground`}>
+      {initials}
+    </div>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -243,11 +274,13 @@ function SubstitutePicker({
   selected,
   onSelect,
   currentUserEmail,
+  compact = false,
 }: {
   users:            UserItem[];
   selected:         UserItem | null;
   onSelect:         (u: UserItem | null) => void;
   currentUserEmail: string | null | undefined;
+  compact?:         boolean;
 }) {
   const [search, setSearch] = useState("");
   const [open,   setOpen]   = useState(false);
@@ -275,33 +308,6 @@ function SubstitutePicker({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // ── Avatar helper — same approach as UsersTable (img + referrerPolicy) ──
-
-function UserAvatar({ src, name, size = "md" }: { src: string | null; name: string | null; size?: "sm" | "md" }) {
-  const dim = size === "sm" ? "h-7 w-7" : "h-8 w-8";
-  const px  = size === "sm" ? 28 : 32;
-  const initials = name?.charAt(0).toUpperCase() ?? "U";
-
-  if (src) {
-    return (
-      <Image
-        src={src}
-        alt={name ?? ""}
-        width={px}
-        height={px}
-        unoptimized          
-        referrerPolicy="no-referrer"
-        className={`${dim} rounded-full object-cover shrink-0`}
-      />
-    );
-  }
-  return (
-    <div className={`${dim} rounded-full bg-muted flex items-center justify-center shrink-0 text-[11px] font-medium text-muted-foreground`}>
-      {initials}
-    </div>
-  );
-}
-
   return (
     <div className="space-y-2">
       <label style={khmerFont} className="text-sm font-medium text-foreground">
@@ -312,7 +318,7 @@ function UserAvatar({ src, name, size = "md" }: { src: string | null; name: stri
       {selected ? (
         /* ── Selected card ── */
         <div className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/40 px-3 py-2.5">
-          <UserAvatar src={selected.image} name={selected.name} size="md" />
+          <UserAvatar src={selected.image} name={selected.name} size={compact ? "sm" : "md"} />
           <div className="flex-1 min-w-0">
             <p style={khmerFont} className="text-sm font-medium truncate text-blue-900 dark:text-blue-100">
               {selected.name ?? "—"}
@@ -455,7 +461,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
     setDrEndTime(getCurrentTime());
     setDrShortcutH(0);
     setDrShortcutM(0);
-    setSubstituteUser(null);   // clear substitute when leave type changes
+    setSubstituteUser(null);
 
     if (selectedLeave && ["ANNUAL", "SICK", "PERSONAL"].includes(selectedLeave)) {
       form.setValue("startDate", new Date(today), { shouldValidate: false });
@@ -586,7 +592,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
 
       const userPayload = { ...user, email: effectiveEmail };
 
-      // ── Substitute name ───────────────────────────────────────────────────
+      // ── Substitute name (non-segment mode) ───────────────────────────────
       const substituteName = substituteUser?.name ?? null;
 
       if (isFlexibleLeave && isSegmentMode) {
@@ -603,6 +609,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
           return;
         }
 
+        // Each segment carries its own substitute
         const segmentPayloads = segments.map((seg) => {
           const { hours, days } = segmentValue(seg);
           let startTime = "08:00";
@@ -611,24 +618,24 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
           if (seg.slotType === "HALF_PM") { startTime = "13:00"; endTime = "17:00"; }
           if (seg.slotType === "CUSTOM")  { startTime = seg.startTime; endTime = seg.endTime; }
           return {
-            date:      format(seg.date!, "yyyy-MM-dd"),
-            endDate:   format(seg.endDate ?? seg.date!, "yyyy-MM-dd"),
-            hours:     hours > 0 ? hours : undefined,
+            date:       format(seg.date!, "yyyy-MM-dd"),
+            endDate:    format(seg.endDate ?? seg.date!, "yyyy-MM-dd"),
+            hours:      hours > 0 ? hours : undefined,
             days,
-            startTime: seg.slotType !== "FULL" ? startTime : undefined,
-            endTime:   seg.slotType !== "FULL" ? endTime   : undefined,
+            startTime:  seg.slotType !== "FULL" ? startTime : undefined,
+            endTime:    seg.slotType !== "FULL" ? endTime   : undefined,
+            substitute: seg.substituteUser?.name ?? null,
           };
         });
 
         const payload = {
-          notes:      values.notes,
-          leave:      values.leave,
-          type:       values.leave,
-          startDate:  format(segments[0].date!, "yyyy-MM-dd"),
-          endDate:    format(segments[segments.length - 1].endDate ?? segments[segments.length - 1].date!, "yyyy-MM-dd"),
-          segments:   segmentPayloads,
-          substitute: substituteName,
-          user:       userPayload,
+          notes:     values.notes,
+          leave:     values.leave,
+          type:      values.leave,
+          startDate: format(segments[0].date!, "yyyy-MM-dd"),
+          endDate:   format(segments[segments.length - 1].endDate ?? segments[segments.length - 1].date!, "yyyy-MM-dd"),
+          segments:  segmentPayloads,
+          user:      userPayload,
         };
 
         const res = await fetch("/api/leave", {
@@ -776,6 +783,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
           )}
         </div>
 
+        {/* Date picker */}
         <div className="flex flex-col gap-1">
           <span style={khmerFont} className="text-[12px] text-gray-600 dark:text-gray-400">
             {isFull ? "ថ្ងៃចាប់ផ្តើម" : "កាលបរិច្ឆេទ"}
@@ -805,6 +813,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
           </Popover>
         </div>
 
+        {/* End date (FULL only) */}
         {isFull && (
           <div className="flex flex-col gap-1">
             <span style={khmerFont} className="text-[12px] text-gray-600 dark:text-gray-400">ថ្ងៃបញ្ចប់</span>
@@ -831,6 +840,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
           </div>
         )}
 
+        {/* Slot type buttons */}
         <div className="flex flex-col gap-1">
           <span style={khmerFont} className="text-[12px] text-gray-600 dark:text-gray-400">ប្រភេទ</span>
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
@@ -862,6 +872,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
           </div>
         </div>
 
+        {/* Custom time inputs */}
         {isCustom && (
           <div className="space-y-2">
             <div className="flex items-center gap-2 flex-wrap">
@@ -905,6 +916,20 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
           </div>
         )}
 
+        {/* ── Per-segment substitute picker ── */}
+        {needsSubstitute && (
+          <div className="pt-1 border-t border-dashed border-gray-200 dark:border-gray-700">
+            <SubstitutePicker
+              users={users}
+              selected={seg.substituteUser}
+              onSelect={(u) => updateSegment(seg.id, { substituteUser: u })}
+              currentUserEmail={user.email}
+              compact
+            />
+          </div>
+        )}
+
+        {/* Duration info badge */}
         {seg.date && (
           <div className={cn(
             "text-[12px] rounded-md px-3 py-1.5 flex items-center gap-1.5",
@@ -923,6 +948,9 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
               {seg.slotType === "CUSTOM" && <> ({seg.startTime} – {seg.endTime})</>}
               {(seg.slotType === "HALF_AM" || seg.slotType === "HALF_PM") && (
                 <> ({SLOT_TIMES[seg.slotType][0]} – {SLOT_TIMES[seg.slotType][1]})</>
+              )}
+              {seg.substituteUser && (
+                <> · <span className="opacity-75">👤 {seg.substituteUser.name}</span></>
               )}
             </span>
           </div>
@@ -968,6 +996,9 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
                   : "text-blue-700 dark:text-blue-400")}>
                 <span className="opacity-50">·</span>
                 {dateLabel} — {segmentDurationLabel(s)}
+                {s.substituteUser && (
+                  <span className="opacity-60 ml-1">· 👤 {s.substituteUser.name}</span>
+                )}
               </div>
             );
           })}
@@ -1051,7 +1082,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
           />
 
           {/* ── Special banner ── */}
-          {selectedLeave === "SPECIAL" && (
+          {isSpecial && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-amber-600">
                 <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
@@ -1462,9 +1493,10 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
           )}
 
           {/* ══════════════════════════════════════════════════════════════════
-              SUBSTITUTE PICKER — Annual, Personal, Special, Maternity
+              SUBSTITUTE PICKER — non-segment mode only
+              (Annual, Personal, Special, Maternity in date-range / classic mode)
           ══════════════════════════════════════════════════════════════════ */}
-          {needsSubstitute && (
+          {needsSubstitute && !isSegmentMode && (
             <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-4">
               <SubstitutePicker
                 users={users}
