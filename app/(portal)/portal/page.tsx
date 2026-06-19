@@ -34,7 +34,6 @@ const Portal = async () => {
     console.error("Portal data fetch error:", err);
   }
 
-  // ── Find teammates (members + co-moderators in same team/department) ──────
   let teammates: Teammate[] = [];
 
   try {
@@ -44,81 +43,93 @@ const Portal = async () => {
         select: { role: true, department: true, email: true },
       });
 
-      if (currentUser) {
+      console.log("=== TEAMMATES DEBUG ===", {
+        email: currentUser?.email,
+        role: currentUser?.role,
+        department: currentUser?.department,
+      });
+
+      if (currentUser?.email) {
+        // ── Step 1: Find myTeamId ─────────────────────────────────────────
         let myTeamId: string | null = null;
+        let myDepartment: string | null = currentUser.department ?? null;
 
         if (currentUser.role === "MODERATOR" || currentUser.role === "ADMIN") {
-          // Moderator/Admin → find team by department
           const myTeam = await prisma.team.findFirst({
-            where: { department: currentUser.department ?? "" },
-            select: { id: true },
+            where: { department: myDepartment ?? "" },
+            select: { id: true, department: true },
           });
-          myTeamId = myTeam?.id ?? null;
+          myTeamId     = myTeam?.id         ?? null;
+          myDepartment = myTeam?.department ?? myDepartment;
         } else {
-          // Regular USER → find team via TeamMember record
+          // Regular USER
           const membership = await prisma.teamMember.findFirst({
-            where: { userEmail: currentUser.email ?? "" },
+            where: { userEmail: currentUser.email },
             select: { teamId: true },
           });
-          myTeamId = membership?.teamId ?? null;
+          if (membership) {
+            myTeamId = membership.teamId;
+            const myTeam = await prisma.team.findUnique({
+              where: { id: myTeamId },
+              select: { department: true },
+            });
+            myDepartment = myTeam?.department ?? myDepartment;
+          }
         }
 
+        console.log("myTeamId:", myTeamId, "myDepartment:", myDepartment);
+
+        const seen  = new Set<string>([currentUser.email]); // exclude self
+        const merged: Teammate[] = [];
+
+        const addUsers = (users: Teammate[]) => {
+          for (const u of users) {
+            if (!u.email || seen.has(u.email)) continue;
+            seen.add(u.email);
+            merged.push(u);
+          }
+        };
+
+        // ── Step 2a: Get team members from TeamMember table ───────────────
         if (myTeamId) {
-          // ── Get all TeamMember emails in that team ──
           const teamMembers = await prisma.teamMember.findMany({
             where: { teamId: myTeamId },
             select: { userEmail: true },
-          });
-
-          // Also get the team's department so we can find co-moderators
-          const myTeamRecord = await prisma.team.findUnique({
-            where: { id: myTeamId },
-            select: { department: true },
           });
 
           const memberEmails = teamMembers
             .map((m) => m.userEmail)
             .filter((e) => e !== currentUser.email);
 
-          // ── Get member users ──
-          const memberUsers = memberEmails.length > 0
-            ? await prisma.user.findMany({
-                where: { email: { in: memberEmails } },
-                select: { id: true, name: true, email: true, image: true },
-                orderBy: { name: "asc" },
-              })
-            : [];
+          console.log("memberEmails from TeamMember:", memberEmails);
 
-          // ── Get co-moderators in same department (exclude self) ──
-          const moderatorUsers = myTeamRecord?.department
-            ? await prisma.user.findMany({
-                where: {
-                  role: "MODERATOR",
-                  department: myTeamRecord.department,
-                  email: { not: currentUser.email ?? "" },
-                },
-                select: { id: true, name: true, email: true, image: true },
-                orderBy: { name: "asc" },
-              })
-            : [];
-
-          // ── Merge & deduplicate by email ──
-          const seen = new Set<string>();
-          const merged: Teammate[] = [];
-
-          for (const u of [...memberUsers, ...moderatorUsers]) {
-            if (!u.email || seen.has(u.email)) continue;
-            seen.add(u.email);
-            merged.push({
-              id:    u.id,
-              name:  u.name,
-              email: u.email,
-              image: u.image,
+          if (memberEmails.length > 0) {
+            const memberUsers = await prisma.user.findMany({
+              where: { email: { in: memberEmails } },
+              select: { id: true, name: true, email: true, image: true },
+              orderBy: { name: "asc" },
             });
+            addUsers(memberUsers);
           }
-
-          teammates = merged;
         }
+
+        // ── Step 2b: Get ALL users in same department (fallback + co-mods) ─
+        if (myDepartment) {
+          const deptUsers = await prisma.user.findMany({
+            where: {
+              department: myDepartment,
+              email: { not: currentUser.email },
+            },
+            select: { id: true, name: true, email: true, image: true },
+            orderBy: { name: "asc" },
+          });
+
+          console.log("deptUsers:", deptUsers.map(u => u.email));
+          addUsers(deptUsers);
+        }
+
+        teammates = merged;
+        console.log("Final teammates:", teammates.map(t => t.name));
       }
     }
   } catch (err) {
