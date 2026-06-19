@@ -10,6 +10,7 @@ import Container from '@/components/Common/Container';
 import UserBalances from './UserBalances';
 import { getEventsData } from '@/lib/data/getEventData';
 import TotalBalanceSummary from './TotalBalanceSummary';
+import prisma from '@/lib/prisma';
 
 const Portal = async () => {
   const user = await getCurrentUser();
@@ -24,6 +25,43 @@ const Portal = async () => {
     ]);
   } catch (err) {
     console.error("Portal data fetch error:", err);
+  }
+
+  // ── Find current user's team → extract teammates ──────────────────────────
+  let teammates: { id: string; name: string | null; email: string | null; image: string | null }[] = [];
+
+  try {
+    if (user?.email) {
+      // រក TeamMember record របស់ user បច្ចុប្បន្ន
+      const myMembership = await prisma.teamMember.findFirst({
+        where: { userEmail: user.email },
+        select: { teamId: true },
+      });
+
+      if (myMembership) {
+        // រក members ទាំងអស់ក្នុង team ដូចគ្នា លើកលែង user ខ្លួនឯង
+        const otherMembers = await prisma.teamMember.findMany({
+          where: {
+            teamId:    myMembership.teamId,
+            userEmail: { not: user.email },
+          },
+          select: { userEmail: true },
+        });
+
+        const emails = otherMembers.map((m) => m.userEmail);
+
+        // Fetch user details
+        const teammateUsers = await prisma.user.findMany({
+          where: { email: { in: emails } },
+          select: { id: true, name: true, email: true, image: true },
+          orderBy: { name: "asc" },
+        });
+
+        teammates = teammateUsers;
+      }
+    }
+  } catch (err) {
+    console.error("Teammates fetch error:", err);
   }
 
   return (
@@ -52,8 +90,11 @@ const Portal = async () => {
           )}
         </Container>
 
-        {/* ← only change: added user={user as User} */}
-        <UserBalances balances={CurrentYearBalances as Balances} user={user as User} />
+        <UserBalances
+          balances={CurrentYearBalances as Balances}
+          user={user as User}
+          teammates={teammates}
+        />
       </div>
     </>
   );
