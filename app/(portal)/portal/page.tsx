@@ -27,37 +27,53 @@ const Portal = async () => {
     console.error("Portal data fetch error:", err);
   }
 
-  // ── Find current user's team → extract teammates ──────────────────────────
+  // ── Find teammates based on Team (not by email) ───────────────────────────
   let teammates: { id: string; name: string | null; email: string | null; image: string | null }[] = [];
 
   try {
-    if (user?.email) {
-      // រក TeamMember record របស់ user បច្ចុប្បន្ន
-      const myMembership = await prisma.teamMember.findFirst({
-        where: { userEmail: user.email },
-        select: { teamId: true },
+    if (user?.id) {
+      const currentUser = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: { role: true, department: true, email: true },
       });
 
-      if (myMembership) {
-        // រក members ទាំងអស់ក្នុង team ដូចគ្នា លើកលែង user ខ្លួនឯង
-        const otherMembers = await prisma.teamMember.findMany({
-          where: {
-            teamId:    myMembership.teamId,
-            userEmail: { not: user.email },
-          },
-          select: { userEmail: true },
-        });
+      if (currentUser) {
+        let myTeam: { id: string } | null = null;
 
-        const emails = otherMembers.map((m) => m.userEmail);
+        if (currentUser.role === "MODERATOR" || currentUser.role === "ADMIN") {
+          // Moderator/Admin → រក team ដោយ department
+          myTeam = await prisma.team.findFirst({
+            where: { department: currentUser.department ?? "" },
+            select: { id: true },
+          });
+        } else {
+          // Regular USER → រក team ដោយ TeamMember record
+          const membership = await prisma.teamMember.findFirst({
+            where: { userEmail: currentUser.email ?? "" },
+            select: { teamId: true },
+          });
+          if (membership) {
+            myTeam = { id: membership.teamId };
+          }
+        }
 
-        // Fetch user details
-        const teammateUsers = await prisma.user.findMany({
-          where: { email: { in: emails } },
-          select: { id: true, name: true, email: true, image: true },
-          orderBy: { name: "asc" },
-        });
+        if (myTeam) {
+          // ទាញ members ទាំងអស់ក្នុង team លើកលែង current user
+          const members = await prisma.teamMember.findMany({
+            where: { teamId: myTeam.id },
+            select: { userEmail: true },
+          });
 
-        teammates = teammateUsers;
+          const memberEmails = members
+            .map((m) => m.userEmail)
+            .filter((e) => e !== currentUser.email);
+
+          teammates = await prisma.user.findMany({
+            where: { email: { in: memberEmails } },
+            select: { id: true, name: true, email: true, image: true },
+            orderBy: { name: "asc" },
+          });
+        }
       }
     }
   } catch (err) {
