@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Container from "@/components/Common/Container";
 import LeaveCard from "./LeaveCard";
 import ExportLeaveCardButton from "./ExportLeaveCardButton";
@@ -11,7 +11,7 @@ import type RequestFormType from "@/app/(portal)/portal/RequestForm";
 
 const RequestForm = dynamic(
   () => import("@/app/(portal)/portal/RequestForm"),
-  { ssr: false }
+  { ssr: false, loading: () => null }
 ) as React.ComponentType<ComponentProps<typeof RequestFormType>>;
 
 const khmerFont: React.CSSProperties = {
@@ -35,6 +35,8 @@ const UserBalances = ({ balances, user, teammates = [] }: Props) => {
   const [isHours,     setIsHours]     = useState(true);
   const [dialogLeave, setDialogLeave] = useState<string | null>(null);
 
+  // Stable reference — prevent unnecessary re-renders
+const stableTeammates = useMemo(() => teammates, [teammates]);
   const rows = [
     { leaveType: "ANNUAL",    credit: balances?.annualCredit,    used: balances?.annualUsed,    balance: balances?.annualAvailable    },
     { leaveType: "SICK",      credit: balances?.sickCredit,      used: balances?.sickUsed,      balance: balances?.sickAvailable      },
@@ -45,13 +47,14 @@ const UserBalances = ({ balances, user, teammates = [] }: Props) => {
 
   return (
     <Container>
-      {/* Mount RequestForm only when a row is clicked and user exists */}
-      {dialogLeave !== null && user && (
+      {/* Always mount RequestForm when user exists — avoid dynamic re-mount issue */}
+      {user && (
         <RequestForm
+          key={dialogLeave ?? "idle"}
           user={user}
-          users={teammates}
-          defaultLeave={dialogLeave}
-          externalOpen={true}
+          users={stableTeammates}
+          defaultLeave={dialogLeave ?? undefined}
+          externalOpen={dialogLeave !== null}
           onExternalClose={() => setDialogLeave(null)}
         />
       )}
@@ -61,7 +64,6 @@ const UserBalances = ({ balances, user, teammates = [] }: Props) => {
         <h2 className="text-base font-semibold text-foreground">Current Year Balances</h2>
 
         <div className="flex items-center gap-3">
-          {/* Export button */}
           {user?.email && (
             <ExportLeaveCardButton
               email={user.email}
@@ -70,7 +72,6 @@ const UserBalances = ({ balances, user, teammates = [] }: Props) => {
             />
           )}
 
-          {/* Days / Hours toggle */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Days</span>
             <button
