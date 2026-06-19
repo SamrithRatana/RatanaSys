@@ -27,8 +27,9 @@ import { Calendar } from "@/components/ui/calendar";
 import DialogWrapper from "@/components/Common/DialogWrapper";
 import { User } from "@prisma/client";
 import toast from "react-hot-toast";
-import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
+
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Search, User as UserIcon, X } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -264,7 +265,6 @@ function SubstitutePicker({
           )
           .slice(0, 6);
 
-  // close dropdown on outside click
   useEffect(() => {
     function handler(e: MouseEvent) {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
@@ -274,6 +274,33 @@ function SubstitutePicker({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  // ── Avatar helper — same approach as UsersTable (img + referrerPolicy) ──
+
+function UserAvatar({ src, name, size = "md" }: { src: string | null; name: string | null; size?: "sm" | "md" }) {
+  const dim = size === "sm" ? "h-7 w-7" : "h-8 w-8";
+  const px  = size === "sm" ? 28 : 32;
+  const initials = name?.charAt(0).toUpperCase() ?? "U";
+
+  if (src) {
+    return (
+      <Image
+        src={src}
+        alt={name ?? ""}
+        width={px}
+        height={px}
+        unoptimized          
+        referrerPolicy="no-referrer"
+        className={`${dim} rounded-full object-cover shrink-0`}
+      />
+    );
+  }
+  return (
+    <div className={`${dim} rounded-full bg-muted flex items-center justify-center shrink-0 text-[11px] font-medium text-muted-foreground`}>
+      {initials}
+    </div>
+  );
+}
 
   return (
     <div className="space-y-2">
@@ -285,19 +312,7 @@ function SubstitutePicker({
       {selected ? (
         /* ── Selected card ── */
         <div className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/40 px-3 py-2.5">
-          {selected.image ? (
-            <Image
-              src={selected.image}
-              alt={selected.name ?? ""}
-              width={32}
-              height={32}
-              className="rounded-full object-cover shrink-0"
-            />
-          ) : (
-            <div className="h-8 w-8 rounded-full bg-blue-200 dark:bg-blue-800 flex items-center justify-center shrink-0">
-              <UserIcon className="h-4 w-4 text-blue-600 dark:text-blue-300" />
-            </div>
-          )}
+          <UserAvatar src={selected.image} name={selected.name} size="md" />
           <div className="flex-1 min-w-0">
             <p style={khmerFont} className="text-sm font-medium truncate text-blue-900 dark:text-blue-100">
               {selected.name ?? "—"}
@@ -344,19 +359,7 @@ function SubstitutePicker({
                     setOpen(false);
                   }}
                 >
-                  {u.image ? (
-                    <Image
-                      src={u.image}
-                      alt={u.name ?? ""}
-                      width={28}
-                      height={28}
-                      className="rounded-full object-cover shrink-0"
-                    />
-                  ) : (
-                    <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center shrink-0">
-                      <UserIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                    </div>
-                  )}
+                  <UserAvatar src={u.image} name={u.name} size="sm" />
                   <div className="flex flex-col min-w-0">
                     <span style={khmerFont} className="text-[13px] font-medium truncate">
                       {u.name ?? "—"}

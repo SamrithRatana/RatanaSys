@@ -54,16 +54,6 @@ const BalancesTable = ({ balances, user }: BalanceProps) => {
 
   return (
     <>
-      {/* Only mount RequestForm if user is available and a leave type is selected */}
-      {dialogLeave !== null && user && (
-        <RequestForm
-          user={user}
-          defaultLeave={dialogLeave}
-          externalOpen={true}
-          onExternalClose={() => setDialogLeave(null)}
-        />
-      )}
-
       <TableWrapper title="All Employee Balances">
         {/* Toggle */}
         <div className="flex items-center gap-2 justify-end px-4 pb-2">
