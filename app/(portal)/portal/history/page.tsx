@@ -7,11 +7,13 @@ import { Leave } from "@prisma/client";
 import { getUserLeaveDays } from "@/lib/data/getLeaveDays";
 
 const UserHistory = async () => {
-  const leaveHistory = await getUserLeaveDays()
+  const leaveHistory = await getUserLeaveDays();
 
+  // null = not logged in / session missing
   if (leaveHistory === null) {
-    return <Container>Loading...</Container>;
+    return <Container>Please log in to view your leave history.</Container>;
   }
+
   return (
     <Container>
       <TableWrapper title="My Leave History">

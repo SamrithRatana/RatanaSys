@@ -23,15 +23,28 @@ export async function getAllLeaveDays() {
 export async function getUserLeaveDays() {
   try {
     const loggedInUser = await getCurrentUser();
-    if (!loggedInUser || !loggedInUser.email) return [];
+    if (!loggedInUser) return null;
+
+    // Build OR conditions to handle cases where userEmail might be null in old records
+    const orConditions: any[] = [];
+
+    if (loggedInUser.email) {
+      orConditions.push({ userEmail: loggedInUser.email });
+    }
+    if (loggedInUser.name) {
+      orConditions.push({ userName: loggedInUser.name });
+    }
+
+    if (orConditions.length === 0) return null;
 
     const leaves = await prisma.leave.findMany({
-      where: { userEmail: loggedInUser.email },
+      where: { OR: orConditions },
       orderBy: [{ createdAt: "desc" }],
     });
-    return [...leaves];
+
+    return leaves;
   } catch (error) {
     console.error("Error fetching user leave days:", error);
-    return [];
+    return null;
   }
 }
