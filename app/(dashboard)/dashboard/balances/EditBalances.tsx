@@ -21,42 +21,44 @@ const LEAVE_TYPES = [
 ] as const;
 
 type LeaveKey = (typeof LEAVE_TYPES)[number]["key"];
+type Row = { credit: number; used: number };
+type FormState = Record<LeaveKey, Row>;
 
 const EditBalances = ({ balance }: Props) => {
   const router = useRouter();
-
-  // Only Credit is editable — Used/Available are always recomputed from
-  // approved leave records in getBalanceData.ts, so editing them has no effect.
-  const [credits, setCredits] = useState<Record<LeaveKey, number>>({
-    annual:    Number(balance.annualCredit    ?? 0),
-    sick:      Number(balance.sickCredit      ?? 0),
-    personal:  Number(balance.personalCredit  ?? 0),
-    maternity: Number(balance.maternityCredit ?? 0),
-    special:   Number(balance.specialCredit   ?? 0),
-  });
-
   const [open,    setOpen]    = useState(false);
   const [loading, setLoading] = useState(false);
 
-  function handleChange(key: LeaveKey, raw: string) {
+  const [form, setForm] = useState<FormState>({
+    annual:    { credit: Number(balance.annualCredit    ?? 0), used: Number(balance.annualUsed    ?? 0) },
+    sick:      { credit: Number(balance.sickCredit      ?? 0), used: Number(balance.sickUsed      ?? 0) },
+    personal:  { credit: Number(balance.personalCredit  ?? 0), used: Number(balance.personalUsed  ?? 0) },
+    maternity: { credit: Number(balance.maternityCredit ?? 0), used: Number(balance.maternityUsed ?? 0) },
+    special:   { credit: Number(balance.specialCredit   ?? 0), used: Number(balance.specialUsed   ?? 0) },
+  });
+
+  function handleChange(key: LeaveKey, field: "credit" | "used", raw: string) {
     const val = parseFloat(raw);
-    setCredits((prev) => ({ ...prev, [key]: isNaN(val) ? 0 : val }));
+    setForm((prev) => ({
+      ...prev,
+      [key]: { ...prev[key], [field]: isNaN(val) ? 0 : val },
+    }));
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
     try {
-      // Only send Credit fields — Used stays as DB audit trail,
-      // Available on display is always derived from approved leaves anyway.
-      const payload: Record<string, number | string> = {
-        id:              balance.id,
-        annualCredit:    credits.annual,
-        sickCredit:      credits.sick,
-        personalCredit:  credits.personal,
-        maternityCredit: credits.maternity,
-        specialCredit:   credits.special,
-      };
+      // Send all 3 fields per type — Available = Credit - Used
+      const payload: Record<string, number | string> = { id: balance.id };
+
+      for (const t of LEAVE_TYPES) {
+        const { credit, used } = form[t.key];
+        const available = credit - used;
+        payload[`${t.key}Credit`]    = credit;
+        payload[`${t.key}Used`]      = used;
+        payload[`${t.key}Available`] = available;
+      }
 
       const res = await fetch(`/api/balance/${balance.id}`, {
         method:  "PATCH",
@@ -65,7 +67,7 @@ const EditBalances = ({ balance }: Props) => {
       });
 
       if (res.ok) {
-        toast.success(`${balance.name}'s credits updated ✅`, { duration: 4000 });
+        toast.success(`${balance.name}'s balance updated ✅`, { duration: 4000 });
         setOpen(false);
         router.refresh();
       } else {
@@ -82,7 +84,7 @@ const EditBalances = ({ balance }: Props) => {
 
   return (
     <DialogWrapper
-      title={`Edit Credits — ${balance.name}`}
+      title={`Edit Balance — ${balance.name}`}
       icon={IoPencil}
       isBtn={false}
       open={open}
@@ -90,42 +92,59 @@ const EditBalances = ({ balance }: Props) => {
     >
       <form onSubmit={handleSubmit}>
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
-          ⚠️ Only <strong>Credit</strong> is editable. Used &amp; Available are always
-          auto-calculated from approved leave records.
+          ✏️ Edit <strong>Credit</strong> and <strong>Used</strong> manually.
+          <strong> Available</strong> is auto-calculated as Credit − Used.
         </p>
 
         {/* Column headers */}
-        <div className="grid grid-cols-3 gap-3 mb-1 px-1">
+        <div className="grid grid-cols-4 gap-2 mb-1 px-1">
           <span className="text-xs font-semibold text-muted-foreground">Type</span>
-          <span className="text-xs font-semibold text-muted-foreground text-center">Credit (days)</span>
-          <span className="text-xs font-semibold text-muted-foreground text-center">Used · Avail (live)</span>
+          <span className="text-xs font-semibold text-blue-600 text-center">Credit (days)</span>
+          <span className="text-xs font-semibold text-orange-500 text-center">Used (days)</span>
+          <span className="text-xs font-semibold text-muted-foreground text-center">Available</span>
         </div>
 
         <div className="space-y-2 mb-5">
           {LEAVE_TYPES.map((t) => {
-            const usedKey  = `${t.key}Used`  as keyof Balances;
-            const usedDays = Number(balance[usedKey] ?? 0);
-            const avail    = credits[t.key] - usedDays;
+            const { credit, used } = form[t.key];
+            const avail = credit - used;
 
             return (
-              <div key={t.key} className="grid grid-cols-3 gap-3 items-center">
+              <div key={t.key} className="grid grid-cols-4 gap-2 items-center">
+                {/* Type label */}
                 <Label className="text-sm font-medium">{t.label}</Label>
 
+                {/* Credit — editable */}
                 <Input
                   type="number"
                   min={0}
                   step={0.5}
-                  value={credits[t.key]}
-                  onChange={(e) => handleChange(t.key, e.target.value)}
-                  className="h-8 text-sm text-center"
+                  value={credit}
+                  onChange={(e) => handleChange(t.key, "credit", e.target.value)}
+                  className="h-8 text-sm text-center border-blue-200 focus:border-blue-400"
                   disabled={loading}
                 />
 
-                <div className="text-xs text-center text-muted-foreground">
-                  {usedDays}d used ·{" "}
-                  <span className={avail < 0 ? "text-red-500 font-semibold" : "text-green-600 font-semibold"}>
-                    {avail % 1 === 0 ? avail : avail.toFixed(1)}d
-                  </span>
+                {/* Used — manually editable */}
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={used}
+                  onChange={(e) => handleChange(t.key, "used", e.target.value)}
+                  className="h-8 text-sm text-center border-orange-200 focus:border-orange-400"
+                  disabled={loading}
+                />
+
+                {/* Available — read only, auto-calculated */}
+                <div
+                  className={`h-8 flex items-center justify-center rounded-md border text-sm font-semibold
+                    ${avail < 0
+                      ? "bg-red-50 border-red-200 text-red-600"
+                      : "bg-green-50 border-green-200 text-green-700"
+                    }`}
+                >
+                  {avail % 1 === 0 ? avail : avail.toFixed(1)}d
                 </div>
               </div>
             );
