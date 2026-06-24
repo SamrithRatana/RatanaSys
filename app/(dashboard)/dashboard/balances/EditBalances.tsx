@@ -1,7 +1,7 @@
 "use client";
 
 import DialogWrapper from "@/components/Common/DialogWrapper";
-import { FormEvent, useState } from "react";
+import { FormEvent, useReducer, useState } from "react";
 import toast from "react-hot-toast";
 import { useRouter } from "next/navigation";
 import { IoPencil } from "react-icons/io5";
@@ -10,153 +10,122 @@ import { Balances } from "@prisma/client";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 
+type State = { [key: string]: number };
+type Action = { type: string; value: number };
 type Props = { balance: Balances };
 
-const LEAVE_TYPES = [
-  { key: "annual",    label: "Annual"    },
-  { key: "sick",      label: "Sick"      },
-  { key: "personal",  label: "Personal"  },
-  { key: "maternity", label: "Maternity" },
-  { key: "special",   label: "Special"   },
-] as const;
-
-type LeaveKey = (typeof LEAVE_TYPES)[number]["key"];
-type Row = { credit: number; used: number };
-type FormState = Record<LeaveKey, Row>;
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
 const EditBalances = ({ balance }: Props) => {
-  const router = useRouter();
-  const [open,    setOpen]    = useState(false);
-  const [loading, setLoading] = useState(false);
+  const initialState: State = {
+    annualCredit:       balance.annualCredit       ?? 0,
+    annualUsed:         balance.annualUsed         ?? 0,
+    annualAvailable:    balance.annualAvailable    ?? 0,
+    sickCredit:         balance.sickCredit         ?? 0,
+    sickUsed:           balance.sickUsed           ?? 0,
+    sickAvailable:      balance.sickAvailable      ?? 0,
+    personalCredit:     balance.personalCredit     ?? 0,
+    personalUsed:       balance.personalUsed       ?? 0,
+    personalAvailable:  balance.personalAvailable  ?? 0,
+    maternityCredit:    balance.maternityCredit    ?? 0,
+    maternityUsed:      balance.maternityUsed      ?? 0,
+    maternityAvailable: balance.maternityAvailable ?? 0,
+    specialCredit:      balance.specialCredit      ?? 0,
+    specialUsed:        balance.specialUsed        ?? 0,
+    specialAvailable:   balance.specialAvailable   ?? 0,
+    shortUsed:          balance.shortUsed          ?? 0, // ← only real SHORT field
+  };
 
-  const [form, setForm] = useState<FormState>({
-    annual:    { credit: Number(balance.annualCredit    ?? 0), used: Number(balance.annualUsed    ?? 0) },
-    sick:      { credit: Number(balance.sickCredit      ?? 0), used: Number(balance.sickUsed      ?? 0) },
-    personal:  { credit: Number(balance.personalCredit  ?? 0), used: Number(balance.personalUsed  ?? 0) },
-    maternity: { credit: Number(balance.maternityCredit ?? 0), used: Number(balance.maternityUsed ?? 0) },
-    special:   { credit: Number(balance.specialCredit   ?? 0), used: Number(balance.specialUsed   ?? 0) },
+  const reducer = (state: State, action: Action): State => ({
+    ...state,
+    [action.type]: action.value,
   });
 
-  function handleChange(key: LeaveKey, field: "credit" | "used", raw: string) {
-    const val = parseFloat(raw);
-    setForm((prev) => ({
-      ...prev,
-      [key]: { ...prev[key], [field]: isNaN(val) ? 0 : val },
-    }));
-  }
+  const [open, setOpen] = useState(false);
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const router = useRouter();
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  const handleInputChange =
+    (type: string) => (e: FormEvent<HTMLInputElement>) => {
+      dispatch({ type, value: e.currentTarget.valueAsNumber });
+    };
+
+  async function submitEditedBal(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setLoading(true);
     try {
-      const payload: Record<string, number | string> = { id: balance.id };
-
-      for (const t of LEAVE_TYPES) {
-        const credit    = round2(form[t.key].credit);
-        const used      = round2(form[t.key].used);
-        const available = round2(credit - used);
-
-        payload[`${t.key}Credit`]    = credit;
-        payload[`${t.key}Used`]      = used;
-        payload[`${t.key}Available`] = available;
-      }
-
-      const res = await fetch(`/api/balance/${balance.id}`, {
-        method:  "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(payload),
+      const res = await fetch("/api/balance/balanceId", {
+        method: "PATCH",
+        body: JSON.stringify({ ...state, id: balance.id }),
       });
 
       if (res.ok) {
-        toast.success(`${balance.name}'s balance updated ✅`, { duration: 4000 });
+        toast.success("Edit Successful", { duration: 4000 });
         setOpen(false);
         router.refresh();
       } else {
-        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-        toast.error(err?.error ?? "Update failed", { duration: 6000 });
+        const errorMessage = await res.text();
+        toast.error(`An error occurred: ${errorMessage}`, { duration: 6000 });
       }
     } catch (error) {
-      console.error("Fetch error:", error);
-      toast.error("Unexpected error");
-    } finally {
-      setLoading(false);
+      console.error("An error occurred:", error);
+      toast.error("An unexpected error occurred");
     }
   }
 
+  // Badge shown instead of an input for SHORT credit & available
+  const OnTimeBadge = () => (
+    <div className="flex items-center h-9 px-3 rounded-md border border-input bg-muted text-xs font-semibold text-green-600">
+      On Time
+    </div>
+  );
+
   return (
     <DialogWrapper
-      title={`Edit Balance — ${balance.name}`}
+      title="Edit Credits"
       icon={IoPencil}
       isBtn={false}
       open={open}
       setOpen={() => setOpen(!open)}
     >
-      <form onSubmit={handleSubmit}>
-        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
-          ✏️ Edit <strong>Credit</strong> and <strong>Used</strong> (days).
-          Available = Credit − Used, shown live.
-        </p>
+      <form onSubmit={submitEditedBal}>
+        <div className="grid grid-cols-3 gap-2 my-3">
 
-        {/* Column headers */}
-        <div className="grid grid-cols-4 gap-2 mb-1 px-1">
-          <span className="text-xs font-semibold text-muted-foreground">Type</span>
-          <span className="text-xs font-semibold text-blue-600  text-center">Credit</span>
-          <span className="text-xs font-semibold text-orange-500 text-center">Used</span>
-          <span className="text-xs font-semibold text-muted-foreground text-center">Available</span>
-        </div>
-
-        <div className="space-y-2 mb-4">
-          {LEAVE_TYPES.map((t) => {
-            const { credit, used } = form[t.key];
-            const avail = round2(credit - used);
-
-            return (
-              <div key={t.key} className="grid grid-cols-4 gap-2 items-center">
-                <Label className="text-sm font-medium">{t.label}</Label>
-
-                {/* Credit */}
+          {/* All normal editable fields — skip shortUsed here, handle below */}
+          {Object.keys(initialState)
+            .filter((key) => key !== "shortUsed")
+            .map((key) => (
+              <div className="flex flex-col" key={key}>
+                <Label className="text-xs">{key}</Label>
                 <Input
                   type="number"
-                  min={0}
-                  step={0.5}
-                  value={credit}
-                  onChange={(e) => handleChange(t.key, "credit", e.target.value)}
-                  className="h-8 text-sm text-center border-blue-200 focus-visible:ring-blue-300"
-                  disabled={loading}
+                  onChange={handleInputChange(key)}
+                  value={state[key]}
                 />
-
-                {/* Used — editable for manual correction */}
-                <Input
-                  type="number"
-                  min={0}
-                  step={0.5}
-                  value={used}
-                  onChange={(e) => handleChange(t.key, "used", e.target.value)}
-                  className="h-8 text-sm text-center border-orange-200 focus-visible:ring-orange-300"
-                  disabled={loading}
-                />
-
-                {/* Available — read only */}
-                <div className={`h-8 flex items-center justify-center rounded-md border text-sm font-semibold
-                  ${avail < 0
-                    ? "bg-red-50 border-red-200 text-red-600"
-                    : "bg-green-50 border-green-200 text-green-700"
-                  }`}
-                >
-                  {avail % 1 === 0 ? avail : avail.toFixed(1)}d
-                </div>
               </div>
-            );
-          })}
-        </div>
+            ))}
 
-        <Button type="submit" disabled={loading} className="w-full">
-          {loading ? "Saving…" : "Save Changes"}
-        </Button>
+          {/* SHORT Credit — read only */}
+          <div className="flex flex-col">
+            <Label className="text-xs">shortCredit</Label>
+            <OnTimeBadge />
+          </div>
+
+          {/* SHORT Used — editable (hours) */}
+          <div className="flex flex-col">
+            <Label className="text-xs">shortUsed (hrs)</Label>
+            <Input
+              type="number"
+              onChange={handleInputChange("shortUsed")}
+              value={state["shortUsed"]}
+            />
+          </div>
+
+          {/* SHORT Available — read only */}
+          <div className="flex flex-col">
+            <Label className="text-xs">shortAvailable</Label>
+            <OnTimeBadge />
+          </div>
+
+        </div>
+        <Button type="submit">Submit</Button>
       </form>
     </DialogWrapper>
   );
