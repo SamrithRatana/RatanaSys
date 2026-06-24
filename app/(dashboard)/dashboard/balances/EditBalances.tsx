@@ -10,28 +10,30 @@ import { Balances } from "@prisma/client";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 
-type State = { [key: string]: number };
+type State  = { [key: string]: number };
 type Action = { type: string; value: number };
 type Props  = { balance: Balances };
 
+// Only Credit fields are editable.
+// Used & Available are always recomputed from approved leaves in getBalanceData.ts
+// so editing them manually has zero visible effect.
+const CREDIT_FIELDS = [
+  { key: "annualCredit",    label: "Annual Credit (days)"    },
+  { key: "sickCredit",      label: "Sick Credit (days)"      },
+  { key: "personalCredit",  label: "Personal Credit (days)"  },
+  { key: "maternityCredit", label: "Maternity Credit (days)" },
+  { key: "specialCredit",   label: "Special Credit (days)"   },
+] as const;
+
+type CreditKey = (typeof CREDIT_FIELDS)[number]["key"];
+
 const EditBalances = ({ balance }: Props) => {
   const initialState: State = {
-    annualCredit:       Number(balance.annualCredit       ?? 0),
-    annualUsed:         Number(balance.annualUsed         ?? 0),
-    annualAvailable:    Number(balance.annualAvailable    ?? 0),
-    sickCredit:         Number(balance.sickCredit         ?? 0),
-    sickUsed:           Number(balance.sickUsed           ?? 0),
-    sickAvailable:      Number(balance.sickAvailable      ?? 0),
-    personalCredit:     Number(balance.personalCredit     ?? 0),
-    personalUsed:       Number(balance.personalUsed       ?? 0),
-    personalAvailable:  Number(balance.personalAvailable  ?? 0),
-    maternityCredit:    Number(balance.maternityCredit    ?? 0),
-    maternityUsed:      Number(balance.maternityUsed      ?? 0),
-    maternityAvailable: Number(balance.maternityAvailable ?? 0),
-    specialCredit:      Number(balance.specialCredit      ?? 0),
-    specialUsed:        Number(balance.specialUsed        ?? 0),
-    specialAvailable:   Number(balance.specialAvailable   ?? 0),
-    shortUsed:          Number(balance.shortUsed          ?? 0),
+    annualCredit:    Number(balance.annualCredit    ?? 0),
+    sickCredit:      Number(balance.sickCredit      ?? 0),
+    personalCredit:  Number(balance.personalCredit  ?? 0),
+    maternityCredit: Number(balance.maternityCredit ?? 0),
+    specialCredit:   Number(balance.specialCredit   ?? 0),
   };
 
   const reducer = (state: State, action: Action): State => ({
@@ -53,45 +55,42 @@ const EditBalances = ({ balance }: Props) => {
   async function submitEditedBal(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
-
     try {
-      // ✅ URL uses the real balance.id → hits /api/balance/[balanceId]/route.ts
-      const url = `/api/balance/${balance.id}`;
+      // Build payload: Credit fields + recalculated Available
+      const payload: Record<string, number | string> = { id: balance.id };
 
-      console.log("Submitting to:", url);
-      console.log("Payload:", state);
+      for (const f of CREDIT_FIELDS) {
+        const newCredit = state[f.key];
+        const usedKey   = f.key.replace("Credit", "Used")      as keyof Balances;
+        const availKey  = f.key.replace("Credit", "Available");
+        const usedVal   = Number(balance[usedKey] ?? 0);
 
-      const res = await fetch(url, {
+        payload[f.key]   = newCredit;
+        payload[availKey] = newCredit - usedVal;
+      }
+
+      // ✅ Correct URL — hits /api/balance/[balanceId]/route.ts
+      const res = await fetch(`/api/balance/${balance.id}`, {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
-        // Send state values + id (route also reads id from URL param now)
-        body: JSON.stringify({ ...state, id: balance.id }),
+        body:    JSON.stringify(payload),
       });
 
-      console.log("Response status:", res.status);
-
       if (res.ok) {
-        toast.success("Balance updated ✅", { duration: 4000 });
+        toast.success("Credits updated ✅", { duration: 4000 });
         setOpen(false);
         router.refresh();
       } else {
         const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-        console.error("API error:", err);
         toast.error(err?.error ?? "Update failed", { duration: 6000 });
       }
     } catch (error) {
       console.error("Fetch error:", error);
-      toast.error("Unexpected error — check console");
+      toast.error("Unexpected error");
     } finally {
       setLoading(false);
     }
   }
-
-  const OnTimeBadge = () => (
-    <div className="flex items-center h-9 px-3 rounded-md border border-input bg-muted text-xs font-semibold text-green-600">
-      On Time
-    </div>
-  );
 
   return (
     <DialogWrapper
@@ -102,48 +101,40 @@ const EditBalances = ({ balance }: Props) => {
       setOpen={() => setOpen(!open)}
     >
       <form onSubmit={submitEditedBal}>
-        <div className="grid grid-cols-3 gap-2 my-3">
+        <p className="text-xs text-muted-foreground bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
+          ⚠️ Only <strong>Credit</strong> values are editable. Used &amp; Available are auto-computed from approved leaves.
+        </p>
 
-          {Object.keys(initialState)
-            .filter((key) => key !== "shortUsed")
-            .map((key) => (
-              <div className="flex flex-col" key={key}>
-                <Label className="text-xs">{key}</Label>
+        <div className="space-y-3 mb-4">
+          {CREDIT_FIELDS.map((f) => {
+            const usedKey   = f.key.replace("Credit", "Used") as keyof Balances;
+            const usedDays  = Number(balance[usedKey] ?? 0);
+            const availDays = state[f.key] - usedDays;
+
+            return (
+              <div key={f.key} className="grid grid-cols-3 gap-2 items-center">
+                <Label className="text-xs">{f.label}</Label>
                 <Input
                   type="number"
-                  step="any"
-                  onChange={handleInputChange(key)}
-                  value={state[key]}
+                  min={0}
+                  step={0.5}
+                  value={state[f.key]}
+                  onChange={handleInputChange(f.key)}
+                  className="h-8 text-sm"
+                  disabled={loading}
                 />
+                <span className="text-xs text-muted-foreground">
+                  used {usedDays}d · avail{" "}
+                  <span className={availDays < 0 ? "text-red-500 font-semibold" : "text-green-600"}>
+                    {availDays}d
+                  </span>
+                </span>
               </div>
-            ))}
-
-          {/* SHORT Credit — read only */}
-          <div className="flex flex-col">
-            <Label className="text-xs">shortCredit</Label>
-            <OnTimeBadge />
-          </div>
-
-          {/* SHORT Used — editable */}
-          <div className="flex flex-col">
-            <Label className="text-xs">shortUsed (hrs)</Label>
-            <Input
-              type="number"
-              step="any"
-              onChange={handleInputChange("shortUsed")}
-              value={state["shortUsed"]}
-            />
-          </div>
-
-          {/* SHORT Available — read only */}
-          <div className="flex flex-col">
-            <Label className="text-xs">shortAvailable</Label>
-            <OnTimeBadge />
-          </div>
-
+            );
+          })}
         </div>
 
-        <Button type="submit" disabled={loading} className="w-full mt-2">
+        <Button type="submit" disabled={loading} className="w-full">
           {loading ? "Saving…" : "Save Changes"}
         </Button>
       </form>

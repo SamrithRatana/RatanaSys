@@ -1,5 +1,4 @@
-// app/api/balance/[balanceId]/route.ts
-// Replace your existing [balanceId]/route.ts with this
+// File location: app/api/balance/[balanceId]/route.ts
 
 import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
@@ -17,7 +16,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 
   try {
-    // ✅ Get the ID from the URL param — not from the body
+    // ✅ ID comes from URL param, not body
     const balanceId = params.balanceId;
 
     if (!balanceId) {
@@ -25,29 +24,27 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     }
 
     const body = await req.json();
-    const { id, shortCredit, shortAvailable, ...data } = body;
 
-    // Convert all numeric string values to actual numbers for Prisma
+    // Strip non-updatable fields
+    const { id, shortCredit, shortAvailable, ...rest } = body;
+
+    // Ensure all values are numbers (Prisma rejects strings for numeric fields)
     const safeData: Record<string, number> = {};
-    for (const [key, val] of Object.entries(data)) {
+    for (const [key, val] of Object.entries(rest)) {
       const num = Number(val);
       if (!isNaN(num)) {
         safeData[key] = num;
       }
     }
 
-    console.log("[PATCH /api/balance/[balanceId]] updating:", balanceId, safeData);
-
     const updated = await prisma.balances.update({
-      where: { id: balanceId },  // ✅ Use URL param, not body
+      where: { id: balanceId },
       data:  safeData,
     });
 
-    console.log("[PATCH] success:", updated.id);
-
     return NextResponse.json({ message: "Success", id: updated.id }, { status: 200 });
   } catch (error) {
-    console.error("[PATCH /api/balance/[balanceId]] error:", error);
+    console.error("[PATCH /api/balance/[balanceId]]", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

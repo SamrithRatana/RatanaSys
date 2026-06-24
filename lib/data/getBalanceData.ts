@@ -11,10 +11,6 @@ const LEAVE_TYPE_TO_KEY: Record<string, string> = {
 
 const BALANCE_KEYS = ["annual", "sick", "personal", "maternity", "special"] as const;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Single-row reconcile (uses pre-fetched leaves — no extra DB call)
-// ─────────────────────────────────────────────────────────────────────────────
-
 function applyLeaves(
   balance: any,
   leaves: { type: string | null; days: number | null; hours: number | null }[]
@@ -37,10 +33,6 @@ function applyLeaves(
   }
   return result;
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// getUserBalances — single user
-// ─────────────────────────────────────────────────────────────────────────────
 
 export async function getUserBalances() {
   try {
@@ -66,11 +58,6 @@ export async function getUserBalances() {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// getAllBalances — admin / moderator view
-// Fetches all balances + all relevant leaves in exactly 2 queries (no N+1).
-// ─────────────────────────────────────────────────────────────────────────────
-
 export async function getAllBalances() {
   try {
     const loggedInUser = await getCurrentUser();
@@ -80,22 +67,23 @@ export async function getAllBalances() {
 
     const year = new Date().getFullYear().toString();
 
-    // 1️⃣  All balance rows for the current year
+    // ✅ Filter by current year only
     const balances = await prisma.balances.findMany({
-      orderBy: { year: "desc" },
+      where:   { year },
+      orderBy: { name: "asc" },
     });
 
     if (balances.length === 0) return [];
 
-    // 2️⃣  All approved leaves for those emails in ONE query
-    const emails = [...new Set(balances.map((b) => b.email).filter(Boolean) as string[])];
+    const emails = [
+      ...new Set(balances.map((b) => b.email).filter(Boolean) as string[]),
+    ];
 
     const allLeaves = await prisma.leave.findMany({
       where:  { userEmail: { in: emails }, year, status: "APPROVED" },
       select: { userEmail: true, type: true, days: true, hours: true },
     });
 
-    // 3️⃣  Group leaves by email for O(1) lookup
     const leavesByEmail = new Map<string, typeof allLeaves>();
     for (const l of allLeaves) {
       if (!l.userEmail) continue;
@@ -103,7 +91,6 @@ export async function getAllBalances() {
       leavesByEmail.get(l.userEmail)!.push(l);
     }
 
-    // 4️⃣  Reconcile each balance row without any extra DB calls
     return balances.map((b) =>
       applyLeaves(b, leavesByEmail.get(b.email ?? "") ?? [])
     );
