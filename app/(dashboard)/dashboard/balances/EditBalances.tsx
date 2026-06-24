@@ -31,7 +31,7 @@ const EditBalances = ({ balance }: Props) => {
     specialCredit:      balance.specialCredit      ?? 0,
     specialUsed:        balance.specialUsed        ?? 0,
     specialAvailable:   balance.specialAvailable   ?? 0,
-    shortUsed:          balance.shortUsed          ?? 0, // ← only real SHORT field
+    shortUsed:          balance.shortUsed          ?? 0,
   };
 
   const reducer = (state: State, action: Action): State => ({
@@ -39,9 +39,10 @@ const EditBalances = ({ balance }: Props) => {
     [action.type]: action.value,
   });
 
-  const [open, setOpen] = useState(false);
-  const [state, dispatch] = useReducer(reducer, initialState);
-  const router = useRouter();
+  const [open, setOpen]       = useState(false);
+  const [state, dispatch]     = useReducer(reducer, initialState);
+  const [loading, setLoading] = useState(false);
+  const router                = useRouter();
 
   const handleInputChange =
     (type: string) => (e: FormEvent<HTMLInputElement>) => {
@@ -50,23 +51,28 @@ const EditBalances = ({ balance }: Props) => {
 
   async function submitEditedBal(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    setLoading(true);
     try {
-      const res = await fetch("/api/balance/balanceId", {
-        method: "PATCH",
-        body: JSON.stringify({ ...state, id: balance.id }),
+      // ✅ Use the actual balance.id in the URL — matches /api/balance/[balanceId]/route.ts
+      const res = await fetch(`/api/balance/${balance.id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ ...state, id: balance.id }),
       });
 
       if (res.ok) {
-        toast.success("Edit Successful", { duration: 4000 });
+        toast.success("Edit Successful ✅", { duration: 4000 });
         setOpen(false);
         router.refresh();
       } else {
-        const errorMessage = await res.text();
-        toast.error(`An error occurred: ${errorMessage}`, { duration: 6000 });
+        const err = await res.json().catch(() => null);
+        toast.error(err?.error ?? "An error occurred", { duration: 6000 });
       }
     } catch (error) {
       console.error("An error occurred:", error);
       toast.error("An unexpected error occurred");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -125,7 +131,9 @@ const EditBalances = ({ balance }: Props) => {
           </div>
 
         </div>
-        <Button type="submit">Submit</Button>
+        <Button type="submit" disabled={loading}>
+          {loading ? "Saving…" : "Submit"}
+        </Button>
       </form>
     </DialogWrapper>
   );
