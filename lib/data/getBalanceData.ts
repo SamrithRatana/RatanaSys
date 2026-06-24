@@ -11,8 +11,11 @@ const LEAVE_TYPE_TO_KEY: Record<string, string> = {
 
 const BALANCE_KEYS = ["annual", "sick", "personal", "maternity", "special"] as const;
 
-// Recomputes Used & Available from approved leaves.
-// Available = Credit - sum(approved leave days+hours)
+// ─────────────────────────────────────────────────────────────────────────────
+// Always recompute Used & Available from approved leaves.
+// The DB `Used` field is unreliable — calculateAndUpdateBalances() accumulates
+// on top of it every approval, so it drifts. Credit in DB is the source of truth.
+// ─────────────────────────────────────────────────────────────────────────────
 function applyLeaves(
   balance: any,
   leaves: { type: string | null; days: number | null; hours: number | null }[]
@@ -38,7 +41,6 @@ function applyLeaves(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // getUserBalances — single user (portal view)
-// Always recomputes from approved leaves so the user sees live accurate data.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function getUserBalances() {
   try {
@@ -65,9 +67,10 @@ export async function getUserBalances() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// getAllBalances — admin / moderator dashboard view
-// Returns DB values as-is (admin may have manually overridden Used via EditBalances).
-// Available is still recomputed = Credit - Used so it stays consistent.
+// getAllBalances — admin / moderator dashboard
+// Also recomputes from approved leaves (same as user portal) because the DB
+// `Used` values accumulate wrongly via calculateAndUpdateBalances().
+// Only `Credit` from DB is trusted — Used & Available are always derived.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function getAllBalances() {
   try {
@@ -78,7 +81,7 @@ export async function getAllBalances() {
 
     const year = new Date().getFullYear().toString();
 
-    // ✅ Filter by current year only
+    // 1️⃣ Current year balance rows only
     const balances = await prisma.balances.findMany({
       where:   { year },
       orderBy: { name: "asc" },
@@ -86,16 +89,28 @@ export async function getAllBalances() {
 
     if (balances.length === 0) return [];
 
-    // Recompute Available = Credit - Used for each row (no leave query needed here)
-    return balances.map((b) => {
-      const result = { ...b } as any;
-      for (const key of BALANCE_KEYS) {
-        const credit = Number(b[`${key}Credit`]  ?? 0);
-        const used   = Number(b[`${key}Used`]    ?? 0);
-        result[`${key}Available`] = credit - used;
-      }
-      return result;
+    // 2️⃣ All approved leaves for all those emails — single query
+    const emails = [
+      ...new Set(balances.map((b) => b.email).filter(Boolean) as string[]),
+    ];
+
+    const allLeaves = await prisma.leave.findMany({
+      where:  { userEmail: { in: emails }, year, status: "APPROVED" },
+      select: { userEmail: true, type: true, days: true, hours: true },
     });
+
+    // 3️⃣ Group by email
+    const leavesByEmail = new Map<string, typeof allLeaves>();
+    for (const l of allLeaves) {
+      if (!l.userEmail) continue;
+      if (!leavesByEmail.has(l.userEmail)) leavesByEmail.set(l.userEmail, []);
+      leavesByEmail.get(l.userEmail)!.push(l);
+    }
+
+    // 4️⃣ Recompute each row from leaves — Credit comes from DB, Used/Available computed
+    return balances.map((b) =>
+      applyLeaves(b, leavesByEmail.get(b.email ?? "") ?? [])
+    );
   } catch (error) {
     console.error("Error fetching all balances:", error);
     return [];

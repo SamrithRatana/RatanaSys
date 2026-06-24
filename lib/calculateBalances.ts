@@ -1,105 +1,115 @@
 import { Balances } from "@prisma/client";
 import prisma from "@/lib/prisma";
 
-const MATERNITY_DAYS: Record<string, number> = {
-  MALE:   7,
-  FEMALE: 90,
-};
-
 function inferMaternityCredit(used: number, currentCredit: number): number {
   if (currentCredit > 0) return currentCredit;
-  if (used <= 7)  return 7;
+  if (used <= 7) return 7;
   return 90;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// calculateAndUpdateBalances
+//
+// Called when a leave is approved. Updates the DB `Used` and `Available` fields.
+//
+// IMPORTANT: This function reads the CURRENT DB value and adds `days` on top.
+// But the display (getBalanceData) always recomputes from approved leaves,
+// so the DB Used field is only used as a running counter for audit purposes.
+// The displayed values will always match approved leave records.
+// ─────────────────────────────────────────────────────────────────────────────
 export default async function calculateAndUpdateBalances(
   email: string,
   year:  string,
   type:  string,
-  days:  number  // for SHORT, SICK_SHORT, and ANNUAL_SHORT this value is hours
+  days:  number  // for SHORT, SICK_SHORT, ANNUAL_SHORT this is hours not days
 ): Promise<void> {
   const balance = await prisma.balances.findFirst({
     where: { email, year },
   });
 
   if (!balance) {
-    throw new Error("Balance not found for the specified user and year");
+    throw new Error(`Balance not found for ${email} / ${year}`);
   }
 
   let balanceUpdate: Partial<Balances> = {};
 
   switch (type.toUpperCase()) {
-    case "ANNUAL":
+
+    case "ANNUAL": {
+      const newUsed = (balance.annualUsed as number) + days;
       balanceUpdate = {
-        annualUsed:      (balance.annualUsed as number) + days,
-        annualAvailable: (balance.annualCredit as number) - ((balance.annualUsed as number) + days),
+        annualUsed:      newUsed,
+        annualAvailable: (balance.annualCredit as number) - newUsed,
       };
       break;
+    }
 
-    // Partial-day annual leave — `days` param carries hours, deduct as fraction of a day
     case "ANNUAL_SHORT": {
-      const dayFraction   = days / 8;
-      const newAnnualUsed = (balance.annualUsed as number) + dayFraction;
+      const fraction  = days / 8;
+      const newUsed   = (balance.annualUsed as number) + fraction;
       balanceUpdate = {
-        annualUsed:      newAnnualUsed,
-        annualAvailable: (balance.annualCredit as number) - newAnnualUsed,
+        annualUsed:      newUsed,
+        annualAvailable: (balance.annualCredit as number) - newUsed,
       };
       break;
     }
 
-    case "SICK":
+    case "SICK": {
+      const newUsed = (balance.sickUsed as number) + days;
       balanceUpdate = {
-        sickUsed:      (balance.sickUsed as number) + days,
-        sickAvailable: (balance.sickCredit as number) - ((balance.sickUsed as number) + days),
+        sickUsed:      newUsed,
+        sickAvailable: (balance.sickCredit as number) - newUsed,
       };
       break;
+    }
 
-    // Partial-day sick leave — `days` param carries hours, deduct as fraction
     case "SICK_SHORT": {
-      const dayFraction  = days / 8;
-      const newSickUsed  = (balance.sickUsed as number) + dayFraction;
+      const fraction = days / 8;
+      const newUsed  = (balance.sickUsed as number) + fraction;
       balanceUpdate = {
-        sickUsed:      newSickUsed,
-        sickAvailable: (balance.sickCredit as number) - newSickUsed,
+        sickUsed:      newUsed,
+        sickAvailable: (balance.sickCredit as number) - newUsed,
       };
       break;
     }
 
-    case "PERSONAL":
+    case "PERSONAL": {
+      const newUsed = (balance.personalUsed as number) + days;
       balanceUpdate = {
-        personalUsed:      (balance.personalUsed as number) + days,
-        personalAvailable: (balance.personalCredit as number) - ((balance.personalUsed as number) + days),
+        personalUsed:      newUsed,
+        personalAvailable: (balance.personalCredit as number) - newUsed,
       };
       break;
+    }
 
     case "MATERNITY": {
       const existingCredit = balance.maternityCredit as number;
       const existingUsed   = balance.maternityUsed   as number;
       const healedCredit   = inferMaternityCredit(existingUsed + days, existingCredit);
-
-      const newUsed      = existingUsed + days;
-      const newAvailable = healedCredit - newUsed;
-
+      const newUsed        = existingUsed + days;
       balanceUpdate = {
         maternityCredit:    healedCredit,
         maternityUsed:      newUsed,
-        maternityAvailable: Math.max(0, newAvailable),
+        maternityAvailable: Math.max(0, healedCredit - newUsed),
       };
       break;
     }
 
-    case "SPECIAL":
+    case "SPECIAL": {
+      const newUsed = (balance.specialUsed as number) + days;
       balanceUpdate = {
-        specialUsed:      (balance.specialUsed as number) + days,
-        specialAvailable: (balance.specialCredit as number) - ((balance.specialUsed as number) + days),
+        specialUsed:      newUsed,
+        specialAvailable: (balance.specialCredit as number) - newUsed,
       };
       break;
+    }
 
     case "SHORT": {
-      const dayFraction = days / 8;
+      const fraction = days / 8;
+      const newPersonalUsed = (balance.personalUsed as number) + fraction;
       balanceUpdate = {
-        personalUsed:      (balance.personalUsed as number) + dayFraction,
-        personalAvailable: (balance.personalCredit as number) - ((balance.personalUsed as number) + dayFraction),
+        personalUsed:      newPersonalUsed,
+        personalAvailable: (balance.personalCredit as number) - newPersonalUsed,
         shortUsed:         (balance.shortUsed ?? 0) + days,
       };
       break;
