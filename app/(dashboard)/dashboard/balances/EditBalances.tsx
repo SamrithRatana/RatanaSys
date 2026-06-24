@@ -12,26 +12,26 @@ import { Input } from "@/components/ui/input";
 
 type State = { [key: string]: number };
 type Action = { type: string; value: number };
-type Props = { balance: Balances };
+type Props  = { balance: Balances };
 
 const EditBalances = ({ balance }: Props) => {
   const initialState: State = {
-    annualCredit:       balance.annualCredit       ?? 0,
-    annualUsed:         balance.annualUsed         ?? 0,
-    annualAvailable:    balance.annualAvailable    ?? 0,
-    sickCredit:         balance.sickCredit         ?? 0,
-    sickUsed:           balance.sickUsed           ?? 0,
-    sickAvailable:      balance.sickAvailable      ?? 0,
-    personalCredit:     balance.personalCredit     ?? 0,
-    personalUsed:       balance.personalUsed       ?? 0,
-    personalAvailable:  balance.personalAvailable  ?? 0,
-    maternityCredit:    balance.maternityCredit    ?? 0,
-    maternityUsed:      balance.maternityUsed      ?? 0,
-    maternityAvailable: balance.maternityAvailable ?? 0,
-    specialCredit:      balance.specialCredit      ?? 0,
-    specialUsed:        balance.specialUsed        ?? 0,
-    specialAvailable:   balance.specialAvailable   ?? 0,
-    shortUsed:          balance.shortUsed          ?? 0,
+    annualCredit:       Number(balance.annualCredit       ?? 0),
+    annualUsed:         Number(balance.annualUsed         ?? 0),
+    annualAvailable:    Number(balance.annualAvailable    ?? 0),
+    sickCredit:         Number(balance.sickCredit         ?? 0),
+    sickUsed:           Number(balance.sickUsed           ?? 0),
+    sickAvailable:      Number(balance.sickAvailable      ?? 0),
+    personalCredit:     Number(balance.personalCredit     ?? 0),
+    personalUsed:       Number(balance.personalUsed       ?? 0),
+    personalAvailable:  Number(balance.personalAvailable  ?? 0),
+    maternityCredit:    Number(balance.maternityCredit    ?? 0),
+    maternityUsed:      Number(balance.maternityUsed      ?? 0),
+    maternityAvailable: Number(balance.maternityAvailable ?? 0),
+    specialCredit:      Number(balance.specialCredit      ?? 0),
+    specialUsed:        Number(balance.specialUsed        ?? 0),
+    specialAvailable:   Number(balance.specialAvailable   ?? 0),
+    shortUsed:          Number(balance.shortUsed          ?? 0),
   };
 
   const reducer = (state: State, action: Action): State => ({
@@ -39,44 +39,54 @@ const EditBalances = ({ balance }: Props) => {
     [action.type]: action.value,
   });
 
-  const [open, setOpen]       = useState(false);
-  const [state, dispatch]     = useReducer(reducer, initialState);
+  const [open,    setOpen]    = useState(false);
+  const [state,   dispatch]   = useReducer(reducer, initialState);
   const [loading, setLoading] = useState(false);
   const router                = useRouter();
 
   const handleInputChange =
     (type: string) => (e: FormEvent<HTMLInputElement>) => {
-      dispatch({ type, value: e.currentTarget.valueAsNumber });
+      const val = e.currentTarget.valueAsNumber;
+      dispatch({ type, value: isNaN(val) ? 0 : val });
     };
 
   async function submitEditedBal(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
+
     try {
-      // ✅ Use the actual balance.id in the URL — matches /api/balance/[balanceId]/route.ts
-      const res = await fetch(`/api/balance/${balance.id}`, {
+      // ✅ URL uses the real balance.id → hits /api/balance/[balanceId]/route.ts
+      const url = `/api/balance/${balance.id}`;
+
+      console.log("Submitting to:", url);
+      console.log("Payload:", state);
+
+      const res = await fetch(url, {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ ...state, id: balance.id }),
+        // Send state values + id (route also reads id from URL param now)
+        body: JSON.stringify({ ...state, id: balance.id }),
       });
 
+      console.log("Response status:", res.status);
+
       if (res.ok) {
-        toast.success("Edit Successful ✅", { duration: 4000 });
+        toast.success("Balance updated ✅", { duration: 4000 });
         setOpen(false);
         router.refresh();
       } else {
-        const err = await res.json().catch(() => null);
-        toast.error(err?.error ?? "An error occurred", { duration: 6000 });
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        console.error("API error:", err);
+        toast.error(err?.error ?? "Update failed", { duration: 6000 });
       }
     } catch (error) {
-      console.error("An error occurred:", error);
-      toast.error("An unexpected error occurred");
+      console.error("Fetch error:", error);
+      toast.error("Unexpected error — check console");
     } finally {
       setLoading(false);
     }
   }
 
-  // Badge shown instead of an input for SHORT credit & available
   const OnTimeBadge = () => (
     <div className="flex items-center h-9 px-3 rounded-md border border-input bg-muted text-xs font-semibold text-green-600">
       On Time
@@ -85,7 +95,7 @@ const EditBalances = ({ balance }: Props) => {
 
   return (
     <DialogWrapper
-      title="Edit Credits"
+      title={`Edit Credits — ${balance.name}`}
       icon={IoPencil}
       isBtn={false}
       open={open}
@@ -94,7 +104,6 @@ const EditBalances = ({ balance }: Props) => {
       <form onSubmit={submitEditedBal}>
         <div className="grid grid-cols-3 gap-2 my-3">
 
-          {/* All normal editable fields — skip shortUsed here, handle below */}
           {Object.keys(initialState)
             .filter((key) => key !== "shortUsed")
             .map((key) => (
@@ -102,6 +111,7 @@ const EditBalances = ({ balance }: Props) => {
                 <Label className="text-xs">{key}</Label>
                 <Input
                   type="number"
+                  step="any"
                   onChange={handleInputChange(key)}
                   value={state[key]}
                 />
@@ -114,11 +124,12 @@ const EditBalances = ({ balance }: Props) => {
             <OnTimeBadge />
           </div>
 
-          {/* SHORT Used — editable (hours) */}
+          {/* SHORT Used — editable */}
           <div className="flex flex-col">
             <Label className="text-xs">shortUsed (hrs)</Label>
             <Input
               type="number"
+              step="any"
               onChange={handleInputChange("shortUsed")}
               value={state["shortUsed"]}
             />
@@ -131,8 +142,9 @@ const EditBalances = ({ balance }: Props) => {
           </div>
 
         </div>
-        <Button type="submit" disabled={loading}>
-          {loading ? "Saving…" : "Submit"}
+
+        <Button type="submit" disabled={loading} className="w-full mt-2">
+          {loading ? "Saving…" : "Save Changes"}
         </Button>
       </form>
     </DialogWrapper>
