@@ -11,6 +11,8 @@ const LEAVE_TYPE_TO_KEY: Record<string, string> = {
 
 const BALANCE_KEYS = ["annual", "sick", "personal", "maternity", "special"] as const;
 
+// Recomputes Used & Available from approved leaves.
+// Available = Credit - sum(approved leave days+hours)
 function applyLeaves(
   balance: any,
   leaves: { type: string | null; days: number | null; hours: number | null }[]
@@ -34,6 +36,10 @@ function applyLeaves(
   return result;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// getUserBalances — single user (portal view)
+// Always recomputes from approved leaves so the user sees live accurate data.
+// ─────────────────────────────────────────────────────────────────────────────
 export async function getUserBalances() {
   try {
     const loggedInUser = await getCurrentUser();
@@ -58,6 +64,11 @@ export async function getUserBalances() {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// getAllBalances — admin / moderator dashboard view
+// Returns DB values as-is (admin may have manually overridden Used via EditBalances).
+// Available is still recomputed = Credit - Used so it stays consistent.
+// ─────────────────────────────────────────────────────────────────────────────
 export async function getAllBalances() {
   try {
     const loggedInUser = await getCurrentUser();
@@ -75,25 +86,16 @@ export async function getAllBalances() {
 
     if (balances.length === 0) return [];
 
-    const emails = [
-      ...new Set(balances.map((b) => b.email).filter(Boolean) as string[]),
-    ];
-
-    const allLeaves = await prisma.leave.findMany({
-      where:  { userEmail: { in: emails }, year, status: "APPROVED" },
-      select: { userEmail: true, type: true, days: true, hours: true },
+    // Recompute Available = Credit - Used for each row (no leave query needed here)
+    return balances.map((b) => {
+      const result = { ...b } as any;
+      for (const key of BALANCE_KEYS) {
+        const credit = Number(b[`${key}Credit`]  ?? 0);
+        const used   = Number(b[`${key}Used`]    ?? 0);
+        result[`${key}Available`] = credit - used;
+      }
+      return result;
     });
-
-    const leavesByEmail = new Map<string, typeof allLeaves>();
-    for (const l of allLeaves) {
-      if (!l.userEmail) continue;
-      if (!leavesByEmail.has(l.userEmail)) leavesByEmail.set(l.userEmail, []);
-      leavesByEmail.get(l.userEmail)!.push(l);
-    }
-
-    return balances.map((b) =>
-      applyLeaves(b, leavesByEmail.get(b.email ?? "") ?? [])
-    );
   } catch (error) {
     console.error("Error fetching all balances:", error);
     return [];
