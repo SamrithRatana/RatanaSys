@@ -24,6 +24,10 @@ type LeaveKey = (typeof LEAVE_TYPES)[number]["key"];
 type Row = { credit: number; used: number };
 type FormState = Record<LeaveKey, Row>;
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 const EditBalances = ({ balance }: Props) => {
   const router = useRouter();
   const [open,    setOpen]    = useState(false);
@@ -49,12 +53,13 @@ const EditBalances = ({ balance }: Props) => {
     e.preventDefault();
     setLoading(true);
     try {
-      // Send all 3 fields per type — Available = Credit - Used
       const payload: Record<string, number | string> = { id: balance.id };
 
       for (const t of LEAVE_TYPES) {
-        const { credit, used } = form[t.key];
-        const available = credit - used;
+        const credit    = round2(form[t.key].credit);
+        const used      = round2(form[t.key].used);
+        const available = round2(credit - used);
+
         payload[`${t.key}Credit`]    = credit;
         payload[`${t.key}Used`]      = used;
         payload[`${t.key}Available`] = available;
@@ -91,58 +96,56 @@ const EditBalances = ({ balance }: Props) => {
       setOpen={() => setOpen(!open)}
     >
       <form onSubmit={handleSubmit}>
-        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
-          ✏️ Edit <strong>Credit</strong> and <strong>Used</strong> manually.
-          <strong> Available</strong> is auto-calculated as Credit − Used.
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+          ✏️ Edit <strong>Credit</strong> and <strong>Used</strong> (days).
+          Available = Credit − Used, shown live.
         </p>
 
         {/* Column headers */}
         <div className="grid grid-cols-4 gap-2 mb-1 px-1">
           <span className="text-xs font-semibold text-muted-foreground">Type</span>
-          <span className="text-xs font-semibold text-blue-600 text-center">Credit (days)</span>
-          <span className="text-xs font-semibold text-orange-500 text-center">Used (days)</span>
+          <span className="text-xs font-semibold text-blue-600  text-center">Credit</span>
+          <span className="text-xs font-semibold text-orange-500 text-center">Used</span>
           <span className="text-xs font-semibold text-muted-foreground text-center">Available</span>
         </div>
 
-        <div className="space-y-2 mb-5">
+        <div className="space-y-2 mb-4">
           {LEAVE_TYPES.map((t) => {
             const { credit, used } = form[t.key];
-            const avail = credit - used;
+            const avail = round2(credit - used);
 
             return (
               <div key={t.key} className="grid grid-cols-4 gap-2 items-center">
-                {/* Type label */}
                 <Label className="text-sm font-medium">{t.label}</Label>
 
-                {/* Credit — editable */}
+                {/* Credit */}
                 <Input
                   type="number"
                   min={0}
                   step={0.5}
                   value={credit}
                   onChange={(e) => handleChange(t.key, "credit", e.target.value)}
-                  className="h-8 text-sm text-center border-blue-200 focus:border-blue-400"
+                  className="h-8 text-sm text-center border-blue-200 focus-visible:ring-blue-300"
                   disabled={loading}
                 />
 
-                {/* Used — manually editable */}
+                {/* Used — editable for manual correction */}
                 <Input
                   type="number"
                   min={0}
                   step={0.5}
                   value={used}
                   onChange={(e) => handleChange(t.key, "used", e.target.value)}
-                  className="h-8 text-sm text-center border-orange-200 focus:border-orange-400"
+                  className="h-8 text-sm text-center border-orange-200 focus-visible:ring-orange-300"
                   disabled={loading}
                 />
 
-                {/* Available — read only, auto-calculated */}
-                <div
-                  className={`h-8 flex items-center justify-center rounded-md border text-sm font-semibold
-                    ${avail < 0
-                      ? "bg-red-50 border-red-200 text-red-600"
-                      : "bg-green-50 border-green-200 text-green-700"
-                    }`}
+                {/* Available — read only */}
+                <div className={`h-8 flex items-center justify-center rounded-md border text-sm font-semibold
+                  ${avail < 0
+                    ? "bg-red-50 border-red-200 text-red-600"
+                    : "bg-green-50 border-green-200 text-green-700"
+                  }`}
                 >
                   {avail % 1 === 0 ? avail : avail.toFixed(1)}d
                 </div>

@@ -7,21 +7,15 @@ function inferMaternityCredit(used: number, currentCredit: number): number {
   return 90;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// calculateAndUpdateBalances
-//
-// Called when a leave is approved. Updates the DB `Used` and `Available` fields.
-//
-// IMPORTANT: This function reads the CURRENT DB value and adds `days` on top.
-// But the display (getBalanceData) always recomputes from approved leaves,
-// so the DB Used field is only used as a running counter for audit purposes.
-// The displayed values will always match approved leave records.
-// ─────────────────────────────────────────────────────────────────────────────
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 export default async function calculateAndUpdateBalances(
   email: string,
   year:  string,
   type:  string,
-  days:  number  // for SHORT, SICK_SHORT, ANNUAL_SHORT this is hours not days
+  days:  number  // for SHORT, SICK_SHORT, ANNUAL_SHORT this value is hours
 ): Promise<void> {
   const balance = await prisma.balances.findFirst({
     where: { email, year },
@@ -36,48 +30,46 @@ export default async function calculateAndUpdateBalances(
   switch (type.toUpperCase()) {
 
     case "ANNUAL": {
-      const newUsed = (balance.annualUsed as number) + days;
+      const newUsed = round2((balance.annualUsed as number) + days);
       balanceUpdate = {
         annualUsed:      newUsed,
-        annualAvailable: (balance.annualCredit as number) - newUsed,
+        annualAvailable: round2((balance.annualCredit as number) - newUsed),
       };
       break;
     }
 
     case "ANNUAL_SHORT": {
-      const fraction  = days / 8;
-      const newUsed   = (balance.annualUsed as number) + fraction;
+      const newUsed = round2((balance.annualUsed as number) + days / 8);
       balanceUpdate = {
         annualUsed:      newUsed,
-        annualAvailable: (balance.annualCredit as number) - newUsed,
+        annualAvailable: round2((balance.annualCredit as number) - newUsed),
       };
       break;
     }
 
     case "SICK": {
-      const newUsed = (balance.sickUsed as number) + days;
+      const newUsed = round2((balance.sickUsed as number) + days);
       balanceUpdate = {
         sickUsed:      newUsed,
-        sickAvailable: (balance.sickCredit as number) - newUsed,
+        sickAvailable: round2((balance.sickCredit as number) - newUsed),
       };
       break;
     }
 
     case "SICK_SHORT": {
-      const fraction = days / 8;
-      const newUsed  = (balance.sickUsed as number) + fraction;
+      const newUsed = round2((balance.sickUsed as number) + days / 8);
       balanceUpdate = {
         sickUsed:      newUsed,
-        sickAvailable: (balance.sickCredit as number) - newUsed,
+        sickAvailable: round2((balance.sickCredit as number) - newUsed),
       };
       break;
     }
 
     case "PERSONAL": {
-      const newUsed = (balance.personalUsed as number) + days;
+      const newUsed = round2((balance.personalUsed as number) + days);
       balanceUpdate = {
         personalUsed:      newUsed,
-        personalAvailable: (balance.personalCredit as number) - newUsed,
+        personalAvailable: round2((balance.personalCredit as number) - newUsed),
       };
       break;
     }
@@ -86,31 +78,31 @@ export default async function calculateAndUpdateBalances(
       const existingCredit = balance.maternityCredit as number;
       const existingUsed   = balance.maternityUsed   as number;
       const healedCredit   = inferMaternityCredit(existingUsed + days, existingCredit);
-      const newUsed        = existingUsed + days;
+      const newUsed        = round2(existingUsed + days);
       balanceUpdate = {
         maternityCredit:    healedCredit,
         maternityUsed:      newUsed,
-        maternityAvailable: Math.max(0, healedCredit - newUsed),
+        maternityAvailable: round2(Math.max(0, healedCredit - newUsed)),
       };
       break;
     }
 
     case "SPECIAL": {
-      const newUsed = (balance.specialUsed as number) + days;
+      const newUsed = round2((balance.specialUsed as number) + days);
       balanceUpdate = {
         specialUsed:      newUsed,
-        specialAvailable: (balance.specialCredit as number) - newUsed,
+        specialAvailable: round2((balance.specialCredit as number) - newUsed),
       };
       break;
     }
 
     case "SHORT": {
-      const fraction = days / 8;
-      const newPersonalUsed = (balance.personalUsed as number) + fraction;
+      const fraction        = round2(days / 8);
+      const newPersonalUsed = round2((balance.personalUsed as number) + fraction);
       balanceUpdate = {
         personalUsed:      newPersonalUsed,
-        personalAvailable: (balance.personalCredit as number) - newPersonalUsed,
-        shortUsed:         (balance.shortUsed ?? 0) + days,
+        personalAvailable: round2((balance.personalCredit as number) - newPersonalUsed),
+        shortUsed:         round2((balance.shortUsed ?? 0) + days),
       };
       break;
     }

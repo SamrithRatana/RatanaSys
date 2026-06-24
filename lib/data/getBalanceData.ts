@@ -11,7 +11,13 @@ const LEAVE_TYPE_TO_KEY: Record<string, string> = {
 
 const BALANCE_KEYS = ["annual", "sick", "personal", "maternity", "special"] as const;
 
-// Used by getUserBalances only — recomputes from approved leave records
+// Round to max 2 decimal places to avoid floating point display issues
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+// Recompute Used & Available from approved leave records.
+// Credit comes from DB. Used/Available are always derived — never trusted from DB.
 function applyLeaves(
   balance: any,
   leaves: { type: string | null; days: number | null; hours: number | null }[]
@@ -23,21 +29,20 @@ function applyLeaves(
   for (const l of leaves) {
     const key = LEAVE_TYPE_TO_KEY[l.type?.toUpperCase() ?? ""];
     if (!key) continue;
-    sums[key] += (l.days ?? 0) + (l.hours ?? 0) / 8;
+    sums[key] = round2(sums[key] + (l.days ?? 0) + (l.hours ?? 0) / 8);
   }
 
   const result = { ...balance };
   for (const key of BALANCE_KEYS) {
-    const credit = Number(balance[`${key}Credit`] ?? 0);
+    const credit = round2(Number(balance[`${key}Credit`] ?? 0));
     result[`${key}Used`]      = sums[key];
-    result[`${key}Available`] = credit - sums[key];
+    result[`${key}Available`] = round2(credit - sums[key]);
   }
   return result;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // getUserBalances — single user (portal view)
-// Always recomputes from approved leaves for accuracy.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function getUserBalances() {
   try {
@@ -65,8 +70,9 @@ export async function getUserBalances() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // getAllBalances — admin / moderator dashboard
-// Trusts DB values directly so admin manual edits (Credit + Used) are reflected.
-// Available = Credit - Used, recomputed from DB values (not from leaves).
+// Always recomputes Used & Available from approved leaves.
+// DB `Used` values are unreliable (calculateAndUpdateBalances accumulates on
+// top of stale values). Only `Credit` from DB is trusted.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function getAllBalances() {
   try {
@@ -77,6 +83,7 @@ export async function getAllBalances() {
 
     const year = new Date().getFullYear().toString();
 
+    // 1️⃣ Current year balance rows only
     const balances = await prisma.balances.findMany({
       where:   { year },
       orderBy: { name: "asc" },
@@ -84,17 +91,28 @@ export async function getAllBalances() {
 
     if (balances.length === 0) return [];
 
-    // Recompute Available = Credit - Used from DB values
-    // Admin sets both Credit and Used via EditBalances, so we trust DB here
-    return balances.map((b) => {
-      const result = { ...b } as any;
-      for (const key of BALANCE_KEYS) {
-        const credit = Number((b as any)[`${key}Credit`] ?? 0);
-        const used   = Number((b as any)[`${key}Used`]   ?? 0);
-        result[`${key}Available`] = credit - used;
-      }
-      return result;
+    // 2️⃣ All approved leaves — single query
+    const emails = [
+      ...new Set(balances.map((b) => b.email).filter(Boolean) as string[]),
+    ];
+
+    const allLeaves = await prisma.leave.findMany({
+      where:  { userEmail: { in: emails }, year, status: "APPROVED" },
+      select: { userEmail: true, type: true, days: true, hours: true },
     });
+
+    // 3️⃣ Group by email
+    const leavesByEmail = new Map<string, typeof allLeaves>();
+    for (const l of allLeaves) {
+      if (!l.userEmail) continue;
+      if (!leavesByEmail.has(l.userEmail)) leavesByEmail.set(l.userEmail, []);
+      leavesByEmail.get(l.userEmail)!.push(l);
+    }
+
+    // 4️⃣ Recompute each row — Credit from DB, Used/Available from leaves
+    return balances.map((b) =>
+      applyLeaves(b, leavesByEmail.get(b.email ?? "") ?? [])
+    );
   } catch (error) {
     console.error("Error fetching all balances:", error);
     return [];
