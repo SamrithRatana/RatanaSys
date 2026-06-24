@@ -25,20 +25,13 @@ export async function getUserLeaveDays() {
     const loggedInUser = await getCurrentUser();
     if (!loggedInUser) return null;
 
-    // Build OR conditions to handle cases where userEmail might be null in old records
     const orConditions: any[] = [];
-
-    if (loggedInUser.email) {
-      orConditions.push({ userEmail: loggedInUser.email });
-    }
-    if (loggedInUser.name) {
-      orConditions.push({ userName: loggedInUser.name });
-    }
-
+    if (loggedInUser.email) orConditions.push({ userEmail: loggedInUser.email });
+    if (loggedInUser.name)  orConditions.push({ userName:  loggedInUser.name  });
     if (orConditions.length === 0) return null;
 
     const leaves = await prisma.leave.findMany({
-      where: { OR: orConditions },
+      where:   { OR: orConditions },
       orderBy: [{ createdAt: "desc" }],
     });
 
