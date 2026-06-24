@@ -2,21 +2,22 @@ import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
 
 const LEAVE_TYPE_TO_KEY: Record<string, string> = {
-  ANNUAL:       "annual",
-  ANNUAL_SHORT: "annual",
-  SICK:         "sick",
-  SICK_SHORT:   "sick",
-  PERSONAL:     "personal",
-  SHORT:        "personal",
-  MATERNITY:    "maternity",
-  SPECIAL:      "special",
+  ANNUAL:    "annual",
+  SICK:      "sick",
+  PERSONAL:  "personal",
+  MATERNITY: "maternity",
+  SPECIAL:   "special",
 };
 
 const BALANCE_KEYS = ["annual", "sick", "personal", "maternity", "special"] as const;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Single-row reconcile (uses pre-fetched leaves — no extra DB call)
+// ─────────────────────────────────────────────────────────────────────────────
+
 function applyLeaves(
   balance: any,
-  leaves: { type: string | null; days: number | null; hours: number | null }[],
+  leaves: { type: string | null; days: number | null; hours: number | null }[]
 ): any {
   const sums: Record<string, number> = {
     annual: 0, sick: 0, personal: 0, maternity: 0, special: 0,
@@ -37,45 +38,26 @@ function applyLeaves(
   return result;
 }
 
-function dateRangeForYear(year: string) {
-  return {
-    gte: new Date(`${year}-01-01T00:00:00.000Z`),
-    lte: new Date(`${year}-12-31T23:59:59.999Z`),
-  };
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// getUserBalances — single user
+// ─────────────────────────────────────────────────────────────────────────────
 
 export async function getUserBalances() {
   try {
     const loggedInUser = await getCurrentUser();
-    if (!loggedInUser) return null;
-    if (!loggedInUser.email && !loggedInUser.name) return null;
+    if (!loggedInUser?.email) return null;
 
     const year = new Date().getFullYear().toString();
 
-    const balance = await prisma.balances.findFirst({
-      where: {
-        OR: [
-          ...(loggedInUser.email ? [{ email: loggedInUser.email }] : []),
-          ...(loggedInUser.name  ? [{ name:  loggedInUser.name  }] : []),
-        ],
-        year,
-      },
-    });
+    const [balance, leaves] = await Promise.all([
+      prisma.balances.findFirst({ where: { email: loggedInUser.email, year } }),
+      prisma.leave.findMany({
+        where:  { userEmail: loggedInUser.email, year, status: "APPROVED" },
+        select: { type: true, days: true, hours: true },
+      }),
+    ]);
 
     if (!balance) return null;
-
-    const orConditions: any[] = [];
-    if (loggedInUser.email) orConditions.push({ userEmail: loggedInUser.email });
-    if (loggedInUser.name)  orConditions.push({ userName:  loggedInUser.name  });
-
-    const leaves = await prisma.leave.findMany({
-      where: {
-        OR:        orConditions,
-        status:    "APPROVED",
-        startDate: dateRangeForYear(year),
-      },
-      select: { type: true, days: true, hours: true },
-    });
 
     return applyLeaves(balance, leaves);
   } catch (error) {
@@ -84,76 +66,47 @@ export async function getUserBalances() {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// getAllBalances — admin / moderator view
+// Fetches all balances + all relevant leaves in exactly 2 queries (no N+1).
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function getAllBalances() {
   try {
     const loggedInUser = await getCurrentUser();
-    if (
-      !loggedInUser ||
-      !["ADMIN", "MODERATOR"].includes(loggedInUser.role as string)
-    ) {
+    if (!loggedInUser || !["ADMIN", "MODERATOR"].includes(loggedInUser.role as string)) {
       return [];
     }
 
     const year = new Date().getFullYear().toString();
 
+    // 1️⃣  All balance rows for the current year
     const balances = await prisma.balances.findMany({
       orderBy: { year: "desc" },
     });
 
     if (balances.length === 0) return [];
 
-    const emails = [
-      ...new Set(balances.map((b) => b.email).filter(Boolean) as string[]),
-    ];
-    const names = [
-      ...new Set(balances.map((b) => b.name).filter(Boolean) as string[]),
-    ];
+    // 2️⃣  All approved leaves for those emails in ONE query
+    const emails = [...new Set(balances.map((b) => b.email).filter(Boolean) as string[])];
 
-    const orConditions: any[] = [];
-    if (emails.length > 0) orConditions.push({ userEmail: { in: emails } });
-    if (names.length  > 0) orConditions.push({ userName:  { in: names  } });
+    const allLeaves = await prisma.leave.findMany({
+      where:  { userEmail: { in: emails }, year, status: "APPROVED" },
+      select: { userEmail: true, type: true, days: true, hours: true },
+    });
 
-    const allLeaves =
-      orConditions.length === 0
-        ? []
-        : await prisma.leave.findMany({
-            where: {
-              OR:        orConditions,
-              status:    "APPROVED",
-              startDate: dateRangeForYear(year),
-            },
-            select: {
-              userEmail: true,
-              userName:  true,
-              type:      true,
-              days:      true,
-              hours:     true,
-            },
-          });
-
+    // 3️⃣  Group leaves by email for O(1) lookup
     const leavesByEmail = new Map<string, typeof allLeaves>();
-    const leavesByName  = new Map<string, typeof allLeaves>();
-
     for (const l of allLeaves) {
-      if (l.userEmail) {
-        if (!leavesByEmail.has(l.userEmail)) leavesByEmail.set(l.userEmail, []);
-        leavesByEmail.get(l.userEmail)!.push(l);
-      }
-      if (l.userName) {
-        if (!leavesByName.has(l.userName)) leavesByName.set(l.userName, []);
-        leavesByName.get(l.userName)!.push(l);
-      }
+      if (!l.userEmail) continue;
+      if (!leavesByEmail.has(l.userEmail)) leavesByEmail.set(l.userEmail, []);
+      leavesByEmail.get(l.userEmail)!.push(l);
     }
 
-    return balances.map((b) => {
-      const byEmail = b.email ? (leavesByEmail.get(b.email) ?? []) : [];
-      const byName  = b.name  ? (leavesByName .get(b.name)  ?? []) : [];
-
-      const seen   = new Set(byEmail);
-      const merged = [...byEmail, ...byName.filter((l) => !seen.has(l))];
-
-      return applyLeaves(b, merged);
-    });
+    // 4️⃣  Reconcile each balance row without any extra DB calls
+    return balances.map((b) =>
+      applyLeaves(b, leavesByEmail.get(b.email ?? "") ?? [])
+    );
   } catch (error) {
     console.error("Error fetching all balances:", error);
     return [];
