@@ -18,7 +18,7 @@ const nextConfig = {
     cpus: 1,
     serverActions: {
       allowedOrigins: [
-        "system.camprotec.com.kh",
+        "system.camprotec.com.kh
         "localhost:3000",
       ],
     },
