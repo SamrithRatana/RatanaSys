@@ -16,10 +16,17 @@ export default async function calculateAndUpdateBalances(
   email: string,
   year:  string,
   type:  string,
-  days:  number  // for SHORT, SICK_SHORT, and ANNUAL_SHORT this value is hours
+  days:  number,  // for SHORT, SICK_SHORT, and ANNUAL_SHORT this value is hours
+  name?: string,
 ): Promise<void> {
   const balance = await prisma.balances.findFirst({
-    where: { email, year },
+    where: {
+      year,
+      OR: [
+        { email },
+        ...(name ? [{ name }] : []),
+      ],
+    },
   });
 
   if (!balance) {
