@@ -146,26 +146,25 @@ function buildDateBlock(
 
 // ── Shared balance deduction logic ────────────────────────────────────────────
 async function deductBalance(
-  email:           string,
-  year:            string,
-  type:            string,
-  days:            number,
-  daysFromDb:      number,
-  hoursFromDb:     number,
-  isShortLeave:    boolean,
+  email:        string,
+  year:         string,
+  type:         string,
+  days:         number,
+  daysFromDb:   number,
+  hoursFromDb:  number,
+  isShortLeave: boolean,
   isPartialHourly: boolean,
-  name?:           string,
 ): Promise<void> {
   const hasBothDaysAndHours = daysFromDb > 0 && hoursFromDb > 0;
 
   if (hasBothDaysAndHours) {
-    await calculateAndUpdateBalances(email, year, type, daysFromDb, name);
+    await calculateAndUpdateBalances(email, year, type, daysFromDb);
     const shortType =
       type === "SICK"     ? "SICK_SHORT"   :
       type === "ANNUAL"   ? "ANNUAL_SHORT" :
       type === "PERSONAL" ? "SHORT"        :
       "SHORT";
-    await calculateAndUpdateBalances(email, year, shortType, hoursFromDb, name);
+    await calculateAndUpdateBalances(email, year, shortType, hoursFromDb);
   } else {
     const effectiveType = isShortLeave
       ? "SHORT"
@@ -183,7 +182,7 @@ async function deductBalance(
           ? daysFromDb
           : days;
 
-    await calculateAndUpdateBalances(email, year, effectiveType, effectiveValue, name);
+    await calculateAndUpdateBalances(email, year, effectiveType, effectiveValue);
   }
 }
 
@@ -316,7 +315,6 @@ export async function PATCH(req: Request) {
           email, year, type, days,
           daysFromDb, hoursFromDb,
           isShortLeave, isPartialHourly,
-          user,
         );
 
         await prisma.events.create({
@@ -372,7 +370,6 @@ export async function PATCH(req: Request) {
             email, year, type, days,
             daysFromDb, hoursFromDb,
             isShortLeave, isPartialHourly,
-            user,
           );
 
           await prisma.events.create({
