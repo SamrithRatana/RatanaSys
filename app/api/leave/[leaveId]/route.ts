@@ -78,7 +78,6 @@ function formatHourLabel(h: number): string {
   return formatTotalMinutes(Math.round(h * 60));
 }
 
-// ── Segment line ──────────────────────────────────────────────────────────────
 function formatSegmentLine(seg: StoredSegment): string {
   const startLabel = safeFormat(seg.date, "dd MMM yyyy");
   const h = seg.hours ?? 0;
@@ -99,7 +98,6 @@ function formatSegmentLine(seg: StoredSegment): string {
   return `  📌 ${startLabel} · ${formatHourLabel(h)}${timeRange}`;
 }
 
-// ── Total label across segments ───────────────────────────────────────────────
 function computeTotalLabel(segs: StoredSegment[]): string {
   let totalMin = 0;
   for (const seg of segs) {
@@ -144,6 +142,25 @@ function buildDateBlock(
   ];
 }
 
+// ── Balance lookup with fallback ──────────────────────────────────────────────
+// Mirrors the OR logic in calculateAndUpdateBalances so we can pre-check
+// and also resolve the correct email to pass in.
+async function findBalanceRecord(
+  email: string,
+  year:  string,
+  name?: string,
+) {
+  return prisma.balances.findFirst({
+    where: {
+      year: String(year), // ← coerce to string; leave.year may be a number
+      OR: [
+        { email },
+        ...(name ? [{ name }] : []),
+      ],
+    },
+  });
+}
+
 // ── Shared balance deduction logic ────────────────────────────────────────────
 async function deductBalance(
   email:           string,
@@ -156,16 +173,37 @@ async function deductBalance(
   isPartialHourly: boolean,
   name?:           string,
 ): Promise<void> {
+  // Pre-flight: verify the balance record exists before calling
+  // calculateAndUpdateBalances (which throws if not found).
+  const balanceRecord = await findBalanceRecord(email, year, name);
+
+  if (!balanceRecord) {
+    // Log clearly so you can diagnose which user/year is missing.
+    console.error(
+      `[deductBalance] No balance found — email="${email}" name="${name}" year="${year}". ` +
+      `Approval will proceed but balance was NOT deducted. Create a balance record for this user.`
+    );
+    // Do not throw — let the approval succeed so the leave isn't stuck.
+    return;
+  }
+
+  // Use the email stored on the balance record to avoid synthetic-email
+  // mismatches (e.g. balances created via telegramId path).
+  const resolvedEmail = balanceRecord.email ?? email;
+  const resolvedYear  = String(year);
+
   const hasBothDaysAndHours = daysFromDb > 0 && hoursFromDb > 0;
 
   if (hasBothDaysAndHours) {
-    await calculateAndUpdateBalances(email, year, type, daysFromDb, name);
+    await calculateAndUpdateBalances(resolvedEmail, resolvedYear, type, daysFromDb, name);
+
     const shortType =
       type === "SICK"     ? "SICK_SHORT"   :
       type === "ANNUAL"   ? "ANNUAL_SHORT" :
       type === "PERSONAL" ? "SHORT"        :
       "SHORT";
-    await calculateAndUpdateBalances(email, year, shortType, hoursFromDb, name);
+
+    await calculateAndUpdateBalances(resolvedEmail, resolvedYear, shortType, hoursFromDb, name);
   } else {
     const effectiveType = isShortLeave
       ? "SHORT"
@@ -183,7 +221,7 @@ async function deductBalance(
           ? daysFromDb
           : days;
 
-    await calculateAndUpdateBalances(email, year, effectiveType, effectiveValue, name);
+    await calculateAndUpdateBalances(resolvedEmail, resolvedYear, effectiveType, effectiveValue, name);
   }
 }
 
@@ -200,6 +238,9 @@ export async function PATCH(req: Request) {
   try {
     const body: EditBody = await req.json();
     const { notes, status, id, days, hours, type, year, email, user, startDate } = body;
+
+    // Coerce year to string — it may arrive as a number from the frontend
+    const yearStr = String(year);
 
     const isShortLeave = type === "SHORT";
     const updatedAt    = new Date().toISOString();
@@ -223,7 +264,6 @@ export async function PATCH(req: Request) {
       hoursFromDb > 0 &&
       daysFromDb === 0;
 
-    // ── Smart duration label ──────────────────────────────────────────────
     const durationLabel = (() => {
       if (isShortLeave)    return formatHourLabel(hoursFromDb);
       if (isPartialHourly) return formatHourLabel(hoursFromDb);
@@ -235,7 +275,6 @@ export async function PATCH(req: Request) {
       return `${d} ថ្ងៃ`;
     })();
 
-    // ── Read stored segments ──────────────────────────────────────────────
     const storedSegments =
       ((leave as any).segments as StoredSegment[] | null) ?? null;
 
@@ -264,7 +303,7 @@ export async function PATCH(req: Request) {
       }
     }
 
-    // ── បដិសេធ ────────────────────────────────────────────────────────────────
+    // ── REJECTED ──────────────────────────────────────────────────────────────
     if (status === LeaveStatus.REJECTED) {
       await prisma.leave.update({
         where: { id },
@@ -293,7 +332,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ message: "Leave rejected" }, { status: 200 });
     }
 
-    // ── អនុម័ត ────────────────────────────────────────────────────────────────
+    // ── APPROVED ──────────────────────────────────────────────────────────────
     if (status === LeaveStatus.APPROVED) {
 
       const canDoStep1 =
@@ -310,10 +349,9 @@ export async function PATCH(req: Request) {
         !leave.managerApproved;
 
       // ── Step 1: Moderator approves as Head Dept ───────────────────────────
-      // ✅ កាត់ Balance នៅទីនេះ — ដំបូងដែល Approve
       if (canDoStep1) {
         await deductBalance(
-          email, year, type, days,
+          email, yearStr, type, days,
           daysFromDb, hoursFromDb,
           isShortLeave, isPartialHourly,
           user,
@@ -363,13 +401,11 @@ export async function PATCH(req: Request) {
 
       // ── Final: Admin bypass OR Moderator (after Step 1) ──────────────────
       if (canDoAdminFinal || canDoModeratorFinal) {
-        // Admin bypass = Step 1 មិនដែលបានដំណើរការ → ត្រូវកាត់ Balance នៅទីនេះ
-        // Moderator final = Step 1 បានកាត់រួចហើយ → មិនកាត់ទៀតទេ
         const adminBypassed = canDoAdminFinal && !leave.headDepartmentApproved;
 
         if (adminBypassed) {
           await deductBalance(
-            email, year, type, days,
+            email, yearStr, type, days,
             daysFromDb, hoursFromDb,
             isShortLeave, isPartialHourly,
             user,
