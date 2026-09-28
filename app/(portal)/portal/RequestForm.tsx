@@ -11,7 +11,7 @@ import {
   Form, FormControl, FormDescription,
   FormField, FormItem, FormLabel, FormMessage,
 } from "@/components/ui/form";
-import { format, differenceInDays } from "date-fns";
+import { format } from "date-fns";
 import {
   Command, CommandEmpty, CommandGroup,
   CommandInput, CommandItem,
@@ -29,7 +29,7 @@ import { User } from "@prisma/client";
 import toast from "react-hot-toast";
 import Image from "next/image";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Search, X, Paperclip, FileText } from "lucide-react";
 import {
   ALLOWED_ATTACHMENT_TYPES,
@@ -37,6 +37,9 @@ import {
   MAX_ATTACHMENT_BYTES,
   RULE_MESSAGES,
   SICK_CERTIFICATE_THRESHOLD_DAYS,
+  countWorkingDays,
+  isWorkingDay,
+  localYmd,
   minStartDate,
   requiresSickCertificate,
   workHoursBetween,
@@ -106,6 +109,7 @@ const SLOT_TIMES: Record<Exclude<SlotType, "CUSTOM">, [string, string]> = {
 
 type Props = {
   user:             User;
+  holidays?:        string[];   // company holidays, yyyy-MM-dd
   users?:           UserItem[];
   defaultLeave?:    string;
   externalOpen?:    boolean;
@@ -171,14 +175,30 @@ function blockFloatKeys(e: React.KeyboardEvent<HTMLInputElement>) {
 // Segment helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function getSegmentDays(seg: Segment): number {
-  if (seg.slotType !== "FULL" || !seg.date || !seg.endDate) return 1;
-  const diff = differenceInDays(seg.endDate, seg.date);
-  return diff >= 0 ? diff + 1 : 1;
+type HolidaySet = ReadonlySet<string>;
+
+/** Working days (Mon–Fri, not a holiday) between two dates, inclusive. */
+function workingDaysBetween(start: Date, end: Date, holidays: HolidaySet): number {
+  if (end < start) return 0;
+  return countWorkingDays(localYmd(start), localYmd(end), holidays);
 }
 
-function segmentValue(seg: Segment): { hours: number; days: number } {
-  if (seg.slotType === "FULL")    return { hours: 0, days: getSegmentDays(seg) };
+/** First Mon–Fri non-holiday date on or after `d`. */
+function firstWorkingDate(d: Date, holidays: HolidaySet): Date {
+  const out = new Date(d);
+  for (let i = 0; i < 31 && !isWorkingDay(localYmd(out), holidays); i++) {
+    out.setDate(out.getDate() + 1);
+  }
+  return out;
+}
+
+function getSegmentDays(seg: Segment, holidays: HolidaySet): number {
+  if (seg.slotType !== "FULL" || !seg.date || !seg.endDate) return 1;
+  return workingDaysBetween(seg.date, seg.endDate, holidays);
+}
+
+function segmentValue(seg: Segment, holidays: HolidaySet): { hours: number; days: number } {
+  if (seg.slotType === "FULL")    return { hours: 0, days: getSegmentDays(seg, holidays) };
   if (seg.slotType === "HALF_AM") return { hours: SLOT_HOURS.HALF_AM, days: 0 };
   if (seg.slotType === "HALF_PM") return { hours: SLOT_HOURS.HALF_PM, days: 0 };
   const h = calcHours(seg.startTime, seg.endTime);
@@ -186,16 +206,16 @@ function segmentValue(seg: Segment): { hours: number; days: number } {
   return { hours: h, days: 0 };
 }
 
-function segmentDayFraction(seg: Segment): number {
-  const { hours, days } = segmentValue(seg);
+function segmentDayFraction(seg: Segment, holidays: HolidaySet): number {
+  const { hours, days } = segmentValue(seg, holidays);
   if (days >= 1) return days;
   return hours / 8;
 }
 
-function segmentDurationLabel(seg: Segment): string {
+function segmentDurationLabel(seg: Segment, holidays: HolidaySet): string {
   if (seg.slotType === "FULL") {
-    const d = getSegmentDays(seg);
-    return `${d} ថ្ងៃ`;
+    const d = getSegmentDays(seg, holidays);
+    return `${d} ថ្ងៃធ្វើការ`;
   }
   if (seg.slotType === "HALF_AM") return formatDuration(SLOT_HOURS.HALF_AM * 60);
   if (seg.slotType === "HALF_PM") return formatDuration(SLOT_HOURS.HALF_PM * 60);
@@ -424,7 +444,8 @@ function SubstitutePicker({
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalClose }: Props) => {
+const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOpen, onExternalClose }: Props) => {
+  const holidaySet = useMemo(() => new Set(holidays), [holidays]);
   const [open,          setOpen]          = useState(false);
   const [openLeaveType, setOpenLeaveType] = useState(false);
   const [openStartDate, setOpenStartDate] = useState(false);
@@ -489,11 +510,14 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
 
   // Earliest selectable date — Annual needs 2 days' notice, Special 7 days
   const minDate = minStartDate(selectedLeave, today);
-  const isBeforeMin = (date: Date) => date < minDate || date.getFullYear() > currentYear;
+  const isUnselectable = (date: Date) =>
+    date < minDate ||
+    date.getFullYear() > currentYear ||
+    (!isMaternity && !isWorkingDay(localYmd(date), holidaySet));
 
   // ─── Reset UI state when leave type changes ───────────────────────────────
   useEffect(() => {
-    const first = minStartDate(selectedLeave, startOfToday());
+    const first = firstWorkingDate(minStartDate(selectedLeave, startOfToday()), holidaySet);
     setIsSegmentMode(false);
     setSegments([newSegment(new Date(first))]);
     setDrSlotType("FULL");
@@ -519,8 +543,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
       form.setValue("startDate", autoStart, { shouldValidate: false });
       form.setValue("endDate",   autoEnd,   { shouldValidate: false });
     } else if (selectedLeave === "SPECIAL") {
-      const autoStart = new Date(today);
-      autoStart.setDate(autoStart.getDate() + 7);
+      const autoStart = firstWorkingDate(minStartDate("SPECIAL", today), holidaySet);
       const autoEnd = new Date(autoStart);
       autoEnd.setDate(autoEnd.getDate() + 6);
       form.setValue("startDate", autoStart, { shouldValidate: false });
@@ -559,8 +582,8 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
   const drDurationLabel: string = (() => {
     if (drSlotType === "FULL") {
       if (!startDateValue || !endDateValue) return "";
-      const d = differenceInDays(endDateValue, startDateValue) + 1;
-      return `${d} ថ្ងៃ`;
+      const d = workingDaysBetween(startDateValue, endDateValue, holidaySet);
+      return `${d} ថ្ងៃធ្វើការ`;
     }
     if (drSlotType === "HALF_AM") return formatDuration(SLOT_HOURS.HALF_AM * 60);
     if (drSlotType === "HALF_PM") return formatDuration(SLOT_HOURS.HALF_PM * 60);
@@ -581,7 +604,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
     setIsSegmentMode(prev => {
       const next = !prev;
       if (next) {
-        const prefillDate = startDateValue ?? new Date(minDate);
+        const prefillDate = startDateValue ?? firstWorkingDate(minDate, holidaySet);
         setSegments([newSegment(new Date(prefillDate))]);
         form.setValue("startDate", undefined as any, { shouldValidate: false });
         form.setValue("endDate",   undefined as any, { shouldValidate: false });
@@ -589,7 +612,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
         setDrShortcutH(0);
         setDrShortcutM(0);
       } else {
-        setSegments([newSegment(new Date(minDate))]);
+        setSegments([newSegment(firstWorkingDate(minDate, holidaySet))]);
       }
       return next;
     });
@@ -603,7 +626,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
   const removeSegment = (id: string) =>
     setSegments(prev => prev.filter(s => s.id !== id));
 
-  const totalFraction = segments.reduce((sum, s) => sum + segmentDayFraction(s), 0);
+  const totalFraction = segments.reduce((sum, s) => sum + segmentDayFraction(s, holidaySet), 0);
   const totalLabel = (() => {
     if (totalFraction === 0) return null;
     const totalMin = Math.round(totalFraction * 8 * 60);
@@ -619,7 +642,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
     if (isSegmentMode) return totalFraction;
     if (drSlotType !== "FULL") return drHours / 8;
     if (!startDateValue || !endDateValue) return 0;
-    return differenceInDays(endDateValue, startDateValue) + 1;
+    return workingDaysBetween(startDateValue, endDateValue, holidaySet);
   })();
   const needsCertificate = requiresSickCertificate(selectedLeave ?? "", requestedDays);
 
@@ -653,6 +676,10 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
   }
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    if (!isMaternity && selectedLeave && requestedDays === 0 && (isSegmentMode || drSlotType === "FULL" || !isFlexibleLeave)) {
+      toast.error(RULE_MESSAGES.nonWorkingDay, { duration: 7000 });
+      return;
+    }
     if (isSick && needsCertificate && !attachment) {
       toast.error(RULE_MESSAGES.sickCertificate, { duration: 7000 });
       return;
@@ -678,7 +705,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
 
         // Each segment carries its own substitute
         const segmentPayloads = segments.map((seg) => {
-          const { hours, days } = segmentValue(seg);
+          const { hours, days } = segmentValue(seg, holidaySet);
           let startTime = "08:00";
           let endTime   = "17:00";
           if (seg.slotType === "HALF_AM") { startTime = "08:00"; endTime = "12:00"; }
@@ -742,12 +769,12 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
       const submitDays: number = (() => {
         if (!isFlexibleLeave) {
           return values.startDate && values.endDate
-            ? differenceInDays(values.endDate, values.startDate) + 1
+            ? workingDaysBetween(values.startDate, values.endDate, holidaySet)
             : 1;
         }
         if (drSlotType === "FULL") {
           return values.startDate && values.endDate
-            ? differenceInDays(values.endDate, values.startDate) + 1
+            ? workingDaysBetween(values.startDate, values.endDate, holidaySet)
             : 1;
         }
         return 0;
@@ -865,7 +892,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
                   if (date && !seg.endDate) patch.endDate = date;
                   updateSegment(seg.id, patch);
                 }}
-                disabled={isBeforeMin}
+                disabled={isUnselectable}
                 initialFocus
               />
             </PopoverContent>
@@ -889,7 +916,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
                   mode="single"
                   selected={seg.endDate}
                   onSelect={(date) => updateSegment(seg.id, { endDate: date ?? undefined, calEndOpen: false })}
-                  disabled={(date: Date) => isBeforeMin(date) || (!!seg.date && date < seg.date)}
+                  disabled={(date: Date) => isUnselectable(date) || (!!seg.date && date < seg.date)}
                   initialFocus
                 />
               </PopoverContent>
@@ -1001,7 +1028,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
               {isFull && seg.endDate && seg.endDate > seg.date
                 ? `${format(seg.date, "dd MMM")} → ${format(seg.endDate, "dd MMM")}`
                 : format(seg.date, "dd MMM")}
-              {" · "}<strong>{segmentDurationLabel(seg)}</strong>
+              {" · "}<strong>{segmentDurationLabel(seg, holidaySet)}</strong>
               {seg.slotType === "CUSTOM" && <> ({seg.startTime} – {seg.endTime})</>}
               {(seg.slotType === "HALF_AM" || seg.slotType === "HALF_PM") && (
                 <> ({SLOT_TIMES[seg.slotType][0]} – {SLOT_TIMES[seg.slotType][1]})</>
@@ -1052,7 +1079,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
                   : isSick ? "text-red-700 dark:text-red-400"
                   : "text-blue-700 dark:text-blue-400")}>
                 <span className="opacity-50">·</span>
-                {dateLabel} — {segmentDurationLabel(s)}
+                {dateLabel} — {segmentDurationLabel(s, holidaySet)}
                 {s.substituteUser && (
                   <span className="opacity-60 ml-1">· 👤 {s.substituteUser.name}</span>
                 )}
@@ -1364,7 +1391,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
                                 }
                                 setOpenStartDate(false);
                               }}
-                              disabled={isBeforeMin}
+                              disabled={isUnselectable}
                               initialFocus
                             />
                           </PopoverContent>
@@ -1397,7 +1424,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
                                 selected={field.value}
                                 onSelect={(date) => { field.onChange(date); setOpenEndDate(false); }}
                                 disabled={(date: Date) =>
-                                  isBeforeMin(date) || (!!startDateValue && date < startDateValue)
+                                  isUnselectable(date) || (!!startDateValue && date < startDateValue)
                                 }
                                 initialFocus
                               />
@@ -1494,7 +1521,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
                       <PopoverContent className="w-auto p-0" align="start">
                         <Calendar mode="single" selected={field.value}
                           onSelect={(date) => { field.onChange(date); setOpenStartDate(false); }}
-                          disabled={isBeforeMin}
+                          disabled={isUnselectable}
                           initialFocus
                         />
                       </PopoverContent>
@@ -1522,7 +1549,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
                         <Calendar mode="single" selected={field.value}
                           onSelect={(date) => { field.onChange(date); setOpenEndDate(false); }}
                           disabled={(date: Date) =>
-                            isBeforeMin(date) || (!!startDateValue && date < startDateValue)
+                            isUnselectable(date) || (!!startDateValue && date < startDateValue)
                           }
                           initialFocus
                         />
@@ -1538,7 +1565,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
                     <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
                   </svg>
                   <span style={khmerFont} className="text-[13px] text-gray-700 dark:text-gray-300">
-                    រយៈពេល: <strong>{differenceInDays(endDateValue, startDateValue) + 1} ថ្ងៃ</strong>
+                    រយៈពេល: <strong>{workingDaysBetween(startDateValue, endDateValue, holidaySet)} ថ្ងៃធ្វើការ</strong>
                     {" "}({format(startDateValue, "dd MMM")} – {format(endDateValue, "dd MMM yyyy")})
                   </span>
                 </div>

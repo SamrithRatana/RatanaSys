@@ -29,9 +29,10 @@ type Props = {
   balances:   Balances;
   user?:      User;
   teammates?: Teammate[];
+  holidays?:  string[];
 };
 
-const UserBalances = ({ balances, user, teammates = [] }: Props) => {
+const UserBalances = ({ balances, user, teammates = [], holidays = [] }: Props) => {
   const [isHours,     setIsHours]     = useState(true);
   const [dialogLeave, setDialogLeave] = useState<string | null>(null);
 
@@ -50,6 +51,7 @@ const UserBalances = ({ balances, user, teammates = [] }: Props) => {
         <RequestForm
           user={user}
           users={teammates}
+          holidays={holidays}
           defaultLeave={dialogLeave}
           externalOpen={true}
           onExternalClose={() => setDialogLeave(null)}

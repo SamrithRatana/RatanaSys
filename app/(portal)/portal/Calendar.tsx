@@ -55,9 +55,14 @@ const Calendar = ({ events }: Props) => {
 
         <div className="grid grid-cols-7">
           {getDays(today.month(), today.year()).map(({ date, currentMonth, today: isToday }, index) => {
-            const dayEvents = events?.filter(event =>
-              dayjs(event.startDate).isSame(date, 'day')
-            ) ?? [];
+            // Multi-day events show on every day of their range; leave only on Mon–Fri
+            const isWeekend = date.day() === 0 || date.day() === 6;
+            const dayEvents = events?.filter(event => {
+              const start = dayjs(event.startDate);
+              const end   = event.endDate ? dayjs(event.endDate) : start;
+              if (date.isBefore(start, 'day') || date.isAfter(end, 'day')) return false;
+              return !(isWeekend && isLeaveEvent(event.title) && !date.isSame(start, 'day'));
+            }) ?? [];
 
             const hasManualEvent = dayEvents.some(e => !isLeaveEvent(e.title));
             const hasLeaveEvent  = dayEvents.some(e =>  isLeaveEvent(e.title));

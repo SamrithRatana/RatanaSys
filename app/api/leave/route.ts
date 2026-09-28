@@ -14,8 +14,10 @@ import {
   leaveOwnerEmail,
   leaveUrl,
   readAttachment,
+  requestDateBounds,
   ymdToDate,
 } from "@/lib/leaveServer";
+import { getHolidaySet } from "@/lib/data/getHolidays";
 
 export async function POST(req: NextRequest) {
   const loggedInUser = await getCurrentUser();
@@ -36,7 +38,9 @@ export async function POST(req: NextRequest) {
       body = await req.json();
     }
 
-    const leave      = computeLeave(body, todayYmd());
+    const bounds     = requestDateBounds(body);
+    const holidays   = bounds ? await getHolidaySet(bounds.from, bounds.to) : new Set<string>();
+    const leave      = computeLeave(body, todayYmd(), holidays);
     const attachment = await readAttachment(file);
     checkSickCertificate(leave.type, leave.days, leave.hours, !!attachment);
 

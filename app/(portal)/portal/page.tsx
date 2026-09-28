@@ -12,6 +12,7 @@ import UserBalances from './UserBalances';
 import { getEventsData } from '@/lib/data/getEventData';
 import TotalBalanceSummary from './TotalBalanceSummary';
 import { getTeamsData } from '@/lib/data/getTeamsData'; // ← reuse
+import { holidayYmds } from '@/lib/leaveRules';
 
 const Portal = async () => {
   const user = await getCurrentUser();
@@ -23,9 +24,12 @@ const Portal = async () => {
     getTeamsData().catch(() => ({ teams: [], teammates: [] })),
   ]);
 
+  // Company holidays — not counted as leave days
+  const holidays = holidayYmds(Events);
+
   return (
     <>
-      <WelcomeBanner user={user as User} teammates={teammates} />
+      <WelcomeBanner user={user as User} teammates={teammates} holidays={holidays} />
 
       <Suspense fallback={<div className="p-4 text-center text-sm text-gray-400">Loading calendar...</div>}>
         <Calendar events={Events} />
@@ -53,6 +57,7 @@ const Portal = async () => {
           balances={CurrentYearBalances as Balances}
           user={user as User}
           teammates={teammates}
+          holidays={holidays}
         />
       </div>
     </>

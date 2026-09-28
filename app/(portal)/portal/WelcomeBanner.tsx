@@ -12,9 +12,10 @@ type Teammate = {
 type Props = {
   user:       User;
   teammates?: Teammate[];
+  holidays?:  string[];
 };
 
-const WelcomeBanner = ({ user, teammates = [] }: Props) => {
+const WelcomeBanner = ({ user, teammates = [], holidays = [] }: Props) => {
   return (
     <Container>
       <div className="flex flex-wrap justify-between items-center my-6">
@@ -30,6 +31,7 @@ const WelcomeBanner = ({ user, teammates = [] }: Props) => {
           <RequestForm
             user={user}
             users={teammates}
+            holidays={holidays}
           />
         </div>
       </div>

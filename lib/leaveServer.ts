@@ -9,8 +9,9 @@ import {
   RULE_MESSAGES,
   WORK_HOURS_PER_DAY,
   addDaysYmd,
-  inclusiveDays,
+  countWorkingDays,
   isValidYmd,
+  isWorkingDay,
   minStartYmd,
   requiresSickCertificate,
   toDayFraction,
@@ -98,7 +99,13 @@ function checkEarliestStart(type: string, startYmd: string, today: string) {
   fail("មិនអាចស្នើសុំច្បាប់សម្រាប់ថ្ងៃកន្លងផុតបានទេ (Cannot request leave for a past date).");
 }
 
-function normaliseSegment(seg: StoredSegment, type: string, today: string): StoredSegment {
+function workingDaysOrFail(startYmd: string, endYmd: string, holidays: ReadonlySet<string>): number {
+  const days = countWorkingDays(startYmd, endYmd, holidays);
+  if (days === 0) fail(RULE_MESSAGES.nonWorkingDay);
+  return days;
+}
+
+function normaliseSegment(seg: StoredSegment, type: string, today: string, holidays: ReadonlySet<string>): StoredSegment {
   const date = seg?.date ? toYmd(seg.date) : "";
   if (!isValidYmd(date)) fail("កាលបរិច្ឆេទមិនត្រឹមត្រូវ (Invalid segment date).");
   checkEarliestStart(type, date, today);
@@ -109,7 +116,7 @@ function normaliseSegment(seg: StoredSegment, type: string, today: string): Stor
   if (!isPartial) {
     const endDate = seg.endDate ? toYmd(seg.endDate) : date;
     if (!isValidYmd(endDate) || endDate < date) fail("ថ្ងៃបញ្ចប់ត្រូវតែក្រោយថ្ងៃចាប់ផ្ដើម (End date must be after start date).");
-    return { date, endDate, days: inclusiveDays(date, endDate), substitute };
+    return { date, endDate, days: workingDaysOrFail(date, endDate, holidays), substitute };
   }
 
   const hours =
@@ -117,6 +124,7 @@ function normaliseSegment(seg: StoredSegment, type: string, today: string): Stor
       ? workHoursBetween(seg.startTime, seg.endTime)
       : clampHours(seg.hours);
   if (hours <= 0) fail("ម៉ោងបញ្ចប់ត្រូវតែក្រោយម៉ោងចាប់ផ្ដើម (End time must be after start time).");
+  if (!isWorkingDay(date, holidays)) fail(RULE_MESSAGES.nonWorkingDay);
 
   if (hours >= WORK_HOURS_PER_DAY) return { date, endDate: date, days: 1, substitute };
   return { date, endDate: date, days: 0, hours, startTime: seg.startTime, endTime: seg.endTime, substitute };
@@ -125,8 +133,14 @@ function normaliseSegment(seg: StoredSegment, type: string, today: string): Stor
 /**
  * Validate a leave request and compute its duration on the server.
  * Nothing about the duration is trusted from the client.
+ * Days are working days: Saturdays, Sundays and `holidays` are not counted
+ * (except Maternity, which is fixed in calendar days).
  */
-export function computeLeave(body: SubmittedLeave, today: string): ComputedLeave {
+export function computeLeave(
+  body:     SubmittedLeave,
+  today:    string,
+  holidays: ReadonlySet<string> = new Set(),
+): ComputedLeave {
   const type  = String(body.type ?? body.leave ?? "").toUpperCase();
   const notes = String(body.notes ?? "").slice(0, 500);
   if (!SUBMITTABLE_TYPES.includes(type)) fail("ប្រភេទច្បាប់មិនត្រឹមត្រូវ (Invalid leave type).");
@@ -137,7 +151,7 @@ export function computeLeave(body: SubmittedLeave, today: string): ComputedLeave
   // ── Segment mode (Annual / Sick / Personal) ───────────────────────────────
   if (FLEXIBLE_TYPES.includes(type) && Array.isArray(body.segments) && body.segments.length > 0) {
     if (body.segments.length > 31) fail("Segment ច្រើនពេក (Too many segments).");
-    const segments = body.segments.map((s) => normaliseSegment(s, type, today));
+    const segments = body.segments.map((s) => normaliseSegment(s, type, today, holidays));
 
     let days = 0, hours = 0;
     for (const s of segments) { days += s.days ?? 0; hours += s.hours ?? 0; }
@@ -170,6 +184,7 @@ export function computeLeave(body: SubmittedLeave, today: string): ComputedLeave
   if (FLEXIBLE_TYPES.includes(type) && (hasTimes || Number(body.hours) > 0)) {
     const hours = hasTimes ? workHoursBetween(body.startTime!, body.endTime!) : clampHours(body.hours);
     if (hours <= 0) fail("ម៉ោងបញ្ចប់ត្រូវតែក្រោយម៉ោងចាប់ផ្ដើម (End time must be after start time).");
+    if (!isWorkingDay(startYmd, holidays)) fail(RULE_MESSAGES.nonWorkingDay);
     const full = hours >= WORK_HOURS_PER_DAY;
     return {
       type, startYmd, endYmd: startYmd,
@@ -188,9 +203,23 @@ export function computeLeave(body: SubmittedLeave, today: string): ComputedLeave
 
   return {
     type, startYmd, endYmd,
-    days: inclusiveDays(startYmd, endYmd), hours: 0,
+    days: workingDaysOrFail(startYmd, endYmd, holidays), hours: 0,
     segments: null, substitute, notes,
   };
+}
+
+/** Earliest and latest date mentioned in a request (to load the holidays in between). */
+export function requestDateBounds(body: SubmittedLeave): { from: string; to: string } | null {
+  const dates = [
+    body.startDate, body.endDate,
+    ...(Array.isArray(body.segments) ? body.segments.flatMap((s) => [s?.date, s?.endDate]) : []),
+  ]
+    .filter((d): d is string => typeof d === "string")
+    .map(toYmd)
+    .filter(isValidYmd)
+    .sort();
+  if (dates.length === 0) return null;
+  return { from: dates[0], to: dates[dates.length - 1] };
 }
 
 export function totalDays(leave: { days: number; hours?: number | null }): number {

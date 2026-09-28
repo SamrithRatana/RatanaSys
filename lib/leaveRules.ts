@@ -66,6 +66,63 @@ export function inclusiveDays(startYmd: string, endYmd: string): number {
   return Math.round((e - s) / 86_400_000) + 1;
 }
 
+// ── Working days (Mon–Fri, excluding company holidays) ───────────────────────
+
+// Maternity is counted in calendar days; every other leave in working days
+export const CALENDAR_DAY_TYPES = ["MATERNITY"];
+
+/** Calendar events auto-created from leaves (vs. holidays added by admins). */
+export function isLeaveEventTitle(title: string): boolean {
+  return /\bon\s+\w.*Leave\b/i.test(title) || title.includes("ឈប់សម្រាក");
+}
+
+/** Company-timezone dates covered by a holiday event (inclusive, max 60 days). */
+export function eventYmds(startDate: Date | string, endDate?: Date | string | null): string[] {
+  const start = todayYmd(new Date(startDate));
+  const end   = endDate ? todayYmd(new Date(endDate)) : start;
+  const out: string[] = [];
+  for (let d = start; d <= end && out.length < 60; d = addDaysYmd(d, 1)) out.push(d);
+  return out;
+}
+
+/** Holiday dates from a list of calendar events (leave events are ignored). */
+export function holidayYmds(
+  events: { title: string; startDate: Date | string; endDate?: Date | string | null; leaveId?: string | null }[],
+): string[] {
+  const set = new Set<string>();
+  for (const e of events) {
+    if (e.leaveId || isLeaveEventTitle(e.title)) continue;
+    for (const d of eventYmds(e.startDate, e.endDate)) set.add(d);
+  }
+  return [...set].sort();
+}
+
+export function isWeekendYmd(ymd: string): boolean {
+  const dow = new Date(`${ymd}T12:00:00.000Z`).getUTCDay();
+  return dow === 0 || dow === 6;
+}
+
+export function isWorkingDay(ymd: string, holidays: ReadonlySet<string>): boolean {
+  return !isWeekendYmd(ymd) && !holidays.has(ymd);
+}
+
+/** Working days between two dates, inclusive. */
+export function countWorkingDays(startYmd: string, endYmd: string, holidays: ReadonlySet<string>): number {
+  let n = 0;
+  for (let d = startYmd; d <= endYmd; d = addDaysYmd(d, 1)) {
+    if (isWorkingDay(d, holidays)) n++;
+  }
+  return n;
+}
+
+/** Local calendar date of a Date object as yyyy-MM-dd (for the browser date pickers). */
+export function localYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 /** Earliest start date allowed for a leave type, given today's date. */
 export function minStartYmd(type: string, today: string = todayYmd()): string {
   switch (type.toUpperCase()) {
@@ -134,6 +191,8 @@ export function requiresSickCertificate(type: string, totalDays: number): boolea
 // ── Messages (Khmer + English) ───────────────────────────────────────────────
 
 export const RULE_MESSAGES = {
+  nonWorkingDay:
+    "ថ្ងៃដែលបានជ្រើសរើសជាថ្ងៃសៅរ៍ អាទិត្យ ឬថ្ងៃឈប់សម្រាក — មិនចាំបាច់សុំច្បាប់ទេ (The selected date is a weekend or holiday).",
   annualNotice:
     `ច្បាប់ប្រចាំឆ្នាំត្រូវស្នើសុំមុនយ៉ាងហោចណាស់ ${ANNUAL_MIN_NOTICE_DAYS} ថ្ងៃ (Annual leave must be requested at least ${ANNUAL_MIN_NOTICE_DAYS} days in advance).`,
   specialNotice:
