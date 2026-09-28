@@ -30,6 +30,12 @@ export default withAuth(
     }
   },
   {
+    // Must match the secret actually used to sign the session (authOptions.jwt.secret
+    // in lib/auth.ts, i.e. NEXTAUTH_JWT_SECRET). Without this, withAuth silently falls
+    // back to NEXTAUTH_SECRET — harmless only for as long as the two env vars happen
+    // to hold the same value; the moment either one is rotated on its own, every user
+    // is logged out here even though their session cookie is still perfectly valid.
+    secret: process.env.NEXTAUTH_JWT_SECRET ?? process.env.NEXTAUTH_SECRET,
     callbacks: {
       authorized: ({ token }) =>
         token?.role !== undefined && ROLES_ALLOWED_TO_AUTH.includes(token.role),
