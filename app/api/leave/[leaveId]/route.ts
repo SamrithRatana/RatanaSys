@@ -5,7 +5,9 @@ import { Leave, LeaveStatus, Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { sendTelegramMessage, deleteTelegramMessage } from "@/lib/sendTelegramMessage";
 import {
+  CERTIFICATE_LINE,
   buildDateBlock,
+  certificateButtons,
   dateToYmd,
   durationLabel,
   escapeHtml,
@@ -94,10 +96,13 @@ async function transition(
   }
 }
 
-function replaceTelegramMessage(leave: Leave, text: string) {
+function replaceTelegramMessage(leave: Leave, text: string, attachmentIds: string[]) {
   void (async () => {
     if (leave.telegramMessageId) await deleteTelegramMessage(leave.telegramMessageId);
-    const newMsgId = await sendTelegramMessage(text, [{ text: "📋 មើលច្បាប់ →", url: leaveUrl(leave.id) }]);
+    const newMsgId = await sendTelegramMessage(text, [
+      { text: "📋 មើលច្បាប់ →", url: leaveUrl(leave.id) },
+      ...certificateButtons(leave.id, attachmentIds),
+    ]);
     if (newMsgId) {
       await prisma.leave.update({ where: { id: leave.id }, data: { telegramMessageId: newMsgId } });
     }
@@ -123,10 +128,15 @@ export async function PATCH(req: Request, { params }: Params) {
     const actorName = loggedInUser.name ?? loggedInUser.email ?? "Unknown";
     const actorRole = loggedInUser.role;
 
-    const leave = await prisma.leave.findUnique({ where: { id } });
-    if (!leave) {
+    const found = await prisma.leave.findUnique({
+      where:   { id },
+      include: { attachments: { select: { id: true } } },
+    });
+    if (!found) {
       return NextResponse.json({ error: "Leave not found" }, { status: 404 });
     }
+    const { attachments, ...leave } = found;
+    const attachmentIds = attachments.map((a) => a.id);
 
     // All leave details come from the database, never from the request body
     const header = [
@@ -134,6 +144,7 @@ export async function PATCH(req: Request, { params }: Params) {
       `📋 <b>ប្រភេទ៖</b> ${getLeaveLabel(leave.type)}`,
       ...buildDateBlock(leave),
       `📝 <b>មូលហេតុ (អ្នកស្នើ)៖</b> ${escapeHtml(leave.userNote) || "—"}`,
+      ...(attachmentIds.length > 0 ? [CERTIFICATE_LINE] : []),
     ];
     const noteLine = `🗒 <b>កំណត់ចំណាំ (អ្នកអនុម័ត)៖</b> ${escapeHtml(notes) || "—"}`;
 
@@ -165,7 +176,7 @@ export async function PATCH(req: Request, { params }: Params) {
         ...header,
         `🙅 <b>បដិសេធដោយ៖</b> ${escapeHtml(actorName)}`,
         noteLine,
-      ].join("\n"));
+      ].join("\n"), attachmentIds);
 
       return NextResponse.json({ message: "Leave rejected" }, { status: 200 });
     }
@@ -209,7 +220,7 @@ export async function PATCH(req: Request, { params }: Params) {
           noteLine,
           ``,
           `⏳ <i>កំពុងរង់ចាំការអនុម័តពីអ្នកគ្រប់គ្រង</i>`,
-        ].join("\n"));
+        ].join("\n"), attachmentIds);
 
         return NextResponse.json(
           { message: "Head Department approved. Awaiting Manager final approval." },
@@ -254,7 +265,7 @@ export async function PATCH(req: Request, { params }: Params) {
             ? [`⚡ <i>រំលង Head Dept — អនុម័តដោយផ្ទាល់ដោយ Admin</i>`]
             : [`👍 <b>ប្រធានផ្នែក៖</b> ${escapeHtml(leave.headDepartment)}`]),
           noteLine,
-        ].join("\n"));
+        ].join("\n"), attachmentIds);
 
         return NextResponse.json({ message: "Leave fully approved!" }, { status: 200 });
       }

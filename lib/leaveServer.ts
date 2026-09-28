@@ -360,7 +360,28 @@ export function leaveOwnerEmail(user: { email: string | null; telegramId?: strin
   return user.email ?? (user.telegramId ? `telegram-${user.telegramId}` : `userid-${user.id}`);
 }
 
-export function leaveUrl(id: string): string {
-  const baseUrl = process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh";
-  return `${baseUrl}/dashboard/leaves/${id}`;
+export function appBaseUrl(): string {
+  return (process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh").replace(/\/$/, "");
 }
+
+export function leaveUrl(id: string): string {
+  return `${appBaseUrl()}/dashboard/leaves/${id}`;
+}
+
+export function attachmentPath(leaveId: string, attachmentId: string): string {
+  return `/api/leave/${leaveId}/attachment/${attachmentId}`;
+}
+
+/**
+ * Telegram buttons that open a leave's medical certificate(s). The link goes
+ * through the app, so only the employee and admins/moderators can open it
+ * (others are asked to log in / get "Forbidden").
+ */
+export function certificateButtons(leaveId: string, attachmentIds: string[]): { text: string; url: string }[] {
+  return attachmentIds.map((id, i) => ({
+    text: attachmentIds.length > 1 ? `📎 មើលសំបុត្រពេទ្យ (${i + 1})` : "📎 មើលសំបុត្រពេទ្យ",
+    url:  `${appBaseUrl()}${attachmentPath(leaveId, id)}`,
+  }));
+}
+
+export const CERTIFICATE_LINE = `📎 <b>សំបុត្រពេទ្យ៖</b> មានភ្ជាប់ — ចុចប៊ូតុង «មើលសំបុត្រពេទ្យ» ខាងក្រោម`;

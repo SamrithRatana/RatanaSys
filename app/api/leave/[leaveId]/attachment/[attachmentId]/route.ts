@@ -1,7 +1,7 @@
 import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
 import { NextResponse } from "next/server";
-import { leaveOwnerEmail } from "@/lib/leaveServer";
+import { appBaseUrl, attachmentPath, leaveOwnerEmail } from "@/lib/leaveServer";
 
 type Params = { params: { leaveId: string; attachmentId: string } };
 
@@ -9,7 +9,9 @@ type Params = { params: { leaveId: string; attachmentId: string } };
 export async function GET(_req: Request, { params }: Params) {
   const loggedInUser = await getCurrentUser();
   if (!loggedInUser) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Opened from the Telegram button while logged out → log in, then come back
+    const back = attachmentPath(params.leaveId, params.attachmentId);
+    return NextResponse.redirect(`${appBaseUrl()}/login?callbackUrl=${encodeURIComponent(back)}`);
   }
 
   const attachment = await prisma.leaveAttachment.findFirst({
@@ -22,7 +24,10 @@ export async function GET(_req: Request, { params }: Params) {
 
   const isReviewer = loggedInUser.role === "ADMIN" || loggedInUser.role === "MODERATOR";
   if (!isReviewer && attachment.leave.userEmail !== leaveOwnerEmail(loggedInUser)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    return new NextResponse(
+      "អ្នកមិនមានសិទ្ធិមើលឯកសារនេះទេ (You are not allowed to view this file).",
+      { status: 403, headers: { "Content-Type": "text/plain; charset=utf-8" } },
+    );
   }
 
   const asciiName = attachment.fileName.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "");

@@ -4,8 +4,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { sendTelegramMessage } from "@/lib/sendTelegramMessage";
 import { MATERNITY_DAYS, todayYmd } from "@/lib/leaveRules";
 import {
+  CERTIFICATE_LINE,
   LeaveValidationError,
   SubmittedLeave,
+  certificateButtons,
   buildDateBlock,
   checkSickCertificate,
   computeLeave,
@@ -89,6 +91,7 @@ export async function POST(req: NextRequest) {
         ...(leave.segments && { segments: leave.segments as any }),
         ...(attachment && { attachments: { create: attachment } }),
       },
+      include: { attachments: { select: { id: true } } },
     });
 
     // Telegram is slow/unreliable — don't make the employee wait for it
@@ -103,12 +106,15 @@ export async function POST(req: NextRequest) {
         : []),
       ...buildDateBlock(created, timeRange),
       `📝 <b>មូលហេតុ៖</b> ${escapeHtml(leave.notes) || "—"}`,
-      ...(attachment ? [`📎 <b>ឯកសារភ្ជាប់៖</b> មាន (សំបុត្រពេទ្យ)`] : []),
+      ...(attachment ? [CERTIFICATE_LINE] : []),
       ``,
       `⏳ <i>រង់ចាំអនុម័តពីប្រធានផ្នែក</i>`,
     ].join("\n");
 
-    void sendTelegramMessage(text, [{ text: "👀 មើល និងអនុម័តប្រធានផ្នែក →", url: leaveUrl(created.id) }])
+    void sendTelegramMessage(text, [
+      { text: "👀 មើល និងអនុម័តប្រធានផ្នែក →", url: leaveUrl(created.id) },
+      ...certificateButtons(created.id, created.attachments.map((a) => a.id)),
+    ])
       .then((telegramMessageId) =>
         telegramMessageId
           ? prisma.leave.update({ where: { id: created.id }, data: { telegramMessageId } })

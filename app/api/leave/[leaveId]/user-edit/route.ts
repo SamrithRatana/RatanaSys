@@ -10,8 +10,10 @@ import {
 import { isValidYmd, isWorkingDay, minStartYmd, todayYmd, toYmd, RULE_MESSAGES } from "@/lib/leaveRules";
 import { getHolidaySet } from "@/lib/data/getHolidays";
 import {
+  CERTIFICATE_LINE,
   LeaveValidationError,
   buildDateBlock,
+  certificateButtons,
   checkSickCertificate,
   computeLeave,
   dateToYmd,
@@ -44,7 +46,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   try {
     const leave = await prisma.leave.findUnique({
       where:   { id: params.leaveId },
-      include: { _count: { select: { attachments: true } } },
+      include: { attachments: { select: { id: true } } },
     });
     if (!leave) {
       return NextResponse.json({ error: "Leave not found" }, { status: 404 });
@@ -114,7 +116,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       hours    = computed.hours;
     }
 
-    checkSickCertificate(leave.type, days, hours, leave._count.attachments > 0);
+    const attachmentIds = leave.attachments.map((a) => a.id);
+    checkSickCertificate(leave.type, days, hours, attachmentIds.length > 0);
 
     const updated = await prisma.leave.update({
       where: { id: params.leaveId },
@@ -136,11 +139,15 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       `📋 <b>ប្រភេទ៖</b> ${getLeaveLabel(leave.type)}`,
       ...buildDateBlock(updated),
       `📝 <b>មូលហេតុ៖</b> ${escapeHtml(notes) || "—"}`,
+      ...(attachmentIds.length > 0 ? [CERTIFICATE_LINE] : []),
       ``,
       `✏️ <i>បានកែប្រែដោយអ្នកស្នើ · រង់ចាំអនុម័តពីប្រធានផ្នែក</i>`,
     ].join("\n");
 
-    const msgButtons = [{ text: "👀 មើល និងអនុម័តប្រធានផ្នែក →", url: leaveUrl(leave.id) }];
+    const msgButtons = [
+      { text: "👀 មើល និងអនុម័តប្រធានផ្នែក →", url: leaveUrl(leave.id) },
+      ...certificateButtons(leave.id, attachmentIds),
+    ];
 
     // Edit the existing message, or send a new one — without blocking the response
     void (async () => {

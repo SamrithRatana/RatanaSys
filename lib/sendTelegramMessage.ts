@@ -27,9 +27,8 @@ export async function sendTelegramMessage(
     ...(buttons?.length
       ? {
           reply_markup: {
-            inline_keyboard: [
-              buttons.map((btn) => ({ text: btn.text, url: btn.url })),
-            ],
+            // one button per row so long Khmer labels aren't cut off
+            inline_keyboard: buttons.map((btn) => [{ text: btn.text, url: btn.url }]),
           },
         }
       : {}),
@@ -142,9 +141,7 @@ export async function editTelegramMessage(
     ...(buttons?.length
       ? {
           reply_markup: {
-            inline_keyboard: [
-              buttons.map((btn) => ({ text: btn.text, url: btn.url })),
-            ],
+            inline_keyboard: buttons.map((btn) => [{ text: btn.text, url: btn.url }]),
           },
         }
       : {}),
