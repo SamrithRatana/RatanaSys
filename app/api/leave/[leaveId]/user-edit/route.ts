@@ -88,10 +88,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     } else if (isPartialDay) {
       // Hourly leave: may move to another single day, keeps its hours
       if (datesChanged) {
-        if (!isWorkingDay(newStart, await getHolidaySet(newStart, newStart))) {
+        const today    = todayYmd();
+        const holidays = await getHolidaySet(today < newStart ? today : newStart, newStart);
+        if (!isWorkingDay(newStart, holidays)) {
           throw new LeaveValidationError(RULE_MESSAGES.nonWorkingDay);
         }
-        if (newStart < minStartYmd(leave.type, todayYmd())) {
+        if (newStart < minStartYmd(leave.type, today, holidays)) {
           throw new LeaveValidationError(leave.type === "ANNUAL" ? RULE_MESSAGES.annualNotice : "មិនអាចជ្រើសរើសថ្ងៃកន្លងផុតបានទេ (Cannot choose a past date).");
         }
         startYmd = endYmd = newStart;
@@ -105,7 +107,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         startDate:       newStart,
         endDate:         newEnd,
         maternityGender: body.maternityGender ?? (leave.type === "MATERNITY" ? (leave.days <= 7 ? "MALE" : "FEMALE") : undefined),
-      }, todayYmd(), await getHolidaySet(newStart, newEnd));
+      }, todayYmd(), await getHolidaySet(todayYmd() < newStart ? todayYmd() : newStart, newEnd));
       startYmd = computed.startYmd;
       endYmd   = computed.endYmd;
       days     = computed.days;

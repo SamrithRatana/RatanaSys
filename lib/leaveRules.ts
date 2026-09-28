@@ -123,23 +123,43 @@ export function localYmd(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Earliest start date allowed for a leave type, given today's date. */
-export function minStartYmd(type: string, today: string = todayYmd()): string {
-  switch (type.toUpperCase()) {
-    case "ANNUAL":  return addDaysYmd(today, ANNUAL_MIN_NOTICE_DAYS);
-    case "SPECIAL": return addDaysYmd(today, SPECIAL_MIN_NOTICE_DAYS);
-    default:        return today;
+function noticeDays(type: string | undefined): number {
+  const t = (type ?? "").toUpperCase();
+  if (t === "ANNUAL")  return ANNUAL_MIN_NOTICE_DAYS;
+  if (t === "SPECIAL") return SPECIAL_MIN_NOTICE_DAYS;
+  return 0;
+}
+
+/** The date `n` working days after `ymd` (weekends and holidays skipped). */
+export function addWorkingDaysYmd(ymd: string, n: number, holidays: ReadonlySet<string>): string {
+  let d = ymd;
+  for (let added = 0, guard = 0; added < n && guard < 400; guard++) {
+    d = addDaysYmd(d, 1);
+    if (isWorkingDay(d, holidays)) added++;
   }
+  return d;
+}
+
+/**
+ * Earliest start date allowed for a leave type. The notice period counts
+ * working days: Annual on a Friday → Tuesday at the earliest (Mon, Tue).
+ */
+export function minStartYmd(
+  type:     string,
+  today:    string = todayYmd(),
+  holidays: ReadonlySet<string> = new Set(),
+): string {
+  return addWorkingDaysYmd(today, noticeDays(type), holidays);
 }
 
 /** Same as minStartYmd but as a local-midnight Date, for the client calendar. */
-export function minStartDate(type: string | undefined, today: Date): Date {
-  const d = new Date(today);
-  d.setHours(0, 0, 0, 0);
-  const t = (type ?? "").toUpperCase();
-  if (t === "ANNUAL")  d.setDate(d.getDate() + ANNUAL_MIN_NOTICE_DAYS);
-  if (t === "SPECIAL") d.setDate(d.getDate() + SPECIAL_MIN_NOTICE_DAYS);
-  return d;
+export function minStartDate(
+  type:     string | undefined,
+  today:    Date,
+  holidays: ReadonlySet<string> = new Set(),
+): Date {
+  const [y, m, d] = addWorkingDaysYmd(localYmd(today), noticeDays(type), holidays).split("-").map(Number);
+  return new Date(y, m - 1, d);
 }
 
 // ── Hours ────────────────────────────────────────────────────────────────────
@@ -194,9 +214,9 @@ export const RULE_MESSAGES = {
   nonWorkingDay:
     "ថ្ងៃដែលបានជ្រើសរើសជាថ្ងៃសៅរ៍ អាទិត្យ ឬថ្ងៃឈប់សម្រាក — មិនចាំបាច់សុំច្បាប់ទេ (The selected date is a weekend or holiday).",
   annualNotice:
-    `ច្បាប់ប្រចាំឆ្នាំត្រូវស្នើសុំមុនយ៉ាងហោចណាស់ ${ANNUAL_MIN_NOTICE_DAYS} ថ្ងៃ (Annual leave must be requested at least ${ANNUAL_MIN_NOTICE_DAYS} days in advance).`,
+    `ច្បាប់ប្រចាំឆ្នាំត្រូវស្នើសុំមុនយ៉ាងហោចណាស់ ${ANNUAL_MIN_NOTICE_DAYS} ថ្ងៃធ្វើការ (Annual leave must be requested at least ${ANNUAL_MIN_NOTICE_DAYS} working days in advance).`,
   specialNotice:
-    `ច្បាប់ពិសេសត្រូវស្នើសុំមុនយ៉ាងហោចណាស់ ${SPECIAL_MIN_NOTICE_DAYS} ថ្ងៃ (Special leave must be requested at least ${SPECIAL_MIN_NOTICE_DAYS} days in advance).`,
+    `ច្បាប់ពិសេសត្រូវស្នើសុំមុនយ៉ាងហោចណាស់ ${SPECIAL_MIN_NOTICE_DAYS} ថ្ងៃធ្វើការ (Special leave must be requested at least ${SPECIAL_MIN_NOTICE_DAYS} working days in advance).`,
   sickCertificate:
     `ច្បាប់ឈឺលើសពី ${SICK_CERTIFICATE_THRESHOLD_DAYS} ថ្ងៃ ត្រូវភ្ជាប់រូបភាព ឬឯកសារសំបុត្រពេទ្យ (Sick leave over ${SICK_CERTIFICATE_THRESHOLD_DAYS} days requires a medical certificate).`,
   attachmentType:

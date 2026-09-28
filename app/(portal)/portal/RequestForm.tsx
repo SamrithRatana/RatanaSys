@@ -509,7 +509,7 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
   const currentYear = today.getFullYear();
 
   // Earliest selectable date — Annual needs 2 days' notice, Special 7 days
-  const minDate = minStartDate(selectedLeave, today);
+  const minDate = minStartDate(selectedLeave, today, holidaySet);
   const isUnselectable = (date: Date) =>
     date < minDate ||
     date.getFullYear() > currentYear ||
@@ -517,7 +517,7 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
 
   // ─── Reset UI state when leave type changes ───────────────────────────────
   useEffect(() => {
-    const first = firstWorkingDate(minStartDate(selectedLeave, startOfToday()), holidaySet);
+    const first = firstWorkingDate(minStartDate(selectedLeave, startOfToday(), holidaySet), holidaySet);
     setIsSegmentMode(false);
     setSegments([newSegment(new Date(first))]);
     setDrSlotType("FULL");
@@ -543,7 +543,7 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
       form.setValue("startDate", autoStart, { shouldValidate: false });
       form.setValue("endDate",   autoEnd,   { shouldValidate: false });
     } else if (selectedLeave === "SPECIAL") {
-      const autoStart = firstWorkingDate(minStartDate("SPECIAL", today), holidaySet);
+      const autoStart = firstWorkingDate(minStartDate("SPECIAL", today, holidaySet), holidaySet);
       const autoEnd = new Date(autoStart);
       autoEnd.setDate(autoEnd.getDate() + 6);
       form.setValue("startDate", autoStart, { shouldValidate: false });
@@ -1173,8 +1173,9 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
                 <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
               </svg>
               <span style={khmerFont} className="text-[13px] text-amber-800 dark:text-amber-300">
-                <strong>7-day advance notice required.</strong> ច្បាប់ប្រភេទនេះត្រូវតែស្នើសុំ
-                យ៉ាងហោចណាស់ <strong>7 ថ្ងៃ</strong> មុនពេលចូលច្បាប់។
+                <strong>7 working days&apos; notice required.</strong> ច្បាប់ប្រភេទនេះត្រូវតែស្នើសុំ
+                យ៉ាងហោចណាស់ <strong>7 ថ្ងៃធ្វើការ</strong> មុនពេលចូលច្បាប់។
+                ថ្ងៃដែលអាចជ្រើសរើសបានដំបូងគឺ <strong>{format(minDate, "dd MMM yyyy")}</strong>។
               </span>
             </div>
           )}
@@ -1187,7 +1188,7 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
                 <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
               </svg>
               <span style={khmerFont} className="text-[13px] text-amber-800 dark:text-amber-300">
-                ច្បាប់ប្រចាំឆ្នាំត្រូវស្នើសុំមុនយ៉ាងហោចណាស់ <strong>{ANNUAL_MIN_NOTICE_DAYS} ថ្ងៃ</strong>។
+                ច្បាប់ប្រចាំឆ្នាំត្រូវស្នើសុំមុនយ៉ាងហោចណាស់ <strong>{ANNUAL_MIN_NOTICE_DAYS} ថ្ងៃធ្វើការ</strong>។
                 ថ្ងៃដែលអាចជ្រើសរើសបានដំបូងគឺ <strong>{format(minDate, "dd MMM yyyy")}</strong>។
               </span>
             </div>

@@ -91,8 +91,8 @@ function normalise(days: number, hours: number): { days: number; hours: number }
   };
 }
 
-function checkEarliestStart(type: string, startYmd: string, today: string) {
-  const min = minStartYmd(type, today);
+function checkEarliestStart(type: string, startYmd: string, today: string, holidays: ReadonlySet<string>) {
+  const min = minStartYmd(type, today, holidays);
   if (startYmd >= min) return;
   if (type === "ANNUAL")  fail(RULE_MESSAGES.annualNotice);
   if (type === "SPECIAL") fail(RULE_MESSAGES.specialNotice);
@@ -108,7 +108,7 @@ function workingDaysOrFail(startYmd: string, endYmd: string, holidays: ReadonlyS
 function normaliseSegment(seg: StoredSegment, type: string, today: string, holidays: ReadonlySet<string>): StoredSegment {
   const date = seg?.date ? toYmd(seg.date) : "";
   if (!isValidYmd(date)) fail("កាលបរិច្ឆេទមិនត្រឹមត្រូវ (Invalid segment date).");
-  checkEarliestStart(type, date, today);
+  checkEarliestStart(type, date, today, holidays);
 
   const substitute = typeof seg.substitute === "string" && seg.substitute.trim() ? seg.substitute.trim() : null;
   const isPartial  = !!(seg.startTime && seg.endTime) || (!(Number(seg.days) >= 1) && Number(seg.hours) > 0);
@@ -166,7 +166,7 @@ export function computeLeave(
 
   const startYmd = body.startDate ? toYmd(body.startDate) : "";
   if (!isValidYmd(startYmd)) fail("សូមជ្រើសរើសថ្ងៃចាប់ផ្ដើម (Start date is required).");
-  checkEarliestStart(type, startYmd, today);
+  checkEarliestStart(type, startYmd, today, holidays);
 
   // ── Maternity: fixed length from gender ───────────────────────────────────
   if (type === "MATERNITY") {

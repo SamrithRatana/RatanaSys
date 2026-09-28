@@ -38,9 +38,13 @@ export async function POST(req: NextRequest) {
       body = await req.json();
     }
 
+    const today      = todayYmd();
     const bounds     = requestDateBounds(body);
-    const holidays   = bounds ? await getHolidaySet(bounds.from, bounds.to) : new Set<string>();
-    const leave      = computeLeave(body, todayYmd(), holidays);
+    const holidays   = await getHolidaySet(
+      bounds && bounds.from < today ? bounds.from : today,
+      bounds && bounds.to > today ? bounds.to : today,
+    );
+    const leave      = computeLeave(body, today, holidays);
     const attachment = await readAttachment(file);
     checkSickCertificate(leave.type, leave.days, leave.hours, !!attachment);
 
