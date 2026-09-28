@@ -20,7 +20,19 @@ export default function Error({
 
   const stableReset = useCallback(() => reset(), [reset]);
 
+  // A browser tab left open across a deploy still references the OLD
+  // build's JS chunk URLs, so `next/dynamic` imports (e.g. the leave
+  // request dialog) 404. Retrying via `reset()` re-renders with the SAME
+  // stale reference and fails again forever — only a full reload picks up
+  // the new build, so this must always take the reload branch below.
+  const isChunkLoadError =
+    (error as Error & { name?: string })?.name === "ChunkLoadError" ||
+    /ChunkLoadError|Loading chunk [\d]+ failed|Failed to fetch dynamically imported module|error loading dynamically imported module/i.test(
+      error.message ?? ""
+    );
+
   const isConnectionError =
+    isChunkLoadError ||
     error.message?.includes("Connection closed") ||
     error.message?.includes("fetch") ||
     error.message?.includes("network") ||
@@ -28,6 +40,16 @@ export default function Error({
 
   useEffect(() => {
     console.error("App error:", error.message, error?.digest);
+
+    if (isChunkLoadError) {
+      // Reload immediately — reset() would just fail again on the same
+      // stale chunk reference, so retrying first only wastes time.
+      const timer = setTimeout(() => {
+        sessionStorage.removeItem(RETRY_KEY);
+        window.location.reload();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
 
     if (isConnectionError) {
       if (retryCount < maxRetries) {
@@ -50,7 +72,7 @@ export default function Error({
         return () => clearTimeout(timer);
       }
     }
-  }, [error, retryCount, stableReset, isConnectionError]);
+  }, [error, retryCount, stableReset, isConnectionError, isChunkLoadError]);
 
   const isRetrying = isConnectionError && retryCount < maxRetries;
 
