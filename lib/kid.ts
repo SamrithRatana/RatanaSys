@@ -15,8 +15,24 @@ export const KID_API = (process.env.KID_BASE_URL ?? "https://api.kid.koompi.org"
 // profile.telegram must also be enabled on the KID project for telegram_id to be returned
 export const KID_SCOPES = "openid profile.basic profile.contact profile.telegram";
 
-export const KID_NONCE_COOKIE = "kid_nonce";
-export const KID_CALLBACK_COOKIE = "kid_cb";
+// ONE cookie per response: the Koompi proxy in front of the app forwards only
+// the last Set-Cookie header of a response, so a response that sets two
+// cookies silently loses the first one.
+export const KID_STATE_COOKIE = "kid_state";
+
+/** nonce + where to go after login, packed into the single kid_state cookie. */
+export function packKidState(nonce: string, callbackPath: string): string {
+  return `${nonce}~${encodeURIComponent(callbackPath)}`;
+}
+
+export function unpackKidState(raw: string | undefined): { nonce: string | null; callbackPath: string | null } {
+  if (!raw) return { nonce: null, callbackPath: null };
+  const i = raw.indexOf("~");
+  if (i < 0) return { nonce: raw, callbackPath: null };
+  let cb: string | null = null;
+  try { cb = decodeURIComponent(raw.slice(i + 1)); } catch { cb = null; }
+  return { nonce: raw.slice(0, i), callbackPath: cb };
+}
 
 export function kidConfig() {
   const clientId     = process.env.KID_CLIENT_ID;

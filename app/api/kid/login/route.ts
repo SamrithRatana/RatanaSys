@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import {
-  KID_API, KID_CALLBACK_COOKIE, KID_NONCE_COOKIE, KID_SCOPES,
-  kidConfig, safeCallbackPath,
+  KID_API, KID_SCOPES, KID_STATE_COOKIE,
+  kidConfig, packKidState, safeCallbackPath,
 } from "@/lib/kid";
 import { appBaseUrl } from "@/lib/leaveServer";
 
@@ -22,15 +22,18 @@ export async function GET(req: NextRequest) {
   url.searchParams.set("scope", KID_SCOPES);
   url.searchParams.set("nonce", nonce);
 
+  // Exactly one Set-Cookie (see KID_STATE_COOKIE)
   const res = NextResponse.redirect(url.toString());
-  const cookie = {
-    httpOnly: true,
-    secure:   appBaseUrl().startsWith("https://"),
-    sameSite: "lax" as const,
-    path:     "/api/kid",
-    maxAge:   15 * 60,
-  };
-  res.cookies.set(KID_NONCE_COOKIE, nonce, cookie);
-  res.cookies.set(KID_CALLBACK_COOKIE, safeCallbackPath(req.nextUrl.searchParams.get("callbackUrl")), cookie);
+  res.cookies.set(
+    KID_STATE_COOKIE,
+    packKidState(nonce, safeCallbackPath(req.nextUrl.searchParams.get("callbackUrl"))),
+    {
+      httpOnly: true,
+      secure:   appBaseUrl().startsWith("https://"),
+      sameSite: "lax",
+      path:     "/api/kid",
+      maxAge:   15 * 60,
+    },
+  );
   return res;
 }

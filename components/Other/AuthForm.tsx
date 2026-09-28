@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signIn } from "next-auth/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 // Login page: "Login with KID" (Google / Telegram / Apple / email through one
@@ -38,6 +38,15 @@ export function AuthForm() {
     access_denied:  "KID login was cancelled.",
   };
   const kidMessage = kidError ? (KID_ERRORS[kidError] ?? KID_ERRORS.login_failed) : null;
+
+  // The Koompi proxy forwards only one Set-Cookie per response. On a first
+  // visit /api/auth/csrf wants to set two (csrf-token + callback-url), so the
+  // CSRF cookie was lost and the first "Sign in" failed. This warm-up call
+  // lets callback-url land first; signIn's own CSRF call then sets only the
+  // CSRF cookie, which gets through.
+  useEffect(() => {
+    fetch("/api/auth/csrf", { credentials: "same-origin", cache: "no-store" }).catch(() => {});
+  }, []);
 
   // ── Credentials Login ─────────────────────────────────────
   async function handleCredentials(e: React.FormEvent) {

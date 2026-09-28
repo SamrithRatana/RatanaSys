@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { encode } from "next-auth/jwt";
 import {
-  KID_CALLBACK_COOKIE, KID_NONCE_COOKIE,
-  exchangeKidCode, findOrLinkKidUser, idTokenNonce, safeCallbackPath,
+  KID_STATE_COOKIE,
+  exchangeKidCode, findOrLinkKidUser, idTokenNonce, safeCallbackPath, unpackKidState,
 } from "@/lib/kid";
 import { SESSION_MAX_AGE, authOptions } from "@/lib/auth";
 import { appBaseUrl } from "@/lib/leaveServer";
@@ -20,7 +20,8 @@ export async function GET(req: NextRequest) {
   const code  = req.nextUrl.searchParams.get("code");
   const state = req.nextUrl.searchParams.get("state");
   const kidErr = req.nextUrl.searchParams.get("error");
-  const callbackPath = safeCallbackPath(req.cookies.get(KID_CALLBACK_COOKIE)?.value);
+  const kidState = unpackKidState(req.cookies.get(KID_STATE_COOKIE)?.value);
+  const callbackPath = safeCallbackPath(kidState.callbackPath);
 
   if (kidErr || !code) {
     return NextResponse.redirect(toLogin({ kidError: kidErr ?? "missing_code", callbackUrl: callbackPath }));
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
     const tokens = await exchangeKidCode(code, state);
 
     // Bind the login to the browser that started it (login-CSRF protection)
-    const expected = req.cookies.get(KID_NONCE_COOKIE)?.value;
+    const expected = kidState.nonce;
     const returned = idTokenNonce(tokens.id_token);
     if (returned && returned !== expected) {
       return NextResponse.redirect(toLogin({ kidError: "nonce_mismatch", callbackUrl: callbackPath }));
@@ -57,6 +58,9 @@ export async function GET(req: NextRequest) {
       },
     });
 
+    // Exactly ONE Set-Cookie: the Koompi proxy keeps only the last one, which
+    // is why an extra "clean-up" cookie here used to swallow the session.
+    // (kid_state just expires on its own after 15 minutes.)
     const res = NextResponse.redirect(`${appBaseUrl()}${callbackPath}`);
     res.cookies.set(`${secure ? "__Secure-" : ""}next-auth.session-token`, sessionToken, {
       httpOnly: true,
@@ -65,8 +69,6 @@ export async function GET(req: NextRequest) {
       secure,
       maxAge:   SESSION_MAX_AGE,
     });
-    res.cookies.delete({ name: KID_NONCE_COOKIE, path: "/api/kid" });
-    res.cookies.delete({ name: KID_CALLBACK_COOKIE, path: "/api/kid" });
     return res;
   } catch (error) {
     console.error("[KID callback]", error);
