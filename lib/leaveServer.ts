@@ -399,3 +399,17 @@ export function certificateButtons(leaveId: string, attachmentIds: string[]): { 
 }
 
 export const CERTIFICATE_LINE = `📎 <b>សំបុត្រពេទ្យ៖</b> មានភ្ជាប់ — ចុចប៊ូតុង «មើលសំបុត្រពេទ្យ» ខាងក្រោម`;
+
+/**
+ * One-click Approve/Reject buttons for the Telegram message. Tapping one
+ * calls app/api/telegram/webhook/route.ts, which runs the exact same
+ * decideLeave() as the web page — the tapper's Telegram account must be
+ * linked (telegramId) to an ADMIN/MODERATOR user, and department scoping
+ * still applies; anyone else just gets a private "not permitted" popup.
+ */
+export function actionButtons(leaveId: string): { text: string; callback_data: string }[] {
+  return [
+    { text: "✅ អនុម័ត (Approve)", callback_data: `approve:${leaveId}` },
+    { text: "❌ បដិសេធ (Reject)",  callback_data: `reject:${leaveId}` },
+  ];
+}

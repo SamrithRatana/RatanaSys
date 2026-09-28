@@ -7,6 +7,7 @@ import {
   CERTIFICATE_LINE,
   LeaveValidationError,
   SubmittedLeave,
+  actionButtons,
   certificateButtons,
   buildDateBlock,
   checkSickCertificate,
@@ -113,6 +114,7 @@ export async function POST(req: NextRequest) {
 
     void sendTelegramMessage(text, [
       { text: "👀 មើល និងអនុម័តប្រធានផ្នែក →", url: leaveUrl(created.id) },
+      ...actionButtons(created.id),
       ...certificateButtons(created.id, created.attachments.map((a) => a.id)),
     ])
       .then((telegramMessageId) =>

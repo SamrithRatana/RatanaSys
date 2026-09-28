@@ -13,6 +13,7 @@ import {
   CERTIFICATE_LINE,
   LeaveValidationError,
   buildDateBlock,
+  actionButtons,
   certificateButtons,
   checkSickCertificate,
   computeLeave,
@@ -153,6 +154,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
     const msgButtons = [
       { text: "👀 មើល និងអនុម័តប្រធានផ្នែក →", url: leaveUrl(leave.id) },
+      ...actionButtons(leave.id),
       ...certificateButtons(leave.id, attachmentIds),
     ];
 

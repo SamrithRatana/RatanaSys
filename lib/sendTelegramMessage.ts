@@ -1,10 +1,16 @@
 // Never let a slow/unreachable Telegram API hang a request
 const TELEGRAM_TIMEOUT_MS = 8000;
 
-type InlineButton = {
-  text: string;
-  url:  string;
-};
+// A button either opens a link (the leave detail page, a certificate) or
+// triggers a one-click action in place (approve/reject) via callback_data,
+// answered by app/api/telegram/webhook/route.ts.
+export type InlineButton =
+  | { text: string; url: string; callback_data?: undefined }
+  | { text: string; callback_data: string; url?: undefined };
+
+function toTelegramButton(btn: InlineButton) {
+  return btn.url ? { text: btn.text, url: btn.url } : { text: btn.text, callback_data: btn.callback_data };
+}
 
 export async function sendTelegramMessage(
   message: string,
@@ -28,7 +34,7 @@ export async function sendTelegramMessage(
       ? {
           reply_markup: {
             // one button per row so long Khmer labels aren't cut off
-            inline_keyboard: buttons.map((btn) => [{ text: btn.text, url: btn.url }]),
+            inline_keyboard: buttons.map((btn) => [toTelegramButton(btn)]),
           },
         }
       : {}),
@@ -141,7 +147,7 @@ export async function editTelegramMessage(
     ...(buttons?.length
       ? {
           reply_markup: {
-            inline_keyboard: buttons.map((btn) => [{ text: btn.text, url: btn.url }]),
+            inline_keyboard: buttons.map((btn) => [toTelegramButton(btn)]),
           },
         }
       : {}),
@@ -165,5 +171,32 @@ export async function editTelegramMessage(
     }
   } catch (error) {
     console.error("[Telegram] Network error on edit:", error);
+  }
+}
+
+// ── Answer a callback_query (the popup shown to whoever tapped a button) ────
+// Telegram requires this within ~10s of the tap or the button shows a
+// spinner forever on the tapper's device; it does NOT edit the message.
+export async function answerCallbackQuery(
+  callbackQueryId: string,
+  text?:           string,
+  showAlert  = false,
+): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      signal:  AbortSignal.timeout(TELEGRAM_TIMEOUT_MS),
+      body: JSON.stringify({
+        callback_query_id: callbackQueryId,
+        ...(text ? { text: text.slice(0, 200) } : {}),
+        show_alert: showAlert,
+      }),
+    });
+  } catch (error) {
+    console.error("[Telegram] answerCallbackQuery failed:", error);
   }
 }
