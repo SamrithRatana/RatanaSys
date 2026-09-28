@@ -321,6 +321,13 @@ const LeavesTable = ({
   );
 
   function canEdit(leave: Leave): boolean {
+    // Moderator formality sign-off after an Admin approved first
+    if (
+      currentUserRole === "MODERATOR" &&
+      leave.status === LeaveStatus.APPROVED &&
+      leave.managerApproved &&
+      !leave.headDepartmentApproved
+    ) return true;
     if (
       leave.status === LeaveStatus.APPROVED ||
       leave.status === LeaveStatus.REJECTED

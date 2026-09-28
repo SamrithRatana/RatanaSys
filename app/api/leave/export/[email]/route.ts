@@ -315,7 +315,10 @@ export async function GET(req: NextRequest, { params }: Params) {
 
   const toRow = (lv: LeaveRecord): LeaveRow => {
     const key = CREDIT_OF[lv.type] ?? "annual";
-    if (lv.headDepartmentApproved === true) running[key] -= leaveDayTotal(lv.days, lv.hours);
+    // Deducted by whichever approval came first (head dept or admin)
+    if (lv.headDepartmentApproved === true || lv.managerApproved === true) {
+      running[key] -= leaveDayTotal(lv.days, lv.hours);
+    }
 
     // Legacy hourly rows stored 8h+ as days=1 AND hours=8 — show them as 1 day
     const d = Number(lv.days ?? 0);

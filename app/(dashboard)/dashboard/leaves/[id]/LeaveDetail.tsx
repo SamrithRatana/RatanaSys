@@ -94,14 +94,20 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName, c
   // ── MODERATOR: can only act on Step 1 (head dept approval) ───────────────
   const canActAsModerator = currentUserRole === "MODERATOR" && isStep1 && !isDone;
 
+  // Admin approved first → Moderator signs off as a formality (no deduction, no reject)
+  const isFormality =
+    currentUserRole === "MODERATOR" && isApproved && !!leave.managerApproved && isStep1;
+
   // ── ADMIN: skips Step 1, goes straight to final — always available if not done
   const canActAsAdmin = currentUserRole === "ADMIN" && !isDone;
 
-  const canAct = canApprove && (canActAsModerator || canActAsAdmin);
+  const canAct = canApprove && (canActAsModerator || canActAsAdmin || isFormality);
 
   const actionLabel = canActAsAdmin
     ? "សេចក្តីសម្រេចរបស់អ្នកគ្រប់គ្រង (Final)"
-    : "សេចក្តីសម្រេចរបស់ប្រធានផ្នែក";
+    : isFormality
+      ? "អនុម័តជាផ្លូវការ — ប្រធានផ្នែក (Formality)"
+      : "សេចក្តីសម្រេចរបស់ប្រធានផ្នែក";
 
   async function handleAction(status: "APPROVED" | "REJECTED") {
     setLoading(true);
@@ -118,7 +124,9 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName, c
           status === "APPROVED"
             ? canActAsAdmin
               ? "ការឈប់សម្រាកបានអនុម័តចុងក្រោយ! ✅"
-              : "ប្រធានផ្នែកបានអនុម័ត! កំពុងរង់ចាំអ្នកគ្រប់គ្រង ✅"
+              : isFormality
+                ? "បានកត់ត្រាការអនុម័តរបស់ប្រធានផ្នែក ✅"
+                : "ប្រធានផ្នែកបានអនុម័ត! កំពុងរង់ចាំអ្នកគ្រប់គ្រង ✅"
             : "ការឈប់សម្រាកបានបដិសេធ ❌",
           { duration: 4000 }
         );
@@ -303,7 +311,11 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName, c
                   )}
                 </>
               ) : (
-                <p className="text-sm text-amber-500">⏳ កំពុងរង់ចាំការអនុម័តពីប្រធានផ្នែក</p>
+                <p className="text-sm text-amber-500">
+                  {isApproved && leave.managerApproved
+                    ? "⏳ Admin បានអនុម័តរួច — រង់ចាំប្រធានផ្នែកអនុម័តជាផ្លូវការ (balance កាត់រួចហើយ)"
+                    : "⏳ កំពុងរង់ចាំការអនុម័តពីប្រធានផ្នែក"}
+                </p>
               )}
             </div>
           </div>
@@ -370,6 +382,11 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName, c
           <CardContent className="space-y-4">
 
             <div className="rounded-md bg-muted p-3 text-sm">
+              {isFormality && (
+                <p className="text-emerald-700 font-medium">
+                  ✅ Admin បានអនុម័ត និងកាត់ balance រួចហើយ។ ការអនុម័តនេះគ្រាន់តែកត់ត្រាថាប្រធានផ្នែកបានដឹង — <strong>មិនកាត់ balance ម្ដងទៀតទេ</strong>។
+                </p>
+              )}
               {canActAsModerator && (
                 <p className="text-amber-600 font-medium">
                   📋 ជំហានទី ១ ក្នុង ២ — អ្នកកំពុងអនុម័តក្នុងតួនាទី <strong>ប្រធានផ្នែក</strong>
@@ -405,17 +422,21 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName, c
                 <CheckCircle2 className="h-4 w-4" />
                 {canActAsAdmin
                   ? "អនុម័តចុងក្រោយ (Final Approve)"
-                  : "អនុម័តក្នុងតួនាទីប្រធានផ្នែក"}
+                  : isFormality
+                    ? "អនុម័តជាផ្លូវការ (Sign off)"
+                    : "អនុម័តក្នុងតួនាទីប្រធានផ្នែក"}
               </Button>
-              <Button
-                variant="destructive"
-                className="flex-1 gap-2"
-                disabled={loading}
-                onClick={() => handleAction("REJECTED")}
-              >
-                <XCircle className="h-4 w-4" />
-                បដិសេធ
-              </Button>
+              {!isFormality && (
+                <Button
+                  variant="destructive"
+                  className="flex-1 gap-2"
+                  disabled={loading}
+                  onClick={() => handleAction("REJECTED")}
+                >
+                  <XCircle className="h-4 w-4" />
+                  បដិសេធ
+                </Button>
+              )}
             </div>
 
           </CardContent>

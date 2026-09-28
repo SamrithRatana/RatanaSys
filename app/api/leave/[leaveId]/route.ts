@@ -32,6 +32,14 @@ function leaveYear(leave: Leave): string {
   return leave.year || dateToYmd(leave.startDate).slice(0, 4);
 }
 
+/**
+ * The balance is deducted by whichever approval comes first: the head of
+ * department (Moderator) or an Admin approving directly.
+ */
+function isDeducted(leave: Leave): boolean {
+  return leave.headDepartmentApproved === true || leave.managerApproved === true;
+}
+
 const notYetHeadApproved: Prisma.LeaveWhereInput = {
   OR: [{ headDepartmentApproved: false }, { headDepartmentApproved: null }],
 };
@@ -163,7 +171,7 @@ export async function PATCH(req: Request, { params }: Params) {
       }
 
       // Balance is deducted at the first approval, so refund it if that happened
-      const wasDeducted = leave.headDepartmentApproved === true;
+      const wasDeducted = isDeducted(leave);
 
       await prisma.$transaction(async (tx) => {
         await transition(tx, leave, {}, {
@@ -203,6 +211,39 @@ export async function PATCH(req: Request, { params }: Params) {
         leave.status === LeaveStatus.INMODERATION &&
         leave.headDepartmentApproved &&
         !leave.managerApproved;
+
+      // Admin already approved (and deducted) first → the head of department
+      // still signs off, as a formality: recorded, but no balance change.
+      const canDoModeratorFormality =
+        actorRole === "MODERATOR" &&
+        leave.status === LeaveStatus.APPROVED &&
+        leave.managerApproved === true &&
+        !leave.headDepartmentApproved;
+
+      if (canDoModeratorFormality) {
+        await prisma.$transaction(async (tx) => {
+          await transition(tx, leave, notYetHeadApproved, {
+            headDepartment:         actorName,
+            headDepartmentNote:     notes,
+            headDepartmentApproved: true,
+            headDepartmentAt:       new Date(),
+          });
+        });
+
+        replaceTelegramMessage(leave, [
+          `🎉 <b>ច្បាប់ត្រូវបានអនុម័តទាំងស្រុង!</b>`,
+          ``,
+          ...header,
+          `✅ <b>អនុម័តដោយ៖</b> ${escapeHtml(leave.manager)} (អ្នកគ្រប់គ្រង)`,
+          `👍 <b>ប្រធានផ្នែក៖</b> ${escapeHtml(actorName)} (អនុម័តជាផ្លូវការ)`,
+          noteLine,
+        ].join("\n"), attachmentIds);
+
+        return NextResponse.json(
+          { message: "Head Department sign-off recorded (balance was already deducted)." },
+          { status: 200 }
+        );
+      }
 
       // ── Step 1: Moderator approves as Head Dept (balance deducted here) ──
       if (canDoStep1) {
@@ -245,13 +286,9 @@ export async function PATCH(req: Request, { params }: Params) {
               ...(adminBypassed ? notYetHeadApproved : { headDepartmentApproved: true }),
             },
             {
+              // Admin approving first leaves the head-of-department step open
+              // for the Moderator's formality sign-off (no second deduction)
               status: LeaveStatus.APPROVED,
-              ...(adminBypassed && {
-                headDepartment:         actorName,
-                headDepartmentNote:     notes,
-                headDepartmentApproved: true,
-                headDepartmentAt:       new Date(),
-              }),
               manager:         actorName,
               managerNote:     notes,
               managerApproved: true,
@@ -267,7 +304,7 @@ export async function PATCH(req: Request, { params }: Params) {
           ...header,
           `✅ <b>អនុម័តដោយ៖</b> ${escapeHtml(actorName)} (អ្នកគ្រប់គ្រង)`,
           ...(adminBypassed
-            ? [`⚡ <i>រំលង Head Dept — អនុម័តដោយផ្ទាល់ដោយ Admin</i>`]
+            ? [`⚡ <i>Admin អនុម័តមុន — រង់ចាំប្រធានផ្នែកអនុម័តជាផ្លូវការ (មិនកាត់ balance ម្ដងទៀត)</i>`]
             : [`👍 <b>ប្រធានផ្នែក៖</b> ${escapeHtml(leave.headDepartment)}`]),
           noteLine,
         ].join("\n"), attachmentIds);
