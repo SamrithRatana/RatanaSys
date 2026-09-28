@@ -1,6 +1,7 @@
 import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
 import { NextResponse } from "next/server";
+import { departmentLeaveEmails } from "@/lib/data/departmentScope";
 
 interface EditBody {
   [key: string]: number | string;
@@ -18,6 +19,15 @@ export async function PATCH(req: Request) {
   try {
     const body: EditBody = await req.json();
     const { id, ...data } = body;
+
+    // Moderators may only change balances of their own department
+    if (loggedInUser?.role === "MODERATOR") {
+      const target = await prisma.balances.findUnique({ where: { id }, select: { email: true } });
+      const allowed = await departmentLeaveEmails(loggedInUser.department);
+      if (!target || !allowed.includes(target.email)) {
+        return NextResponse.json({ error: "You can only edit balances of your own department" }, { status: 403 });
+      }
+    }
 
     // Only numeric balance columns may be edited (not email/name/year)
     const EDITABLE = [

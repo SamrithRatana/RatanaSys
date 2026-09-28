@@ -2,6 +2,7 @@ import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
 import { LeaveStatus, Prisma } from "@prisma/client";
 import { leaveDayTotal, todayYmd } from "@/lib/leaveRules";
+import { departmentLeaveEmails } from "@/lib/data/departmentScope";
 
 const LEAVE_TYPE_TO_KEY: Record<string, string> = {
   ANNUAL:       "annual",
@@ -127,7 +128,11 @@ export async function getAllBalances() {
       return [];
     }
 
+    // Moderators only see balances of their own department
     const balances = await prisma.balances.findMany({
+      where: loggedInUser.role === "MODERATOR"
+        ? { email: { in: await departmentLeaveEmails(loggedInUser.department) } }
+        : {},
       orderBy: [{ year: "desc" }, { name: "asc" }],
     });
     if (balances.length === 0) return [];

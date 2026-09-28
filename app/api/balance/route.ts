@@ -1,6 +1,7 @@
 import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
+import { departmentLeaveEmails } from "@/lib/data/departmentScope";
 
 const allowedRoles = ["ADMIN", "MODERATOR"];
 
@@ -36,6 +37,12 @@ export async function POST(req: NextRequest) {
       if (dbUser?.email) {
         resolvedEmail = dbUser.email;
       }
+    }
+
+    // Moderators may only add credits for their own department
+    if (loggedInUser?.role === "MODERATOR" &&
+        !(await departmentLeaveEmails(loggedInUser.department)).includes(resolvedEmail)) {
+      return NextResponse.json({ error: "You can only add credits for your own department" }, { status: 403 });
     }
 
     const existing = await prisma.balances.findFirst({
@@ -94,6 +101,15 @@ export async function PATCH(req: Request) {
   try {
     const body: EditBody = await req.json();
     const { id, ...data } = body;
+
+    // Moderators may only change balances of their own department
+    if (loggedInUser?.role === "MODERATOR") {
+      const target = await prisma.balances.findUnique({ where: { id }, select: { email: true } });
+      const allowed = await departmentLeaveEmails(loggedInUser.department);
+      if (!target || !allowed.includes(target.email)) {
+        return NextResponse.json({ error: "You can only edit balances of your own department" }, { status: 403 });
+      }
+    }
 
     // Only numeric balance columns may be edited (not email/name/year)
     const EDITABLE = [

@@ -22,6 +22,7 @@ type DashboardStats = {
   totalUsers:     { value: number; change: number };
   upcomingEvents: { value: number; change: number };
   balancesAdded:  { value: number; change: number };
+  scope?:         string;   // "ALL" for admins, the department name for moderators
 };
 
 const StatsCards = () => {
@@ -78,6 +79,12 @@ const StatsCards = () => {
   ];
 
   return (
+    <>
+    {stats?.scope && stats.scope !== "ALL" && (
+      <p className="mb-3 text-sm text-muted-foreground">
+        ផ្នែក (Department): <span className="font-semibold text-foreground">{stats.scope || "—"}</span>
+      </p>
+    )}
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
       {StatsCardsData.map((stat) => (
         <Card key={stat.key}>
@@ -108,6 +115,7 @@ const StatsCards = () => {
         </Card>
       ))}
     </div>
+    </>
   );
 };
 

@@ -1,7 +1,16 @@
 import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
 import { NextResponse } from "next/server";
-import { startOfMonth, subMonths, endOfMonth } from "date-fns";
+import { Prisma } from "@prisma/client";
+import { todayYmd } from "@/lib/leaveRules";
+import { departmentLeaveEmails } from "@/lib/data/departmentScope";
+
+/** Start of a month in Cambodia time (UTC+7), as a UTC instant. */
+function monthStart(year: number, month: number): Date {
+  const y = year + Math.floor((month - 1) / 12);
+  const m = ((month - 1) % 12 + 12) % 12 + 1;
+  return new Date(`${y}-${String(m).padStart(2, "0")}-01T00:00:00+07:00`);
+}
 
 export async function GET() {
   const loggedInUser = await getCurrentUser();
@@ -13,47 +22,50 @@ export async function GET() {
   }
 
   try {
-    const now = new Date();
-    const thisMonthStart = startOfMonth(now);
-    const thisMonthEnd   = endOfMonth(now);
-    const lastMonthStart = startOfMonth(subMonths(now, 1));
-    const lastMonthEnd   = endOfMonth(subMonths(now, 1));
+    const now   = new Date();
+    const today = todayYmd(now);
+    const year  = Number(today.slice(0, 4));
+    const month = Number(today.slice(5, 7));
 
-    // ── Total Leaves (this month vs last month) — Leave HAS createdAt ───────
-    const [totalLeaves, lastMonthLeaves] = await Promise.all([
-      prisma.leave.count({
-        where: { createdAt: { gte: thisMonthStart, lte: thisMonthEnd } },
-      }),
-      prisma.leave.count({
-        where: { createdAt: { gte: lastMonthStart, lte: lastMonthEnd } },
-      }),
-    ]);
+    const thisMonthStart = monthStart(year, month);
+    const nextMonthStart = monthStart(year, month + 1);
+    const lastMonthStart = monthStart(year, month - 1);
 
-    // ── Total Users — no createdAt on User, just count all ──────────────────
-    const totalUsers = await prisma.user.count();
+    // Moderators only see numbers for their own department
+    const isModerator = loggedInUser.role === "MODERATOR";
+    const deptEmails  = isModerator ? await departmentLeaveEmails(loggedInUser.department) : [];
 
-    // ── Upcoming Events — Events has no createdAt, filter by startDate ──────
-    const [upcomingEvents, lastMonthEvents] = await Promise.all([
-      prisma.events.count({
-        where: { startDate: { gte: now } },
-      }),
-      prisma.events.count({
-        where: {
-          startDate: {
-            gte: lastMonthStart,
-            lte: lastMonthEnd,
-          },
-        },
-      }),
-    ]);
+    const leaveScope: Prisma.LeaveWhereInput    = isModerator ? { userEmail: { in: deptEmails } } : {};
+    const balanceScope: Prisma.BalancesWhereInput = isModerator ? { email: { in: deptEmails } } : {};
+    const userScope: Prisma.UserWhereInput      = isModerator
+      ? { department: { equals: (loggedInUser.department ?? "").trim(), mode: "insensitive" } }
+      : {};
+    // Holidays are company-wide; leave events only for the moderator's department
+    const eventScope: Prisma.EventsWhereInput   = isModerator
+      ? {
+          OR: [
+            { leaveId: null },
+            { leaveId: { in: (await prisma.leave.findMany({ where: leaveScope, select: { id: true } })).map((l) => l.id) } },
+          ],
+        }
+      : {};
 
-    // ── Balances Added — no createdAt on Balances, filter by year ───────────
-    const currentYear = now.getFullYear().toString();
-    const lastYear    = (now.getFullYear() - 1).toString();
+    const currentYear = String(year);
+    const lastYear    = String(year - 1);
 
-    const [balancesAdded, lastYearBalances] = await Promise.all([
-      prisma.balances.count({ where: { year: currentYear } }),
-      prisma.balances.count({ where: { year: lastYear } }),
+    const [
+      totalLeaves, lastMonthLeaves,
+      totalUsers,
+      upcomingEvents, lastMonthEvents,
+      balancesAdded, lastYearBalances,
+    ] = await Promise.all([
+      prisma.leave.count({ where: { ...leaveScope, createdAt: { gte: thisMonthStart, lt: nextMonthStart } } }),
+      prisma.leave.count({ where: { ...leaveScope, createdAt: { gte: lastMonthStart, lt: thisMonthStart } } }),
+      isModerator && deptEmails.length === 0 ? 0 : prisma.user.count({ where: userScope }),
+      prisma.events.count({ where: { ...eventScope, startDate: { gte: now } } }),
+      prisma.events.count({ where: { ...eventScope, startDate: { gte: lastMonthStart, lt: thisMonthStart } } }),
+      prisma.balances.count({ where: { ...balanceScope, year: currentYear } }),
+      prisma.balances.count({ where: { ...balanceScope, year: lastYear } }),
     ]);
 
     return NextResponse.json({
@@ -61,6 +73,7 @@ export async function GET() {
       totalUsers:     { value: totalUsers,     change: 0 },
       upcomingEvents: { value: upcomingEvents, change: upcomingEvents - lastMonthEvents },
       balancesAdded:  { value: balancesAdded,  change: balancesAdded - lastYearBalances },
+      scope:          isModerator ? (loggedInUser.department ?? "") : "ALL",
     });
   } catch (error) {
     console.error(error);
