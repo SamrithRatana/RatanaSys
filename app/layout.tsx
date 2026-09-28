@@ -4,6 +4,7 @@ import "./globals.css";
 import Providers from "./Provider";
 import { Toaster } from "sonner";
 import InstallPWAButton from "@/components/InstallPWAButton";
+import SessionKeepAlive from "@/components/SessionKeepAlive";
 
 export const metadata: Metadata = {
   title: "LMS App",
@@ -81,6 +82,7 @@ export default function RootLayout({
         >
           {children}
           <InstallPWAButton />
+          <SessionKeepAlive />
           <Toaster richColors position="top-right" />
         </Providers>
       </body>

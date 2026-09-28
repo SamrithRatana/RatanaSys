@@ -11,6 +11,7 @@ declare module "next-auth/jwt" {
 declare module "next-auth" {
   interface Session {
     user?: {
+      id?:         string;
       role?:       string;       // ✅ was Role enum, now string
       telegramId?: string | null;
     } & DefaultSession["user"];

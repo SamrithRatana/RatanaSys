@@ -31,6 +31,35 @@ export function AuthForm() {
   // ✅ Key fix — read callbackUrl from URL
   const callbackUrl = searchParams.get("callbackUrl") || "/portal";
 
+  // ── KID: returning from /api/kid/callback → open the session ──
+  const kidReturn = searchParams.get("kid") === "1";
+  const kidError  = searchParams.get("kidError");
+  const [kidLoading, setKidLoading] = useState(kidReturn);
+
+  useEffect(() => {
+    if (!kidReturn) return;
+    signIn("kid", { callbackUrl, redirect: false }).then((res) => {
+      if (res?.error || !res?.url) {
+        setKidLoading(false);
+        setError("KID login failed. Please try again.");
+      } else {
+        window.location.href = res.url;
+      }
+    });
+  }, [kidReturn, callbackUrl]);
+
+  function startKidLogin() {
+    setKidLoading(true);
+    window.location.href = `/api/kid/login?callbackUrl=${encodeURIComponent(callbackUrl)}`;
+  }
+
+  const KID_ERRORS: Record<string, string> = {
+    not_configured: "KID login is not configured yet (KID_CLIENT_ID / KID_CLIENT_SECRET).",
+    nonce_mismatch: "The KID login expired or was started in another browser. Please try again.",
+    login_failed:   "KID login failed. Please try again.",
+    access_denied:  "KID login was cancelled.",
+  };
+
   useEffect(() => {
     getProviders().then((p) =>
       setProviders(p as Record<string, ClientSafeProvider>)
@@ -130,6 +159,25 @@ export function AuthForm() {
           Account created! You can now sign in.
         </p>
       )}
+
+      {/* ── KID (Google / Telegram / Apple / Email in one account) ── */}
+      <div className="grid gap-2">
+        <Button type="button" onClick={startKidLogin} disabled={kidLoading} className="h-11 text-[15px]">
+          {kidLoading ? "Signing in with KID…" : "Login with KID"}
+        </Button>
+        <p className="text-xs text-center text-muted-foreground">
+          Google · Telegram · Apple · Email — one KID account
+        </p>
+        {kidError && (
+          <p className="text-sm text-center text-destructive">
+            {KID_ERRORS[kidError] ?? "KID login failed. Please try again."}
+          </p>
+        )}
+      </div>
+
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
+      </div>
 
       {/* Tab Bar */}
       <div className="flex rounded-md border overflow-hidden">
