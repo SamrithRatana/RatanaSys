@@ -115,6 +115,28 @@ export function countWorkingDays(startYmd: string, endYmd: string, holidays: Rea
   return n;
 }
 
+// Upper-bound calendar window to fetch holidays for when the end date isn't
+// known yet (it depends on how many weekends/holidays fall inside it) — used
+// for Maternity's fixed 90/7 *working*-day entitlement. Generous on purpose;
+// the query itself is cheap.
+export const MAX_WORKING_DAY_SPAN_DAYS = 400;
+
+/**
+ * The calendar date of the Nth working day counted from (and including)
+ * `startYmd`. Weekends and holidays extend the range but are never counted,
+ * so e.g. a 90-working-day Maternity leave starting on a Friday runs well
+ * past 90 calendar days to actually cover 90 Mon–Fri days.
+ */
+export function endDateForWorkingDays(startYmd: string, targetWorkingDays: number, holidays: ReadonlySet<string>): string {
+  let d = startYmd;
+  let counted = isWorkingDay(d, holidays) ? 1 : 0;
+  for (let guard = 0; counted < targetWorkingDays && guard < MAX_WORKING_DAY_SPAN_DAYS; guard++) {
+    d = addDaysYmd(d, 1);
+    if (isWorkingDay(d, holidays)) counted++;
+  }
+  return d;
+}
+
 /** Local calendar date of a Date object as yyyy-MM-dd (for the browser date pickers). */
 export function localYmd(d: Date): string {
   const y = d.getFullYear();

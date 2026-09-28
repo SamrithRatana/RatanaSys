@@ -7,7 +7,7 @@ import {
   deleteTelegramMessage,
   editTelegramMessage,
 } from "@/lib/sendTelegramMessage";
-import { isValidYmd, isWorkingDay, minStartYmd, todayYmd, toYmd, RULE_MESSAGES } from "@/lib/leaveRules";
+import { addDaysYmd, isValidYmd, isWorkingDay, MAX_WORKING_DAY_SPAN_DAYS, minStartYmd, todayYmd, toYmd, RULE_MESSAGES } from "@/lib/leaveRules";
 import { getHolidaySet } from "@/lib/data/getHolidays";
 import {
   CERTIFICATE_LINE,
@@ -104,12 +104,19 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         hours = Math.min(Number(body.hours), 8);
       }
     } else if (datesChanged || leave.type === "MATERNITY") {
+      // Maternity's end date isn't known ahead of time (it depends on how
+      // many weekends/holidays fall inside it), so fetch a wide window
+      // instead of trusting the stale `newEnd` the client happened to send.
+      const isMaternityEdit = leave.type === "MATERNITY";
+      const holidayFrom = todayYmd() < newStart ? todayYmd() : newStart;
+      const holidayTo   = isMaternityEdit ? addDaysYmd(newStart, MAX_WORKING_DAY_SPAN_DAYS) : newEnd;
+
       const computed = computeLeave({
         type:            leave.type,
         startDate:       newStart,
         endDate:         newEnd,
-        maternityGender: body.maternityGender ?? (leave.type === "MATERNITY" ? (leave.days <= 7 ? "MALE" : "FEMALE") : undefined),
-      }, todayYmd(), await getHolidaySet(todayYmd() < newStart ? todayYmd() : newStart, newEnd));
+        maternityGender: body.maternityGender ?? (isMaternityEdit ? (leave.days <= 7 ? "MALE" : "FEMALE") : undefined),
+      }, todayYmd(), await getHolidaySet(holidayFrom, holidayTo));
       startYmd = computed.startYmd;
       endYmd   = computed.endYmd;
       days     = computed.days;

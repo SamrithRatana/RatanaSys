@@ -38,6 +38,7 @@ import {
   RULE_MESSAGES,
   SICK_CERTIFICATE_THRESHOLD_DAYS,
   countWorkingDays,
+  endDateForWorkingDays,
   isWorkingDay,
   localYmd,
   minStartDate,
@@ -190,6 +191,17 @@ function firstWorkingDate(d: Date, holidays: HolidaySet): Date {
     out.setDate(out.getDate() + 1);
   }
   return out;
+}
+
+/**
+ * End date of a fixed working-day entitlement (Maternity's 90/7 days) —
+ * weekends and holidays extend the range but are never counted, mirroring
+ * the server's endDateForWorkingDays.
+ */
+function workingDayEndDate(start: Date, workingDays: number, holidays: HolidaySet): Date {
+  const endYmd = endDateForWorkingDays(localYmd(start), workingDays, holidays);
+  const [y, m, d] = endYmd.split("-").map(Number);
+  return new Date(y, m - 1, d);
 }
 
 function getSegmentDays(seg: Segment, holidays: HolidaySet): number {
@@ -538,8 +550,7 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
     if (selectedLeave === "MATERNITY" && maternityGender) {
       const autoStart = new Date(today);
       const days      = MATERNITY_DAYS[maternityGender];
-      const autoEnd   = new Date(autoStart);
-      autoEnd.setDate(autoEnd.getDate() + days - 1);
+      const autoEnd   = workingDayEndDate(autoStart, days, holidaySet);
       form.setValue("startDate", autoStart, { shouldValidate: false });
       form.setValue("endDate",   autoEnd,   { shouldValidate: false });
     } else if (selectedLeave === "SPECIAL") {
@@ -555,8 +566,7 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
     if (!startDateValue) return;
     if (selectedLeave === "MATERNITY" && maternityGender) {
       const days    = MATERNITY_DAYS[maternityGender];
-      const autoEnd = new Date(startDateValue);
-      autoEnd.setDate(autoEnd.getDate() + days - 1);
+      const autoEnd = workingDayEndDate(startDateValue, days, holidaySet);
       form.setValue("endDate", autoEnd, { shouldValidate: false });
     } else if (selectedLeave === "SPECIAL") {
       const autoEnd = new Date(startDateValue);
@@ -1165,6 +1175,19 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
             )}
           />
 
+          {/* ── Noted: weekends & holidays never count as leave days ── */}
+          {selectedLeave && (
+            <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-800 dark:bg-blue-950">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-blue-600">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+              </svg>
+              <span style={khmerFont} className="text-[13px] text-blue-800 dark:text-blue-300">
+                <strong>Noted៖</strong> រាល់ថ្ងៃសៅរ៍ និងអាទិត្យ (ព្រមទាំងថ្ងៃឈប់សម្រាករបស់ក្រុមហ៊ុន) មិនត្រូវបានរាប់បញ្ចូលជាថ្ងៃឈប់សម្រាកឡើយ
+                {" "}(Saturdays, Sundays and company holidays are never counted as leave days).
+              </span>
+            </div>
+          )}
+
           {/* ── Special banner ── */}
           {isSpecial && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950">
@@ -1226,6 +1249,43 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
                       <span style={khmerFont} className="text-[11px] font-semibold text-pink-600 bg-pink-100 dark:bg-pink-900 rounded-full px-2 py-0.5">Maternity · 90 ថ្ងៃ</span>
                     </button>
                   </div>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
+
+          {/* ── Maternity Start Date — end date is auto-computed, no picker needed ── */}
+          {isMaternity && maternityGender && (
+            <FormField
+              control={form.control}
+              name="startDate"
+              render={({ field }) => (
+                <FormItem className="flex flex-col">
+                  <FormLabel style={khmerFont}>ថ្ងៃចាប់ផ្ដើម (Start Date)</FormLabel>
+                  <Popover modal={true} open={openStartDate} onOpenChange={setOpenStartDate}>
+                    <PopoverTrigger asChild>
+                      <FormControl>
+                        <Button variant="outline" style={khmerFont}
+                          className={cn("inline-flex justify-between text-[13px]", !field.value && "text-muted-foreground")}>
+                          {field.value ? format(field.value, "dd MMM yyyy (EEEE)") : <span>ជ្រើសរើសថ្ងៃ</span>}
+                          <IoCalendarOutline className="h-4 w-4 opacity-50" />
+                        </Button>
+                      </FormControl>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={field.value}
+                        onSelect={(date) => { field.onChange(date); setOpenStartDate(false); }}
+                        disabled={isUnselectable}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <FormDescription style={khmerFont} className="text-[12px]">
+                    ថ្ងៃចាប់ផ្ដើមអាចជាថ្ងៃណាក៏បាន រួមទាំងថ្ងៃសៅរ៍-អាទិត្យ (any day, including weekends).
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -1581,8 +1641,13 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
                 <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
               </svg>
               <span style={khmerFont} className="text-[13px] text-gray-700 dark:text-gray-300">
-                រយៈពេល: <strong>{MATERNITY_DAYS[maternityGender]} ថ្ងៃ</strong>
+                រយៈពេល: <strong>{MATERNITY_DAYS[maternityGender]} ថ្ងៃធ្វើការ</strong>
                 {" "}({format(startDateValue, "dd MMM")} – {format(endDateValue, "dd MMM yyyy")})
+                <br />
+                <span className="text-[11px] text-gray-500">
+                  ថ្ងៃសៅរ៍-អាទិត្យ និងថ្ងៃឈប់សម្រាកមិនត្រូវបានរាប់ទេ — ថ្ងៃបញ្ចប់ត្រូវបានបន្ថែមអោយសមស្រប
+                  (weekends & holidays don&apos;t count — the end date is extended to make up for them)
+                </span>
               </span>
             </div>
           )}

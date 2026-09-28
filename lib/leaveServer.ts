@@ -8,8 +8,10 @@ import {
   MAX_ATTACHMENT_BYTES,
   RULE_MESSAGES,
   WORK_HOURS_PER_DAY,
+  MAX_WORKING_DAY_SPAN_DAYS,
   addDaysYmd,
   countWorkingDays,
+  endDateForWorkingDays,
   isValidYmd,
   isWorkingDay,
   minStartYmd,
@@ -173,8 +175,11 @@ export function computeLeave(
     const gender = body.maternityGender;
     if (gender !== "MALE" && gender !== "FEMALE") fail("សូមជ្រើសរើសភេទ (Please select Male or Female).");
     const days = MATERNITY_DAYS[gender];
+    // Weekends (and holidays) don't count toward the entitlement — extend
+    // the end date so the leave actually covers `days` working days.
+    const endYmd = endDateForWorkingDays(startYmd, days, holidays);
     return {
-      type, startYmd, endYmd: addDaysYmd(startYmd, days - 1),
+      type, startYmd, endYmd,
       days, hours: 0, segments: null, maternityGender: gender, substitute, notes,
     };
   }
@@ -210,6 +215,15 @@ export function computeLeave(
 
 /** Earliest and latest date mentioned in a request (to load the holidays in between). */
 export function requestDateBounds(body: SubmittedLeave): { from: string; to: string } | null {
+  // Maternity's end date isn't known ahead of time — it depends on how many
+  // weekends/holidays fall inside it — so fetch a generously wide window
+  // instead of trusting whatever (stale) endDate the client happened to send.
+  const type = String(body.type ?? body.leave ?? "").toUpperCase();
+  if (type === "MATERNITY" && typeof body.startDate === "string" && isValidYmd(toYmd(body.startDate))) {
+    const start = toYmd(body.startDate);
+    return { from: start, to: addDaysYmd(start, MAX_WORKING_DAY_SPAN_DAYS) };
+  }
+
   const dates = [
     body.startDate, body.endDate,
     ...(Array.isArray(body.segments) ? body.segments.flatMap((s) => [s?.date, s?.endDate]) : []),
