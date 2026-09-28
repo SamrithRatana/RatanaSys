@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
 import { Leave, LeaveStatus, Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
+import { moderatorScopeError } from "@/lib/data/departmentScope";
 import { sendTelegramMessage, deleteTelegramMessage } from "@/lib/sendTelegramMessage";
 import {
   CERTIFICATE_LINE,
@@ -137,6 +138,10 @@ export async function PATCH(req: Request, { params }: Params) {
     }
     const { attachments, ...leave } = found;
     const attachmentIds = attachments.map((a) => a.id);
+
+    // Moderators (head of department) may only act on their own department's leaves
+    const scopeError = await moderatorScopeError(loggedInUser, leave.userEmail);
+    if (scopeError) throw new ApprovalError(scopeError, 403);
 
     // All leave details come from the database, never from the request body
     const header = [

@@ -26,6 +26,7 @@ export const getCurrentUser = cache(async () => {
       image:      user.image,
       role:       user.role,
       telegramId: user.telegramId,
+      department: user.department,
     };
   } catch (error) {
     console.error("getCurrentUser error:", error);

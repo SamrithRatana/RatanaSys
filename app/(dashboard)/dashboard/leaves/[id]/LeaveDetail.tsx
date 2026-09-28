@@ -24,6 +24,7 @@ type Props = {
   leave: Leave & { attachments?: AttachmentMeta[] };
   currentUserRole: string;
   currentUserName: string;
+  canApprove?:     boolean;  // false: moderator viewing their own leave
 };
 
 function leaveTypeLabel(type: string): string {
@@ -78,7 +79,7 @@ function InfoRow({
   );
 }
 
-export default function LeaveDetail({ leave, currentUserRole, currentUserName }: Props) {
+export default function LeaveDetail({ leave, currentUserRole, currentUserName, canApprove = true }: Props) {
   const router = useRouter();
   const [notes, setNotes]     = useState("");
   const [loading, setLoading] = useState(false);
@@ -96,7 +97,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
   // ── ADMIN: skips Step 1, goes straight to final — always available if not done
   const canActAsAdmin = currentUserRole === "ADMIN" && !isDone;
 
-  const canAct = canActAsModerator || canActAsAdmin;
+  const canAct = canApprove && (canActAsModerator || canActAsAdmin);
 
   const actionLabel = canActAsAdmin
     ? "សេចក្តីសម្រេចរបស់អ្នកគ្រប់គ្រង (Final)"

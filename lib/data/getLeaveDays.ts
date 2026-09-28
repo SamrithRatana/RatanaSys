@@ -1,5 +1,6 @@
 import { getCurrentUser } from "../session";
 import prisma from "@/lib/prisma";
+import { departmentLeaveEmails } from "@/lib/data/departmentScope";
 
 export async function getAllLeaveDays() {
   try {
@@ -10,7 +11,14 @@ export async function getAllLeaveDays() {
       loggedInUser.role === "ADMIN" || loggedInUser.role === "MODERATOR";
     if (!canAccess) return [];
 
+    // Moderators only see leaves of employees in their own department
+    const where =
+      loggedInUser.role === "MODERATOR"
+        ? { userEmail: { in: await departmentLeaveEmails(loggedInUser.department) } }
+        : {};
+
     const leaves = await prisma.leave.findMany({
+      where,
       orderBy: [{ createdAt: "desc" }],
     });
     return [...leaves];
