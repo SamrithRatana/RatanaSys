@@ -1,25 +1,15 @@
 "use client";
 
-import { Icons } from "@/components/Other/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ClientSafeProvider, getProviders, signIn } from "next-auth/react";
+import { signIn } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-type Tab = "credentials" | "google" | "telegram";
-
-declare global {
-  interface Window {
-    onTelegramAuth: (user: any) => void;
-  }
-}
-
+// Login page: "Login with KID" (Google / Telegram / Apple / email through one
+// KID account) or email/username + password.
 export function AuthForm() {
-  const [providers, setProviders] = useState<Record<string, ClientSafeProvider>>({});
-  const [tab, setTab] = useState<Tab>("credentials");
-
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -35,13 +25,14 @@ export function AuthForm() {
   const kidReturn = searchParams.get("kid") === "1";
   const kidError  = searchParams.get("kidError");
   const [kidLoading, setKidLoading] = useState(kidReturn);
+  const [kidFailed, setKidFailed]   = useState(false);
 
   useEffect(() => {
     if (!kidReturn) return;
     signIn("kid", { callbackUrl, redirect: false }).then((res) => {
       if (res?.error || !res?.url) {
         setKidLoading(false);
-        setError("KID login failed. Please try again.");
+        setKidFailed(true);
       } else {
         window.location.href = res.url;
       }
@@ -59,70 +50,9 @@ export function AuthForm() {
     login_failed:   "KID login failed. Please try again.",
     access_denied:  "KID login was cancelled.",
   };
-
-  useEffect(() => {
-    getProviders().then((p) =>
-      setProviders(p as Record<string, ClientSafeProvider>)
-    );
-  }, []);
-
-  // ── Telegram global callback ──────────────────────────────
-  useEffect(() => {
-    window.onTelegramAuth = async (tgUser: any) => {
-      setLoading(true);
-      setError("");
-      try {
-        const res = await fetch("/api/telegram/callback", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(tgUser),
-        });
-        const data = await res.json();
-
-        if (!res.ok || !data.tempToken) {
-          setError(data.error || "Telegram login failed");
-          setLoading(false);
-          return;
-        }
-
-        const result = await signIn("telegram-phone", {
-          tempToken: data.tempToken,
-          callbackUrl, // ✅ use dynamic callbackUrl
-          redirect: false,
-        });
-
-        if (result?.error) {
-          setError("Authentication failed. Please try again.");
-        } else if (result?.url) {
-          window.location.href = result.url;
-        }
-      } catch {
-        setError("Network error. Please try again.");
-      } finally {
-        setLoading(false);
-      }
-    };
-  }, [callbackUrl]);
-
-  // ── Inject Telegram widget ────────────────────────────────
-  useEffect(() => {
-    if (tab !== "telegram") return;
-
-    const container = document.getElementById("telegram-widget-container");
-    if (!container) return;
-
-    container.innerHTML = "";
-
-    const script = document.createElement("script");
-    script.src = "https://telegram.org/js/telegram-widget.js?22";
-    script.setAttribute("data-telegram-login", "camprotec_auth_bot");
-    script.setAttribute("data-size", "large");
-    script.setAttribute("data-onauth", "onTelegramAuth(user)");
-    script.setAttribute("data-request-access", "write");
-    script.async = true;
-
-    container.appendChild(script);
-  }, [tab]);
+  const kidMessage = kidFailed
+    ? KID_ERRORS.login_failed
+    : kidError ? (KID_ERRORS[kidError] ?? KID_ERRORS.login_failed) : null;
 
   // ── Credentials Login ─────────────────────────────────────
   async function handleCredentials(e: React.FormEvent) {
@@ -146,12 +76,6 @@ export function AuthForm() {
     }
   }
 
-  const tabs: { id: Tab; label: string }[] = [
-    { id: "credentials", label: "Credentials" },
-    { id: "google", label: "Google" },
-    { id: "telegram", label: "Telegram" },
-  ];
-
   return (
     <div className="grid gap-6">
       {registered && (
@@ -168,10 +92,8 @@ export function AuthForm() {
         <p className="text-xs text-center text-muted-foreground">
           Google · Telegram · Apple · Email — one KID account
         </p>
-        {kidError && (
-          <p className="text-sm text-center text-destructive">
-            {KID_ERRORS[kidError] ?? "KID login failed. Please try again."}
-          </p>
+        {kidMessage && (
+          <p className="text-sm text-center text-destructive">{kidMessage}</p>
         )}
       </div>
 
@@ -179,96 +101,35 @@ export function AuthForm() {
         <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
       </div>
 
-      {/* Tab Bar */}
-      <div className="flex rounded-md border overflow-hidden">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => { setTab(t.id); setError(""); }}
-            className={`flex-1 py-2 text-sm transition-colors ${
-              tab === t.id
-                ? "bg-primary text-primary-foreground"
-                : "bg-background text-muted-foreground hover:bg-muted"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* ── Credentials Tab ── */}
-      {tab === "credentials" && (
-        <form onSubmit={handleCredentials} className="grid gap-4">
-          <div className="grid gap-1">
-            <Label htmlFor="identifier">Email or Username</Label>
-            <Input
-              id="identifier"
-              type="text"
-              placeholder="name@company.com or username"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              required
-            />
-          </div>
-          <div className="grid gap-1">
-            <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" disabled={loading}>
-            {loading ? "Signing in…" : "Sign in"}
-          </Button>
-        </form>
-      )}
-
-      {/* ── Google Tab ── */}
-      {tab === "google" && (
-        <div className="grid gap-4">
-          {Object.values(providers)
-            .filter((p) => p.id === "google")
-            .map((provider) => (
-              <Button
-                key={provider.name}
-                variant="outline"
-                type="button"
-                onClick={() =>
-                  signIn(provider.id, { callbackUrl }) // ✅ use dynamic callbackUrl
-                }
-              >
-                <Icons.google className="mr-2 h-4 w-4" />
-                Continue with Google
-              </Button>
-            ))}
+      {/* ── Credentials ── */}
+      <form onSubmit={handleCredentials} className="grid gap-4">
+        <div className="grid gap-1">
+          <Label htmlFor="identifier">Email or Username</Label>
+          <Input
+            id="identifier"
+            type="text"
+            placeholder="name@company.com or username"
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
+            required
+          />
         </div>
-      )}
-
-      {/* ── Telegram Tab ── */}
-      {tab === "telegram" && (
-        <div className="grid gap-4">
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          {loading ? (
-            <p className="text-sm text-center text-muted-foreground">
-              Signing in…
-            </p>
-          ) : (
-            <div
-              id="telegram-widget-container"
-              className="flex justify-center"
-            />
-          )}
-          <p className="text-xs text-center text-muted-foreground">
-            Your Telegram profile will be used to sign in
-          </p>
+        <div className="grid gap-1">
+          <Label htmlFor="password">Password</Label>
+          <Input
+            id="password"
+            type="password"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
         </div>
-      )}
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <Button type="submit" disabled={loading}>
+          {loading ? "Signing in…" : "Sign in"}
+        </Button>
+      </form>
     </div>
   );
 }
