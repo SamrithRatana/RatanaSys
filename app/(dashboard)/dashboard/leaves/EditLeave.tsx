@@ -81,22 +81,11 @@ const EditLeave = ({
 
   async function editLeave(values: z.infer<typeof formSchema>) {
     try {
-      const formValues = {
-        ...values,
-        notes: values.notes,
-        status: values.status,
-        id,
-        days,
-        type,
-        year,
-        email,
-        user,
-        startDate,
-      };
-
       const res = await fetch(`/api/leave/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify(formValues),
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        // The server reads every leave detail from the database
+        body:    JSON.stringify({ notes: values.notes, status: values.status, id }),
       });
 
       if (res.ok) {

@@ -1,3 +1,6 @@
+// Never let a slow/unreachable Telegram API hang a request
+const TELEGRAM_TIMEOUT_MS = 8000;
+
 type InlineButton = {
   text: string;
   url:  string;
@@ -38,6 +41,7 @@ export async function sendTelegramMessage(
       {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
+        signal:  AbortSignal.timeout(TELEGRAM_TIMEOUT_MS),
         body:    JSON.stringify(buildBody(chatId)),
       }
     );
@@ -54,6 +58,7 @@ export async function sendTelegramMessage(
           {
             method:  "POST",
             headers: { "Content-Type": "application/json" },
+        signal:  AbortSignal.timeout(TELEGRAM_TIMEOUT_MS),
             body:    JSON.stringify(buildBody(newChatId)),
           }
         );
@@ -97,6 +102,7 @@ export async function deleteTelegramMessage(
       {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
+        signal:  AbortSignal.timeout(TELEGRAM_TIMEOUT_MS),
         body:    JSON.stringify({ chat_id: chatId, message_id: messageId }),
       }
     );
@@ -150,6 +156,7 @@ export async function editTelegramMessage(
       {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
+        signal:  AbortSignal.timeout(TELEGRAM_TIMEOUT_MS),
         body:    JSON.stringify(body),
       }
     );

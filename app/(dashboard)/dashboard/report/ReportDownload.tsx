@@ -112,7 +112,7 @@ export default function ReportDownload({ users }: Props) {
                 onClick={() => pickUser(u)}
               >
                 {u.image ? (
-                  <Image
+                  <Image unoptimized
                     src={u.image}
                     alt={u.name ?? ""}
                     width={32}
@@ -143,7 +143,7 @@ export default function ReportDownload({ users }: Props) {
         <div className="rounded-xl border bg-card p-5 space-y-4 shadow-sm">
           <div className="flex items-center gap-4">
             {selected.image ? (
-              <Image
+              <Image unoptimized
                 src={selected.image}
                 alt={selected.name ?? ""}
                 width={48}

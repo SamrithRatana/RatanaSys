@@ -1,123 +1,79 @@
-import { Balances } from "@prisma/client";
-import prisma from "@/lib/prisma";
+import { Balances, Prisma, PrismaClient } from "@prisma/client";
+import { WORK_HOURS_PER_DAY, leaveDayTotal } from "@/lib/leaveRules";
 
-const MATERNITY_DAYS: Record<string, number> = {
-  MALE:   7,
-  FEMALE: 90,
+type Db = PrismaClient | Prisma.TransactionClient;
+
+// Which balance columns each leave type draws from.
+// SHORT (legacy hourly personal leave) is deducted from Personal.
+const BALANCE_KEY: Record<string, "annual" | "sick" | "personal" | "maternity" | "special"> = {
+  ANNUAL:    "annual",
+  SICK:      "sick",
+  PERSONAL:  "personal",
+  SHORT:     "personal",
+  MATERNITY: "maternity",
+  SPECIAL:   "special",
 };
 
-function inferMaternityCredit(used: number, currentCredit: number): number {
-  if (currentCredit > 0) return currentCredit;
-  if (used <= 7)  return 7;
-  return 90;
-}
-
-export default async function calculateAndUpdateBalances(
+/**
+ * Find the balance row for a leave. Matches on the unique (email, year) first
+ * and only falls back to the display name when no email match exists
+ * (legacy rows created before emails were reliable).
+ */
+export async function findBalanceForLeave(
+  db:    Db,
   email: string,
   year:  string,
-  type:  string,
-  days:  number,  // for SHORT, SICK_SHORT, and ANNUAL_SHORT this value is hours
-  name?: string,
+  name?: string | null,
+): Promise<Balances | null> {
+  const byEmail = await db.balances.findUnique({
+    where: { email_year: { email, year } },
+  });
+  if (byEmail || !name) return byEmail;
+  return db.balances.findFirst({ where: { year, name } });
+}
+
+/**
+ * Deduct (direction = 1) or refund (direction = -1) a leave against a balance row.
+ * `days` are whole days and `hours` are the extra partial hours (8h = 1 day),
+ * exactly as stored on the Leave record.
+ *
+ * Uses atomic increments so two approvals running at the same time can't
+ * overwrite each other's update.
+ */
+export async function applyLeaveToBalance(
+  db:        Db,
+  balance:   Balances,
+  type:      string,
+  days:      number,
+  hours:     number,
+  direction: 1 | -1,
 ): Promise<void> {
-  const balance = await prisma.balances.findFirst({
-    where: {
-      year,
-      OR: [
-        { email },
-        ...(name ? [{ name }] : []),
-      ],
-    },
-  });
+  const key = BALANCE_KEY[type.toUpperCase()];
+  if (!key) throw new Error(`Unsupported leave type: ${type}`);
 
-  if (!balance) {
-    throw new Error("Balance not found for the specified user and year");
+  const amount = Math.round(leaveDayTotal(days, hours) * 10_000) / 10_000;
+  if (amount <= 0) return;
+  if (hours >= WORK_HOURS_PER_DAY) hours = 0; // legacy days=1 + hours=8 rows
+
+  const signed = amount * direction;
+  const data: Prisma.BalancesUpdateInput = {
+    [`${key}Used`]:      { increment: signed },
+    [`${key}Available`]: { decrement: signed },
+  };
+
+  // Informational hour counter for partial-day personal leave
+  if (key === "personal" && hours > 0) {
+    data.shortUsed = { increment: hours * direction };
   }
 
-  let balanceUpdate: Partial<Balances> = {};
-
-  switch (type.toUpperCase()) {
-    case "ANNUAL":
-      balanceUpdate = {
-        annualUsed:      (balance.annualUsed as number) + days,
-        annualAvailable: (balance.annualCredit as number) - ((balance.annualUsed as number) + days),
-      };
-      break;
-
-    // Partial-day annual leave — `days` param carries hours, deduct as fraction of a day
-    case "ANNUAL_SHORT": {
-      const dayFraction   = days / 8;
-      const newAnnualUsed = (balance.annualUsed as number) + dayFraction;
-      balanceUpdate = {
-        annualUsed:      newAnnualUsed,
-        annualAvailable: (balance.annualCredit as number) - newAnnualUsed,
-      };
-      break;
-    }
-
-    case "SICK":
-      balanceUpdate = {
-        sickUsed:      (balance.sickUsed as number) + days,
-        sickAvailable: (balance.sickCredit as number) - ((balance.sickUsed as number) + days),
-      };
-      break;
-
-    // Partial-day sick leave — `days` param carries hours, deduct as fraction
-    case "SICK_SHORT": {
-      const dayFraction  = days / 8;
-      const newSickUsed  = (balance.sickUsed as number) + dayFraction;
-      balanceUpdate = {
-        sickUsed:      newSickUsed,
-        sickAvailable: (balance.sickCredit as number) - newSickUsed,
-      };
-      break;
-    }
-
-    case "PERSONAL":
-      balanceUpdate = {
-        personalUsed:      (balance.personalUsed as number) + days,
-        personalAvailable: (balance.personalCredit as number) - ((balance.personalUsed as number) + days),
-      };
-      break;
-
-    case "MATERNITY": {
-      const existingCredit = balance.maternityCredit as number;
-      const existingUsed   = balance.maternityUsed   as number;
-      const healedCredit   = inferMaternityCredit(existingUsed + days, existingCredit);
-
-      const newUsed      = existingUsed + days;
-      const newAvailable = healedCredit - newUsed;
-
-      balanceUpdate = {
-        maternityCredit:    healedCredit,
-        maternityUsed:      newUsed,
-        maternityAvailable: Math.max(0, newAvailable),
-      };
-      break;
-    }
-
-    case "SPECIAL":
-      balanceUpdate = {
-        specialUsed:      (balance.specialUsed as number) + days,
-        specialAvailable: (balance.specialCredit as number) - ((balance.specialUsed as number) + days),
-      };
-      break;
-
-    case "SHORT": {
-      const dayFraction = days / 8;
-      balanceUpdate = {
-        personalUsed:      (balance.personalUsed as number) + dayFraction,
-        personalAvailable: (balance.personalCredit as number) - ((balance.personalUsed as number) + dayFraction),
-        shortUsed:         (balance.shortUsed ?? 0) + days,
-      };
-      break;
-    }
-
-    default:
-      throw new Error(`Unsupported leave type: ${type}`);
+  // Maternity credit is set when the leave is submitted; heal old rows where it's still 0
+  if (key === "maternity" && direction === 1 && !((balance.maternityCredit ?? 0) > 0)) {
+    const newUsed = (balance.maternityUsed ?? 0) + amount;
+    const credit  = newUsed <= 7 ? 7 : 90;
+    data.maternityCredit    = credit;
+    data.maternityUsed      = newUsed;
+    data.maternityAvailable = credit - newUsed;
   }
 
-  await prisma.balances.update({
-    where: { id: balance.id },
-    data:  balanceUpdate,
-  });
+  await db.balances.update({ where: { id: balance.id }, data });
 }

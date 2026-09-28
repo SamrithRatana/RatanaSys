@@ -30,7 +30,17 @@ import toast from "react-hot-toast";
 import Image from "next/image";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, X } from "lucide-react";
+import { Search, X, Paperclip, FileText } from "lucide-react";
+import {
+  ALLOWED_ATTACHMENT_TYPES,
+  ANNUAL_MIN_NOTICE_DAYS,
+  MAX_ATTACHMENT_BYTES,
+  RULE_MESSAGES,
+  SICK_CERTIFICATE_THRESHOLD_DAYS,
+  minStartDate,
+  requiresSickCertificate,
+  workHoursBetween,
+} from "@/lib/leaveRules";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants & types
@@ -102,8 +112,30 @@ type Props = {
   onExternalClose?: () => void;
 };
 
-const today = new Date();
-today.setHours(0, 0, 0, 0);
+// Computed on demand, not once at module load — the portal tab can stay open for days
+function startOfToday(): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/** Shrink large photos (phone camera shots) before upload; PDFs/HEIC are sent as-is. */
+async function compressImage(file: File): Promise<File> {
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size < 1024 * 1024) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale  = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width  = Math.round(bitmap.width  * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/jpeg", 0.8));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    return file;
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Time helpers
@@ -120,8 +152,9 @@ function getCurrentTime(): string {
   const now = new Date();
   return `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
 }
+// Working hours only: 12:00–13:00 lunch excluded, so 08:00–17:00 = 8h (same rule as the server)
 function calcHours(start: string, end: string): number {
-  return Math.max(0, (timeToMinutes(end) - timeToMinutes(start)) / 60);
+  return workHoursBetween(start, end);
 }
 function formatDuration(totalMinutes: number): string {
   const h = Math.floor(totalMinutes / 60);
@@ -202,8 +235,7 @@ const formSchema = z
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: "An end date is required.", path: ["endDate"] });
       }
       if (data.startDate) {
-        const minDate = new Date(today);
-        minDate.setDate(minDate.getDate() + 7);
+        const minDate = minStartDate("SPECIAL", startOfToday());
         if (data.startDate < minDate) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
@@ -400,6 +432,9 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
 
   const [isSubmitting,    setIsSubmitting]    = useState(false);
   const [substituteUser,  setSubstituteUser]  = useState<UserItem | null>(null);
+  const [attachment,      setAttachment]      = useState<File | null>(null);
+
+  const today = startOfToday();
 
   const [isSegmentMode, setIsSegmentMode] = useState(false);
   const [segments, setSegments] = useState<Segment[]>([newSegment(new Date(today))]);
@@ -452,20 +487,26 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
 
   const currentYear = today.getFullYear();
 
+  // Earliest selectable date — Annual needs 2 days' notice, Special 7 days
+  const minDate = minStartDate(selectedLeave, today);
+  const isBeforeMin = (date: Date) => date < minDate || date.getFullYear() > currentYear;
+
   // ─── Reset UI state when leave type changes ───────────────────────────────
   useEffect(() => {
+    const first = minStartDate(selectedLeave, startOfToday());
     setIsSegmentMode(false);
-    setSegments([newSegment(new Date(today))]);
+    setSegments([newSegment(new Date(first))]);
     setDrSlotType("FULL");
     setDrStartTime(getCurrentTime());
     setDrEndTime(getCurrentTime());
     setDrShortcutH(0);
     setDrShortcutM(0);
     setSubstituteUser(null);
+    setAttachment(null);
 
     if (selectedLeave && ["ANNUAL", "SICK", "PERSONAL"].includes(selectedLeave)) {
-      form.setValue("startDate", new Date(today), { shouldValidate: false });
-      form.setValue("endDate",   new Date(today), { shouldValidate: false });
+      form.setValue("startDate", new Date(first), { shouldValidate: false });
+      form.setValue("endDate",   new Date(first), { shouldValidate: false });
     }
   }, [selectedLeave]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -507,14 +548,6 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
     }
   }, [drSlotType]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const getMinStartDate = (): Date => {
-    if (selectedLeave === "SPECIAL") {
-      const d = new Date(today);
-      d.setDate(d.getDate() + 7);
-      return d;
-    }
-    return today;
-  };
 
   const drHours: number = (() => {
     if (drSlotType === "FULL")    return 0;
@@ -548,7 +581,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
     setIsSegmentMode(prev => {
       const next = !prev;
       if (next) {
-        const prefillDate = startDateValue ?? new Date(today);
+        const prefillDate = startDateValue ?? new Date(minDate);
         setSegments([newSegment(new Date(prefillDate))]);
         form.setValue("startDate", undefined as any, { shouldValidate: false });
         form.setValue("endDate",   undefined as any, { shouldValidate: false });
@@ -556,7 +589,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
         setDrShortcutH(0);
         setDrShortcutM(0);
       } else {
-        setSegments([newSegment(new Date(today))]);
+        setSegments([newSegment(new Date(minDate))]);
       }
       return next;
     });
@@ -581,17 +614,51 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
     return `${daysStr}${formatDuration(remMin)}`;
   })();
 
+  // Requested length in days, used for the sick-leave certificate rule
+  const requestedDays: number = (() => {
+    if (isSegmentMode) return totalFraction;
+    if (drSlotType !== "FULL") return drHours / 8;
+    if (!startDateValue || !endDateValue) return 0;
+    return differenceInDays(endDateValue, startDateValue) + 1;
+  })();
+  const needsCertificate = requiresSickCertificate(selectedLeave ?? "", requestedDays);
+
+  async function handleAttachmentChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = e.target.files?.[0];
+    e.target.value = "";
+    if (!picked) return;
+    if (!ALLOWED_ATTACHMENT_TYPES.includes(picked.type)) {
+      toast.error(RULE_MESSAGES.attachmentType, { duration: 6000 });
+      return;
+    }
+    const file = await compressImage(picked);
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      toast.error(RULE_MESSAGES.attachmentSize, { duration: 6000 });
+      return;
+    }
+    setAttachment(file);
+  }
+
+  // Identity comes from the session on the server; the body only carries the request
+  async function postLeave(payload: Record<string, unknown>): Promise<Response> {
+    const body = new FormData();
+    body.append("payload", JSON.stringify(payload));
+    if (attachment && isSick) body.append("attachment", attachment);
+    return fetch("/api/leave", { method: "POST", body });
+  }
+
+  async function showError(res: Response) {
+    const data = await res.json().catch(() => ({}));
+    toast.error(data?.error ?? "មានបញ្ហា សូមព្យាយាមម្ដងទៀត (Something went wrong)", { duration: 7000 });
+  }
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    if (isSick && needsCertificate && !attachment) {
+      toast.error(RULE_MESSAGES.sickCertificate, { duration: 7000 });
+      return;
+    }
     setIsSubmitting(true);
     try {
-      const effectiveEmail =
-        user.email ??
-        ((user as any).telegramId ? `telegram-${(user as any).telegramId}` : null) ??
-        (user.id ? `userid-${user.id}` : null) ??
-        `name-${user.name?.replace(/\s+/g, "-").toLowerCase()}`;
-
-      const userPayload = { ...user, email: effectiveEmail };
-
       // ── Substitute name (non-segment mode) ───────────────────────────────
       const substituteName = substituteUser?.name ?? null;
 
@@ -635,13 +702,9 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
           startDate: format(segments[0].date!, "yyyy-MM-dd"),
           endDate:   format(segments[segments.length - 1].endDate ?? segments[segments.length - 1].date!, "yyyy-MM-dd"),
           segments:  segmentPayloads,
-          user:      userPayload,
         };
 
-        const res = await fetch("/api/leave", {
-          method: "POST",
-          body:   JSON.stringify(payload),
-        });
+        const res = await postLeave(payload);
 
         if (res.ok) {
           toast.success(
@@ -653,10 +716,10 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
           setIsSegmentMode(false);
           setSegments([newSegment(new Date(today))]);
           setSubstituteUser(null);
+          setAttachment(null);
           form.reset({ personalStartTime: getCurrentTime(), personalEndTime: getCurrentTime() });
         } else {
-          const errData = await res.json().catch(() => ({}));
-          toast.error(`មានបញ្ហា: ${JSON.stringify(errData)}`, { duration: 6000 });
+          await showError(res);
         }
         return;
       }
@@ -728,13 +791,9 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
         ...(submitHours     !== undefined && { hours:     submitHours }),
         ...(submitStartTime !== undefined && { startTime: submitStartTime }),
         ...(submitEndTime   !== undefined && { endTime:   submitEndTime }),
-        user: userPayload,
       };
 
-      const res = await fetch("/api/leave", {
-        method: "POST",
-        body:   JSON.stringify(payload),
-      });
+      const res = await postLeave(payload);
 
       if (res.ok) {
         toast.success("Leave Submitted", { duration: 4000 });
@@ -744,10 +803,10 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
         setDrShortcutH(0);
         setDrShortcutM(0);
         setSubstituteUser(null);
+        setAttachment(null);
         form.reset({ personalStartTime: getCurrentTime(), personalEndTime: getCurrentTime() });
       } else {
-        const data = await res.json();
-        toast.error(`An error occurred: ${JSON.stringify(data)}`, { duration: 6000 });
+        await showError(res);
       }
     } catch (error) {
       console.error("An error occurred:", error);
@@ -806,7 +865,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
                   if (date && !seg.endDate) patch.endDate = date;
                   updateSegment(seg.id, patch);
                 }}
-                disabled={(date: Date) => date < today || date.getFullYear() > currentYear}
+                disabled={isBeforeMin}
                 initialFocus
               />
             </PopoverContent>
@@ -830,9 +889,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
                   mode="single"
                   selected={seg.endDate}
                   onSelect={(date) => updateSegment(seg.id, { endDate: date ?? undefined, calEndOpen: false })}
-                  disabled={(date: Date) =>
-                    date < today || date.getFullYear() > currentYear || (!!seg.date && date < seg.date)
-                  }
+                  disabled={(date: Date) => isBeforeMin(date) || (!!seg.date && date < seg.date)}
                   initialFocus
                 />
               </PopoverContent>
@@ -1095,6 +1152,20 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
             </div>
           )}
 
+          {/* ── Annual banner ── */}
+          {isAnnual && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-amber-600">
+                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+              <span style={khmerFont} className="text-[13px] text-amber-800 dark:text-amber-300">
+                ច្បាប់ប្រចាំឆ្នាំត្រូវស្នើសុំមុនយ៉ាងហោចណាស់ <strong>{ANNUAL_MIN_NOTICE_DAYS} ថ្ងៃ</strong>។
+                ថ្ងៃដែលអាចជ្រើសរើសបានដំបូងគឺ <strong>{format(minDate, "dd MMM yyyy")}</strong>។
+              </span>
+            </div>
+          )}
+
           {/* ── Maternity Gender ── */}
           {isMaternity && (
             <FormField
@@ -1293,7 +1364,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
                                 }
                                 setOpenStartDate(false);
                               }}
-                              disabled={(date: Date) => date < today || date.getFullYear() > currentYear}
+                              disabled={isBeforeMin}
                               initialFocus
                             />
                           </PopoverContent>
@@ -1326,8 +1397,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
                                 selected={field.value}
                                 onSelect={(date) => { field.onChange(date); setOpenEndDate(false); }}
                                 disabled={(date: Date) =>
-                                  date < today || date.getFullYear() > currentYear ||
-                                  (!!startDateValue && date < startDateValue)
+                                  isBeforeMin(date) || (!!startDateValue && date < startDateValue)
                                 }
                                 initialFocus
                               />
@@ -1424,10 +1494,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
                       <PopoverContent className="w-auto p-0" align="start">
                         <Calendar mode="single" selected={field.value}
                           onSelect={(date) => { field.onChange(date); setOpenStartDate(false); }}
-                          disabled={(date: Date) => {
-                            const min = getMinStartDate();
-                            return date < today || date.getFullYear() > currentYear || date < min;
-                          }}
+                          disabled={isBeforeMin}
                           initialFocus
                         />
                       </PopoverContent>
@@ -1455,7 +1522,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
                         <Calendar mode="single" selected={field.value}
                           onSelect={(date) => { field.onChange(date); setOpenEndDate(false); }}
                           disabled={(date: Date) =>
-                            date < today || (!!startDateValue && date < startDateValue)
+                            isBeforeMin(date) || (!!startDateValue && date < startDateValue)
                           }
                           initialFocus
                         />
@@ -1507,6 +1574,55 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
             </div>
           )}
 
+          {/* ── Sick leave medical certificate ── */}
+          {isSick && (
+            <div className={cn(
+              "rounded-xl border border-dashed p-4 space-y-2",
+              needsCertificate && !attachment
+                ? "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/40"
+                : "border-gray-300 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/30"
+            )}>
+              <label style={khmerFont} className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                <Paperclip className="h-4 w-4" />
+                សំបុត្រពេទ្យ <span className="text-muted-foreground font-normal">(Medical certificate)</span>
+                {needsCertificate
+                  ? <span className="text-red-600 text-xs ml-1">· ត្រូវការ (required)</span>
+                  : <span className="text-muted-foreground text-xs ml-1">· optional</span>}
+              </label>
+              <p style={khmerFont} className="text-[12px] text-muted-foreground">
+                ច្បាប់ឈឺលើសពី {SICK_CERTIFICATE_THRESHOLD_DAYS} ថ្ងៃ ត្រូវភ្ជាប់រូបភាព ឬឯកសារ PDF សំបុត្រពេទ្យ ទើបអាច Submit បាន។
+              </p>
+              {attachment ? (
+                <div className="flex items-center gap-3 rounded-lg border bg-background px-3 py-2">
+                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 truncate text-[13px]">{attachment.name}</span>
+                  <span className="text-[11px] text-muted-foreground shrink-0">
+                    {(attachment.size / 1024 / 1024).toFixed(2)} MB
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setAttachment(null)}
+                    className="text-muted-foreground hover:text-red-500 p-1"
+                    aria-label="Remove attachment"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border bg-background px-3 py-2.5 text-[13px] hover:bg-muted/60 transition-colors" style={khmerFont}>
+                  <Paperclip className="h-4 w-4" />
+                  ជ្រើសរើសរូបភាព ឬ PDF
+                  <input
+                    type="file"
+                    accept={ALLOWED_ATTACHMENT_TYPES.join(",")}
+                    className="sr-only"
+                    onChange={handleAttachmentChange}
+                  />
+                </label>
+              )}
+            </div>
+          )}
+
           {/* ── Notes ── */}
           <FormField
             control={form.control} name="notes"
@@ -1529,7 +1645,7 @@ const RequestForm = ({ user, users = [], defaultLeave, externalOpen, onExternalC
             type="submit"
             className="w-full"
             style={khmerFont}
-            disabled={isSubmitting}
+            disabled={isSubmitting || (isSick && needsCertificate && !attachment)}
           >
             {isSubmitting ? (
               <span className="flex items-center justify-center gap-2">

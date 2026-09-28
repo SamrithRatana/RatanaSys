@@ -2,12 +2,24 @@ import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
 import { LeaveStatus } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
-import { differenceInDays, format } from "date-fns";
 import {
   sendTelegramMessage,
   deleteTelegramMessage,
   editTelegramMessage,
 } from "@/lib/sendTelegramMessage";
+import { isValidYmd, minStartYmd, todayYmd, toYmd, RULE_MESSAGES } from "@/lib/leaveRules";
+import {
+  LeaveValidationError,
+  buildDateBlock,
+  checkSickCertificate,
+  computeLeave,
+  dateToYmd,
+  escapeHtml,
+  getLeaveLabel,
+  leaveOwnerEmail,
+  leaveUrl,
+  ymdToDate,
+} from "@/lib/leaveServer";
 
 type UserEditBody = {
   notes:            string;
@@ -19,58 +31,6 @@ type UserEditBody = {
   maternityGender?: "MALE" | "FEMALE";
 };
 
-const MATERNITY_DAYS: Record<string, number> = { MALE: 7, FEMALE: 90 };
-
-function getLeaveLabel(type: string, gender?: string): string {
-  if (type === "MATERNITY") {
-    return gender === "MALE"
-      ? "ច្បាប់មាតុភាព (បុរស · Paternity · 7ថ្ងៃ)"
-      : "ច្បាប់មាតុភាព (ស្ត្រី · Maternity · 90ថ្ងៃ)";
-  }
-  const labels: Record<string, string> = {
-    ANNUAL:   "ច្បាប់ឈប់សម្រាកប្រចាំឆ្នាំ",
-    SICK:     "ច្បាប់ឈប់សម្រាកឈឺ",
-    PERSONAL: "ច្បាប់ឈប់សម្រាកផ្ទាល់ខ្លួន",
-    SPECIAL:  "ច្បាប់ឈប់សម្រាកពិសេស",
-    SHORT:    "ច្បាប់ឈប់សម្រាករយះពេលខ្លី",
-  };
-  return labels[type.toUpperCase()] ?? `ច្បាប់ ${type}`;
-}
-
-function safeParse(isoString: string): Date {
-  const dateOnly = isoString.split("T")[0];
-  return new Date(`${dateOnly}T12:00:00.000Z`);
-}
-
-function formatTotalMinutes(totalMin: number): string {
-  if (totalMin <= 0) return "0 ម៉ោង";
-  const FULL_DAY = 8 * 60;
-  const HALF_DAY = 4 * 60;
-  const wholeDays = Math.floor(totalMin / FULL_DAY);
-  const remMin    = totalMin % FULL_DAY;
-
-  if (remMin === 0) return `${wholeDays} ថ្ងៃ`;
-
-  if (wholeDays === 0) {
-    if (remMin === HALF_DAY) return "កន្លះថ្ងៃ";
-    const h = Math.floor(remMin / 60);
-    const m = remMin % 60;
-    if (h === 0) return `${m} នាទី`;
-    if (m === 0) return `${h} ម៉ោង`;
-    return `${h} ម៉ោង ${m} នាទី`;
-  }
-
-  if (remMin === HALF_DAY) return `${wholeDays} ថ្ងៃកន្លះ`;
-  const h = Math.floor(remMin / 60);
-  const m = remMin % 60;
-  const timeStr = m === 0 ? `${h} ម៉ោង` : `${h} ម៉ោង ${m} នាទី`;
-  return `${wholeDays} ថ្ងៃ ${timeStr}`;
-}
-
-function formatHourLabel(h: number): string {
-  return formatTotalMinutes(Math.round(h * 60));
-}
-
 type Params = { params: { leaveId: string } };
 
 // ── PATCH — user edits their own PENDING leave ────────────────────────────────
@@ -81,12 +41,15 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 
   try {
-    const leave = await prisma.leave.findUnique({ where: { id: params.leaveId } });
+    const leave = await prisma.leave.findUnique({
+      where:   { id: params.leaveId },
+      include: { _count: { select: { attachments: true } } },
+    });
     if (!leave) {
       return NextResponse.json({ error: "Leave not found" }, { status: 404 });
     }
 
-    if (leave.userEmail !== loggedInUser.email) {
+    if (leave.userEmail !== leaveOwnerEmail(loggedInUser)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -98,106 +61,101 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     }
 
     const body: UserEditBody = await req.json();
-    const { notes, startDate, endDate, hours, maternityGender, startTime, endTime } = body;
-
-    const isShortLeave = leave.type === "SHORT";
-    const isMaternity  = leave.type === "MATERNITY";
-
-    const startDateObj = safeParse(startDate);
-    const endDateObj   = safeParse(endDate);
-
-    let calcDays: number;
-    if (isMaternity && maternityGender) {
-      calcDays = MATERNITY_DAYS[maternityGender] ?? 90;
-    } else if (isShortLeave) {
-      calcDays = 0;
-    } else {
-      calcDays = differenceInDays(endDateObj, startDateObj) + 1;
+    const notes    = String(body.notes ?? "").slice(0, 500);
+    const newStart = body.startDate ? toYmd(body.startDate) : dateToYmd(leave.startDate);
+    const newEnd   = body.endDate   ? toYmd(body.endDate)   : newStart;
+    if (!isValidYmd(newStart) || !isValidYmd(newEnd)) {
+      throw new LeaveValidationError("កាលបរិច្ឆេទមិនត្រឹមត្រូវ (Invalid date).");
     }
 
-    const calcHours = isShortLeave ? Number(hours ?? 0) : 0;
+    const oldStart     = dateToYmd(leave.startDate);
+    const oldEnd       = dateToYmd(leave.endDate);
+    const datesChanged = newStart !== oldStart || newEnd !== oldEnd;
+    const hasSegments  = Array.isArray(leave.segments) && leave.segments.length > 0;
+    const isPartialDay = leave.type === "SHORT" || (leave.days === 0 && Number(leave.hours ?? 0) > 0);
 
-    await prisma.leave.update({
+    let startYmd = oldStart, endYmd = oldEnd;
+    let days = leave.days, hours = Number(leave.hours ?? 0);
+
+    if (hasSegments) {
+      // A multi-segment leave can't be re-expressed as a single date range
+      if (datesChanged) {
+        throw new LeaveValidationError(
+          "ច្បាប់ច្រើន Segment មិនអាចកែកាលបរិច្ឆេទបានទេ — សូមលុប ហើយស្នើសុំម្ដងទៀត (Cancel and resubmit to change segment dates)."
+        );
+      }
+    } else if (isPartialDay) {
+      // Hourly leave: may move to another single day, keeps its hours
+      if (datesChanged) {
+        if (newStart < minStartYmd(leave.type, todayYmd())) {
+          throw new LeaveValidationError(leave.type === "ANNUAL" ? RULE_MESSAGES.annualNotice : "មិនអាចជ្រើសរើសថ្ងៃកន្លងផុតបានទេ (Cannot choose a past date).");
+        }
+        startYmd = endYmd = newStart;
+      }
+      if (leave.type === "SHORT" && Number(body.hours) > 0) {
+        hours = Math.min(Number(body.hours), 8);
+      }
+    } else if (datesChanged || leave.type === "MATERNITY") {
+      const computed = computeLeave({
+        type:            leave.type,
+        startDate:       newStart,
+        endDate:         newEnd,
+        maternityGender: body.maternityGender ?? (leave.type === "MATERNITY" ? (leave.days <= 7 ? "MALE" : "FEMALE") : undefined),
+      }, todayYmd());
+      startYmd = computed.startYmd;
+      endYmd   = computed.endYmd;
+      days     = computed.days;
+      hours    = computed.hours;
+    }
+
+    checkSickCertificate(leave.type, days, hours, leave._count.attachments > 0);
+
+    const updated = await prisma.leave.update({
       where: { id: params.leaveId },
       data: {
-        startDate: startDateObj,
-        endDate:   endDateObj,
+        startDate: ymdToDate(startYmd),
+        endDate:   ymdToDate(endYmd),
         userNote:  notes,
-        days:      calcDays,
-        hours:     calcHours,
-        updatedAt: new Date().toISOString(),
+        days,
+        hours,
+        year:      startYmd.slice(0, 4),
+        updatedAt: new Date(),
       },
     });
-
-    // ── Duration label ────────────────────────────────────────────────────
-    const hoursVal = Number(calcHours);
-    const daysVal  = Number(calcDays);
-
-    const isHourlyLeave =
-      (leave.type === "PERSONAL" || leave.type === "SICK" || leave.type === "ANNUAL") &&
-      hoursVal > 0 &&
-      daysVal === 0;
-
-    const durationLabel = (() => {
-      if (isShortLeave) return formatHourLabel(hoursVal);
-      const totalMin = daysVal * 8 * 60 + Math.round(hoursVal * 60);
-      return formatTotalMinutes(totalMin);
-    })();
-
-    // ── Time suffix — sub-day only ────────────────────────────────────────
-    const durationLine =
-      isHourlyLeave && daysVal === 0 && startTime && endTime
-        ? `${durationLabel} (${startTime}–${endTime})`
-        : durationLabel;
-
-    // ── Date range — clean, no duration inside ────────────────────────────
-    const dateRange = (() => {
-      const s = format(startDateObj, "dd MMM yyyy");
-      const e = format(endDateObj,   "dd MMM yyyy");
-      if (isHourlyLeave && daysVal === 0) return s;
-      if (s === e) return s;
-      return `${s} → ${e}`;
-    })();
-
-    // ── Build message text & buttons ──────────────────────────────────────
-    const baseUrl    = process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh";
-    const leaveUrl   = `${baseUrl}/dashboard/leaves/${leave.id}`;
-    const leaveLabel = getLeaveLabel(leave.type, maternityGender);
 
     const msgText = [
       `✏️ <b>សំណើច្បាប់បានកែប្រែ</b>`,
       ``,
-      `👤 <b>ឈ្មោះ៖</b> ${leave.userName}`,
-      `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
-      ...(isMaternity && maternityGender
-        ? [`⚧ <b>ភេទ៖</b> ${maternityGender === "MALE" ? "បុរស 👨" : "ស្ត្រី 👩"}`]
-        : []),
-      `📅 <b>កាលបរិច្ឆេទ៖</b> ${dateRange}`,
-      `⏱ <b>រយៈពេល៖</b> ${durationLine}`,
-      `📝 <b>មូលហេតុ៖</b> ${notes || "—"}`,
+      `👤 <b>ឈ្មោះ៖</b> ${escapeHtml(leave.userName)}`,
+      `📋 <b>ប្រភេទ៖</b> ${getLeaveLabel(leave.type)}`,
+      ...buildDateBlock(updated),
+      `📝 <b>មូលហេតុ៖</b> ${escapeHtml(notes) || "—"}`,
       ``,
       `✏️ <i>បានកែប្រែដោយអ្នកស្នើ · រង់ចាំអនុម័តពីប្រធានផ្នែក</i>`,
     ].join("\n");
 
-    const msgButtons = [{ text: "👀 មើល និងអនុម័តប្រធានផ្នែក →", url: leaveUrl }];
+    const msgButtons = [{ text: "👀 មើល និងអនុម័តប្រធានផ្នែក →", url: leaveUrl(leave.id) }];
 
-    // ── Edit existing message, or send new if none exists ─────────────────
-    const msgId = leave.telegramMessageId;
-
-    if (msgId) {
-      await editTelegramMessage(msgId, msgText, msgButtons);
-    } else {
-      const newMsgId = await sendTelegramMessage(msgText, msgButtons);
-      if (newMsgId) {
-        await prisma.leave.update({
-          where: { id: params.leaveId },
-          data:  { telegramMessageId: newMsgId },
-        });
+    // Edit the existing message, or send a new one — without blocking the response
+    void (async () => {
+      if (leave.telegramMessageId) {
+        await editTelegramMessage(leave.telegramMessageId, msgText, msgButtons);
+      } else {
+        const newMsgId = await sendTelegramMessage(msgText, msgButtons);
+        if (newMsgId) {
+          await prisma.leave.update({
+            where: { id: params.leaveId },
+            data:  { telegramMessageId: newMsgId },
+          });
+        }
       }
-    }
+    })().catch((e) => console.error("[user-edit] telegram:", e));
 
     return NextResponse.json({ message: "Leave updated" }, { status: 200 });
   } catch (error) {
+    if (error instanceof LeaveValidationError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     console.error(error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
@@ -216,7 +174,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "Leave not found" }, { status: 404 });
     }
 
-    if (leave.userEmail !== loggedInUser.email) {
+    if (leave.userEmail !== leaveOwnerEmail(loggedInUser)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -231,7 +189,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
 
     // Just delete the Telegram message — no new message sent
     if (leave.telegramMessageId) {
-      await deleteTelegramMessage(leave.telegramMessageId);
+      void deleteTelegramMessage(leave.telegramMessageId);
     }
 
     return NextResponse.json({ message: "Leave cancelled" }, { status: 200 });

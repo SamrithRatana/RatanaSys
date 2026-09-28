@@ -14,6 +14,9 @@ const nextConfig = {
   },
 
   experimental: {
+    // Load these with Node's require instead of bundling them — exceljs's
+    // stream polyfills break when webpack bundles them (export route crashes)
+    serverComponentsExternalPackages: ["exceljs", "pdfkit"],
     workerThreads: false,
     cpus: 1,
     serverActions: {

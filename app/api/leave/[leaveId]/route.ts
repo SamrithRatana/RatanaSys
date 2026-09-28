@@ -1,231 +1,110 @@
-import calculateAndUpdateBalances from "@/lib/calculateBalances";
+import { applyLeaveToBalance, findBalanceForLeave } from "@/lib/calculateBalances";
 import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
-import { LeaveStatus } from "@prisma/client";
+import { Leave, LeaveStatus, Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { sendTelegramMessage, deleteTelegramMessage } from "@/lib/sendTelegramMessage";
-import { format } from "date-fns";
+import {
+  buildDateBlock,
+  dateToYmd,
+  durationLabel,
+  escapeHtml,
+  getLeaveLabel,
+  leaveUrl,
+} from "@/lib/leaveServer";
 
 type EditBody = {
-  notes:     string;
-  status:    LeaveStatus;
-  id:        string;
-  days:      number;
-  hours?:    number;
-  type:      string;
-  year:      string;
-  email:     string;
-  user:      string;
-  startDate: string;
+  notes?:  string;
+  status:  LeaveStatus;
+  id?:     string;
 };
 
-type StoredSegment = {
-  date:       string;
-  endDate?:   string;
-  hours?:     number;
-  days?:      number;
-  startTime?: string;
-  endTime?:   string;
+type Params = { params: { leaveId: string } };
+
+class ApprovalError extends Error {
+  constructor(message: string, public status = 400) { super(message); }
+}
+
+function leaveYear(leave: Leave): string {
+  return leave.year || dateToYmd(leave.startDate).slice(0, 4);
+}
+
+const notYetHeadApproved: Prisma.LeaveWhereInput = {
+  OR: [{ headDepartmentApproved: false }, { headDepartmentApproved: null }],
 };
 
-function getLeaveLabel(type: string): string {
-  const labels: Record<string, string> = {
-    ANNUAL:    "ច្បាប់ឈប់សម្រាកប្រចាំឆ្នាំ",
-    SICK:      "ច្បាប់ឈប់សម្រាកឈឺ",
-    PERSONAL:  "ច្បាប់ឈប់សម្រាកផ្ទាល់ខ្លួន",
-    MATERNITY: "ច្បាប់មាតុភាព",
-    SPECIAL:   "ច្បាប់ឈប់សម្រាកពិសេស",
-    SHORT:     "ច្បាប់ឈប់សម្រាករយះពេលខ្លី",
-  };
-  return labels[type.toUpperCase()] ?? `ច្បាប់ ${type}`;
-}
-
-function safeParse(isoString: string): Date {
-  const dateOnly = isoString.split("T")[0];
-  return new Date(`${dateOnly}T12:00:00.000Z`);
-}
-
-function safeFormat(isoString: string, fmt: string): string {
-  return format(safeParse(isoString), fmt);
-}
-
-function formatTotalMinutes(totalMin: number): string {
-  if (totalMin <= 0) return "0 ម៉ោង";
-  const FULL_DAY = 8 * 60;
-  const HALF_DAY = 4 * 60;
-  const wholeDays = Math.floor(totalMin / FULL_DAY);
-  const remMin    = totalMin % FULL_DAY;
-
-  if (remMin === 0) return `${wholeDays} ថ្ងៃ`;
-
-  if (wholeDays === 0) {
-    if (remMin === HALF_DAY) return "កន្លះថ្ងៃ";
-    const h = Math.floor(remMin / 60);
-    const m = remMin % 60;
-    if (h === 0) return `${m} នាទី`;
-    if (m === 0) return `${h} ម៉ោង`;
-    return `${h} ម៉ោង ${m} នាទី`;
+/** Deduct the leave from the employee's balance and put it on the calendar. */
+async function deductAndCreateEvent(tx: Prisma.TransactionClient, leave: Leave) {
+  const balance = await findBalanceForLeave(tx, leave.userEmail, leaveYear(leave), leave.userName);
+  if (!balance) {
+    throw new ApprovalError(
+      `រកមិនឃើញសមតុល្យច្បាប់ឆ្នាំ ${leaveYear(leave)} សម្រាប់ ${leave.userName} — សូមបង្កើត Balance ជាមុនសិន ` +
+      `(No leave balance for ${leave.userEmail} in ${leaveYear(leave)}. Create it under Balances first.)`
+    );
   }
 
-  if (remMin === HALF_DAY) return `${wholeDays} ថ្ងៃកន្លះ`;
-  const h = Math.floor(remMin / 60);
-  const m = remMin % 60;
-  const timeStr = m === 0 ? `${h} ម៉ោង` : `${h} ម៉ោង ${m} នាទី`;
-  return `${wholeDays} ថ្ងៃ ${timeStr}`;
+  await applyLeaveToBalance(tx, balance, leave.type, leave.days, Number(leave.hours ?? 0), 1);
+
+  await tx.events.create({
+    data: {
+      leaveId:     leave.id,
+      startDate:   leave.startDate,
+      endDate:     leave.endDate,
+      title:       `${leave.userName} ឈប់សម្រាក ${getLeaveLabel(leave.type)}`,
+      description: `រយៈពេល ${durationLabel(leave.days, Number(leave.hours ?? 0))}`,
+    },
+  });
 }
 
-function formatHourLabel(h: number): string {
-  return formatTotalMinutes(Math.round(h * 60));
-}
-
-function formatSegmentLine(seg: StoredSegment): string {
-  const startLabel = safeFormat(seg.date, "dd MMM yyyy");
-  const h = seg.hours ?? 0;
-  const d = seg.days  ?? 0;
-
-  if (d > 1) {
-    const endLabel = safeFormat(seg.endDate ?? seg.date, "dd MMM yyyy");
-    return `  📌 ${startLabel} → ${endLabel} · ${d} ថ្ងៃ`;
-  }
-  if (d === 1) return `  📌 ${startLabel} · 1 ថ្ងៃ`;
-  if (h >= 8)  return `  📌 ${startLabel} · 1 ថ្ងៃ`;
-
-  const timeRange =
-    seg.startTime && seg.endTime
-      ? ` (${seg.startTime}–${seg.endTime})`
-      : h === 4 ? ` (08:00–12:00)` : "";
-
-  return `  📌 ${startLabel} · ${formatHourLabel(h)}${timeRange}`;
-}
-
-function computeTotalLabel(segs: StoredSegment[]): string {
-  let totalMin = 0;
-  for (const seg of segs) {
-    const h = seg.hours ?? 0;
-    const d = seg.days  ?? 0;
-    if (d >= 1)      totalMin += d * 8 * 60;
-    else if (h >= 8) totalMin += 8 * 60;
-    else             totalMin += Math.round(h * 60);
-  }
-  return formatTotalMinutes(totalMin);
-}
-
-function buildDateRange(startDate: Date, endDate: Date, durationLabel: string): string {
-  const s = format(startDate, "dd MMM yyyy");
-  const e = format(endDate,   "dd MMM yyyy");
-  return s === e
-    ? `${s} (${durationLabel})`
-    : `${s} → ${e} (${durationLabel})`;
-}
-
-function buildDateBlock(
-  storedSegments: StoredSegment[] | null,
-  startDate:      Date,
-  endDate:        Date,
-  durationLabel:  string,
-): string[] {
-  if (storedSegments && storedSegments.length > 0) {
-    const segLines = storedSegments.map(formatSegmentLine);
-    const total    = computeTotalLabel(storedSegments);
-    return [
-      ``,
-      `📅 <b>កាលបរិច្ឆេទ (${storedSegments.length} segment):</b>`,
-      ...segLines,
-      ``,
-      `⏱ <b>រយៈពេលសរុប៖</b> ${total}`,
-    ];
+/** Undo deductAndCreateEvent — used when an already-deducted leave is rejected. */
+async function refundAndRemoveEvent(tx: Prisma.TransactionClient, leave: Leave) {
+  const balance = await findBalanceForLeave(tx, leave.userEmail, leaveYear(leave), leave.userName);
+  if (balance) {
+    await applyLeaveToBalance(tx, balance, leave.type, leave.days, Number(leave.hours ?? 0), -1);
   }
 
-  return [
-    `📅 <b>កាលបរិច្ឆេទ៖</b> ${buildDateRange(startDate, endDate, durationLabel)}`,
-    `⏱ <b>រយៈពេល៖</b> ${durationLabel}`,
-  ];
-}
-
-// ── Balance lookup with fallback ──────────────────────────────────────────────
-// Mirrors the OR logic in calculateAndUpdateBalances so we can pre-check
-// and also resolve the correct email to pass in.
-async function findBalanceRecord(
-  email: string,
-  year:  string,
-  name?: string,
-) {
-  return prisma.balances.findFirst({
+  await tx.events.deleteMany({
     where: {
-      year: String(year), // ← coerce to string; leave.year may be a number
       OR: [
-        { email },
-        ...(name ? [{ name }] : []),
+        { leaveId: leave.id },
+        // events created before leaveId existed
+        {
+          leaveId:   null,
+          startDate: leave.startDate,
+          title:     `${leave.userName} ឈប់សម្រាក ${getLeaveLabel(leave.type)}`,
+        },
       ],
     },
   });
 }
 
-// ── Shared balance deduction logic ────────────────────────────────────────────
-async function deductBalance(
-  email:           string,
-  year:            string,
-  type:            string,
-  days:            number,
-  daysFromDb:      number,
-  hoursFromDb:     number,
-  isShortLeave:    boolean,
-  isPartialHourly: boolean,
-  name?:           string,
-): Promise<void> {
-  // Pre-flight: verify the balance record exists before calling
-  // calculateAndUpdateBalances (which throws if not found).
-  const balanceRecord = await findBalanceRecord(email, year, name);
-
-  if (!balanceRecord) {
-    // Log clearly so you can diagnose which user/year is missing.
-    console.error(
-      `[deductBalance] No balance found — email="${email}" name="${name}" year="${year}". ` +
-      `Approval will proceed but balance was NOT deducted. Create a balance record for this user.`
-    );
-    // Do not throw — let the approval succeed so the leave isn't stuck.
-    return;
-  }
-
-  // Use the email stored on the balance record to avoid synthetic-email
-  // mismatches (e.g. balances created via telegramId path).
-  const resolvedEmail = balanceRecord.email ?? email;
-  const resolvedYear  = String(year);
-
-  const hasBothDaysAndHours = daysFromDb > 0 && hoursFromDb > 0;
-
-  if (hasBothDaysAndHours) {
-    await calculateAndUpdateBalances(resolvedEmail, resolvedYear, type, daysFromDb, name);
-
-    const shortType =
-      type === "SICK"     ? "SICK_SHORT"   :
-      type === "ANNUAL"   ? "ANNUAL_SHORT" :
-      type === "PERSONAL" ? "SHORT"        :
-      "SHORT";
-
-    await calculateAndUpdateBalances(resolvedEmail, resolvedYear, shortType, hoursFromDb, name);
-  } else {
-    const effectiveType = isShortLeave
-      ? "SHORT"
-      : isPartialHourly && type === "SICK"
-        ? "SICK_SHORT"
-        : isPartialHourly && type === "ANNUAL"
-          ? "ANNUAL_SHORT"
-          : type;
-
-    const effectiveValue = isShortLeave
-      ? hoursFromDb
-      : isPartialHourly
-        ? hoursFromDb
-        : daysFromDb > 0
-          ? daysFromDb
-          : days;
-
-    await calculateAndUpdateBalances(resolvedEmail, resolvedYear, effectiveType, effectiveValue, name);
+/** Conditional update: only succeeds if nobody else changed the leave meanwhile. */
+async function transition(
+  tx:    Prisma.TransactionClient,
+  leave: Leave,
+  where: Prisma.LeaveWhereInput,
+  data:  Prisma.LeaveUpdateManyMutationInput,
+) {
+  const { count } = await tx.leave.updateMany({
+    where: { id: leave.id, status: leave.status, ...where },
+    data:  { ...data, updatedAt: new Date() },
+  });
+  if (count === 0) {
+    throw new ApprovalError("ច្បាប់នេះត្រូវបានកែប្រែរួចហើយ — សូម Refresh (This leave was already updated — please refresh).", 409);
   }
 }
 
-export async function PATCH(req: Request) {
+function replaceTelegramMessage(leave: Leave, text: string) {
+  void (async () => {
+    if (leave.telegramMessageId) await deleteTelegramMessage(leave.telegramMessageId);
+    const newMsgId = await sendTelegramMessage(text, [{ text: "📋 មើលច្បាប់ →", url: leaveUrl(leave.id) }]);
+    if (newMsgId) {
+      await prisma.leave.update({ where: { id: leave.id }, data: { telegramMessageId: newMsgId } });
+    }
+  })().catch((e) => console.error("[leave PATCH] telegram:", e));
+}
+
+export async function PATCH(req: Request, { params }: Params) {
   const loggedInUser = await getCurrentUser();
 
   if (loggedInUser?.role !== "ADMIN" && loggedInUser?.role !== "MODERATOR") {
@@ -237,161 +116,100 @@ export async function PATCH(req: Request) {
 
   try {
     const body: EditBody = await req.json();
-    const { notes, status, id, days, hours, type, year, email, user, startDate } = body;
+    const notes  = String(body.notes ?? "").slice(0, 500);
+    const status = body.status;
+    const id     = params.leaveId ?? body.id;
 
-    // Coerce year to string — it may arrive as a number from the frontend
-    const yearStr = String(year);
-
-    const isShortLeave = type === "SHORT";
-    const updatedAt    = new Date().toISOString();
-    const actorName    = loggedInUser.name ?? loggedInUser.email ?? "Unknown";
-    const actorRole    = loggedInUser.role;
-    const leaveLabel   = getLeaveLabel(type);
-
-    const baseUrl  = process.env.NEXTAUTH_URL ?? "https://system.camprotec.com.kh";
-    const leaveUrl = `${baseUrl}/dashboard/leaves/${id}`;
+    const actorName = loggedInUser.name ?? loggedInUser.email ?? "Unknown";
+    const actorRole = loggedInUser.role;
 
     const leave = await prisma.leave.findUnique({ where: { id } });
     if (!leave) {
       return NextResponse.json({ error: "Leave not found" }, { status: 404 });
     }
 
-    const hoursFromDb = Number(leave.hours ?? 0);
-    const daysFromDb  = Number(leave.days  ?? 0);
-
-    const isPartialHourly =
-      (type === "PERSONAL" || type === "SICK" || type === "ANNUAL") &&
-      hoursFromDb > 0 &&
-      daysFromDb === 0;
-
-    const durationLabel = (() => {
-      if (isShortLeave)    return formatHourLabel(hoursFromDb);
-      if (isPartialHourly) return formatHourLabel(hoursFromDb);
-      const totalMin =
-        daysFromDb  * 8 * 60 +
-        Math.round(hoursFromDb * 60);
-      if (totalMin > 0) return formatTotalMinutes(totalMin);
-      const d = daysFromDb > 0 ? daysFromDb : days;
-      return `${d} ថ្ងៃ`;
-    })();
-
-    const storedSegments =
-      ((leave as any).segments as StoredSegment[] | null) ?? null;
-
-    const dateBlock = buildDateBlock(
-      storedSegments,
-      leave.startDate,
-      leave.endDate,
-      durationLabel,
-    );
-
-    const userReason = leave.userNote || "—";
-
-    async function replaceMessage(
-      newText:    string,
-      newButtons: { text: string; url: string }[]
-    ): Promise<void> {
-      if (leave!.telegramMessageId) {
-        await deleteTelegramMessage(leave!.telegramMessageId);
-      }
-      const newMsgId = await sendTelegramMessage(newText, newButtons);
-      if (newMsgId) {
-        await prisma.leave.update({
-          where: { id },
-          data:  { telegramMessageId: newMsgId },
-        });
-      }
-    }
+    // All leave details come from the database, never from the request body
+    const header = [
+      `👤 <b>ឈ្មោះ៖</b> ${escapeHtml(leave.userName)}`,
+      `📋 <b>ប្រភេទ៖</b> ${getLeaveLabel(leave.type)}`,
+      ...buildDateBlock(leave),
+      `📝 <b>មូលហេតុ (អ្នកស្នើ)៖</b> ${escapeHtml(leave.userNote) || "—"}`,
+    ];
+    const noteLine = `🗒 <b>កំណត់ចំណាំ (អ្នកអនុម័ត)៖</b> ${escapeHtml(notes) || "—"}`;
 
     // ── REJECTED ──────────────────────────────────────────────────────────────
     if (status === LeaveStatus.REJECTED) {
-      await prisma.leave.update({
-        where: { id },
-        data: {
-          status:             LeaveStatus.REJECTED,
-          headDepartment:     leave.headDepartment ?? actorName,
-          headDepartmentNote: notes,
-          updatedAt,
-        },
+      if (leave.status === LeaveStatus.REJECTED) {
+        throw new ApprovalError("ច្បាប់នេះត្រូវបានបដិសេធរួចហើយ (Already rejected).");
+      }
+      if (leave.status === LeaveStatus.APPROVED && actorRole !== "ADMIN") {
+        throw new ApprovalError("មានតែ Admin ទេដែលអាចបដិសេធច្បាប់ដែលបានអនុម័តរួច (Only an admin can reject an approved leave).", 403);
+      }
+
+      // Balance is deducted at the first approval, so refund it if that happened
+      const wasDeducted = leave.headDepartmentApproved === true;
+
+      await prisma.$transaction(async (tx) => {
+        await transition(tx, leave, {}, {
+          status: LeaveStatus.REJECTED,
+          ...(wasDeducted
+            ? { manager: actorName, managerNote: notes, managerApproved: false, managerAt: new Date() }
+            : { headDepartment: actorName, headDepartmentNote: notes, headDepartmentAt: new Date() }),
+        });
+        if (wasDeducted) await refundAndRemoveEvent(tx, leave);
       });
 
-      await replaceMessage(
-        [
-          `❌ <b>ច្បាប់ត្រូវបានបដិសេធ</b>`,
-          ``,
-          `👤 <b>ឈ្មោះ៖</b> ${user}`,
-          `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
-          ...dateBlock,
-          `📝 <b>មូលហេតុ (អ្នកស្នើ)៖</b> ${userReason}`,
-          `🙅 <b>បដិសេធដោយ៖</b> ${actorName}`,
-          `🗒 <b>កំណត់ចំណាំ (អ្នកអនុម័ត)៖</b> ${notes || "—"}`,
-        ].join("\n"),
-        [{ text: "📋 មើលច្បាប់ →", url: leaveUrl }]
-      );
+      replaceTelegramMessage(leave, [
+        `❌ <b>ច្បាប់ត្រូវបានបដិសេធ</b>`,
+        ``,
+        ...header,
+        `🙅 <b>បដិសេធដោយ៖</b> ${escapeHtml(actorName)}`,
+        noteLine,
+      ].join("\n"));
 
       return NextResponse.json({ message: "Leave rejected" }, { status: 200 });
     }
 
     // ── APPROVED ──────────────────────────────────────────────────────────────
     if (status === LeaveStatus.APPROVED) {
-
       const canDoStep1 =
         actorRole === "MODERATOR" &&
+        leave.status === LeaveStatus.PENDING &&
         !leave.headDepartmentApproved;
 
       const canDoAdminFinal =
         actorRole === "ADMIN" &&
+        leave.status !== LeaveStatus.REJECTED &&
         !leave.managerApproved;
 
       const canDoModeratorFinal =
         actorRole === "MODERATOR" &&
+        leave.status === LeaveStatus.INMODERATION &&
         leave.headDepartmentApproved &&
         !leave.managerApproved;
 
-      // ── Step 1: Moderator approves as Head Dept ───────────────────────────
+      // ── Step 1: Moderator approves as Head Dept (balance deducted here) ──
       if (canDoStep1) {
-        await deductBalance(
-          email, yearStr, type, days,
-          daysFromDb, hoursFromDb,
-          isShortLeave, isPartialHourly,
-          user,
-        );
-
-        await prisma.events.create({
-          data: {
-            startDate,
-            title:       `${user} ឈប់សម្រាក ${getLeaveLabel(type)}`,
-            description: `រយៈពេល ${durationLabel}`,
-          },
-        });
-
-        await prisma.leave.update({
-          where: { id },
-          data: {
+        await prisma.$transaction(async (tx) => {
+          await transition(tx, leave, notYetHeadApproved, {
             status:                 LeaveStatus.INMODERATION,
             headDepartment:         actorName,
             headDepartmentNote:     notes,
             headDepartmentApproved: true,
             headDepartmentAt:       new Date(),
-            updatedAt,
-          },
+          });
+          await deductAndCreateEvent(tx, leave);
         });
 
-        await replaceMessage(
-          [
-            `✅ <b>ច្បាប់ — អនុម័តដោយប្រធានផ្នែក</b>`,
-            ``,
-            `👤 <b>ឈ្មោះ៖</b> ${user}`,
-            `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
-            ...dateBlock,
-            `📝 <b>មូលហេតុ (អ្នកស្នើ)៖</b> ${userReason}`,
-            `👍 <b>អនុម័តដោយ៖</b> ${actorName} (ប្រធានផ្នែក)`,
-            `🗒 <b>កំណត់ចំណាំ (អ្នកអនុម័ត)៖</b> ${notes || "—"}`,
-            ``,
-            `⏳ <i>កំពុងរង់ចាំការអនុម័តពីអ្នកគ្រប់គ្រង</i>`,
-          ].join("\n"),
-          [{ text: "✅ អនុម័តដោយអ្នកគ្រប់គ្រង →", url: leaveUrl }]
-        );
+        replaceTelegramMessage(leave, [
+          `✅ <b>ច្បាប់ — អនុម័តដោយប្រធានផ្នែក</b>`,
+          ``,
+          ...header,
+          `👍 <b>អនុម័តដោយ៖</b> ${escapeHtml(actorName)} (ប្រធានផ្នែក)`,
+          noteLine,
+          ``,
+          `⏳ <i>កំពុងរង់ចាំការអនុម័តពីអ្នកគ្រប់គ្រង</i>`,
+        ].join("\n"));
 
         return NextResponse.json(
           { message: "Head Department approved. Awaiting Manager final approval." },
@@ -399,67 +217,46 @@ export async function PATCH(req: Request) {
         );
       }
 
-      // ── Final: Admin bypass OR Moderator (after Step 1) ──────────────────
+      // ── Final: Admin (optionally bypassing Step 1) or Moderator after Step 1 ──
       if (canDoAdminFinal || canDoModeratorFinal) {
         const adminBypassed = canDoAdminFinal && !leave.headDepartmentApproved;
 
-        if (adminBypassed) {
-          await deductBalance(
-            email, yearStr, type, days,
-            daysFromDb, hoursFromDb,
-            isShortLeave, isPartialHourly,
-            user,
-          );
-
-          await prisma.events.create({
-            data: {
-              startDate,
-              title:       `${user} ឈប់សម្រាក ${getLeaveLabel(type)}`,
-              description: `រយៈពេល ${durationLabel}`,
+        await prisma.$transaction(async (tx) => {
+          await transition(
+            tx, leave,
+            {
+              OR: [{ managerApproved: false }, { managerApproved: null }],
+              ...(adminBypassed ? notYetHeadApproved : { headDepartmentApproved: true }),
             },
-          });
-        }
-
-        await prisma.leave.update({
-          where: { id },
-          data: {
-            status: LeaveStatus.APPROVED,
-            ...(adminBypassed && {
-              headDepartment:         actorName,
-              headDepartmentNote:     notes,
-              headDepartmentApproved: true,
-              headDepartmentAt:       new Date(),
-            }),
-            manager:         actorName,
-            managerNote:     notes,
-            managerApproved: true,
-            managerAt:       new Date(),
-            updatedAt,
-          },
+            {
+              status: LeaveStatus.APPROVED,
+              ...(adminBypassed && {
+                headDepartment:         actorName,
+                headDepartmentNote:     notes,
+                headDepartmentApproved: true,
+                headDepartmentAt:       new Date(),
+              }),
+              manager:         actorName,
+              managerNote:     notes,
+              managerApproved: true,
+              managerAt:       new Date(),
+            },
+          );
+          if (adminBypassed) await deductAndCreateEvent(tx, leave);
         });
 
-        await replaceMessage(
-          [
-            `🎉 <b>ច្បាប់ត្រូវបានអនុម័តទាំងស្រុង!</b>`,
-            ``,
-            `👤 <b>ឈ្មោះ៖</b> ${user}`,
-            `📋 <b>ប្រភេទ៖</b> ${leaveLabel}`,
-            ...dateBlock,
-            `📝 <b>មូលហេតុ (អ្នកស្នើ)៖</b> ${userReason}`,
-            `✅ <b>អនុម័តដោយ៖</b> ${actorName} (អ្នកគ្រប់គ្រង)`,
-            ...(adminBypassed
-              ? [`⚡ <i>រំលង Head Dept — អនុម័តដោយផ្ទាល់ដោយ Admin</i>`]
-              : [`👍 <b>ប្រធានផ្នែក៖</b> ${leave.headDepartment}`]
-            ),
-            `🗒 <b>កំណត់ចំណាំ (អ្នកអនុម័ត)៖</b> ${notes || "—"}`,
-          ].join("\n"),
-          [{ text: "📋 មើលច្បាប់ →", url: leaveUrl }]
-        );
+        replaceTelegramMessage(leave, [
+          `🎉 <b>ច្បាប់ត្រូវបានអនុម័តទាំងស្រុង!</b>`,
+          ``,
+          ...header,
+          `✅ <b>អនុម័តដោយ៖</b> ${escapeHtml(actorName)} (អ្នកគ្រប់គ្រង)`,
+          ...(adminBypassed
+            ? [`⚡ <i>រំលង Head Dept — អនុម័តដោយផ្ទាល់ដោយ Admin</i>`]
+            : [`👍 <b>ប្រធានផ្នែក៖</b> ${escapeHtml(leave.headDepartment)}`]),
+          noteLine,
+        ].join("\n"));
 
-        return NextResponse.json(
-          { message: "Leave fully approved!" },
-          { status: 200 }
-        );
+        return NextResponse.json({ message: "Leave fully approved!" }, { status: 200 });
       }
 
       return NextResponse.json(
@@ -471,6 +268,9 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Invalid approval state" }, { status: 400 });
 
   } catch (error) {
+    if (error instanceof ApprovalError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error(error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

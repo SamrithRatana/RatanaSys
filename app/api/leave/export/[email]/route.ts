@@ -5,6 +5,7 @@ import prisma                        from "@/lib/prisma";
 import { readFile }                  from "fs/promises";
 import path                          from "path";
 import ExcelJS                       from "exceljs";
+import { leaveDayTotal, todayYmd }   from "@/lib/leaveRules";
 
 type Params = { params: { email: string } };
 
@@ -13,7 +14,8 @@ const KH: Record<string, string> = {
   "0":"០","1":"១","2":"២","3":"៣","4":"៤",
   "5":"៥","6":"៦","7":"៧","8":"៨","9":"៩",
 };
-const kh = (n: number) => String(Math.round(n)).replace(/[0-9]/g, d => KH[d]);
+// Keeps half-days etc. (17.5 → ១៧.៥) instead of rounding them away
+const kh = (n: number) => String(Math.round(n * 100) / 100).replace(/[0-9]/g, d => KH[d]);
 
 // ── Convert a 4-digit year string like "2026" → "២០២៦" ──────────────────────
 function khYear(y: string): string {
@@ -255,7 +257,8 @@ export async function GET(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const email = decodeURIComponent(params.email);
-  const year  = req.nextUrl.searchParams.get("year") ?? new Date().getFullYear().toString();
+  const yearParam = req.nextUrl.searchParams.get("year") ?? "";
+  const year  = /^\d{4}$/.test(yearParam) ? yearParam : todayYmd().slice(0, 4);
 
   if (
     loggedInUser.email !== email &&
@@ -264,80 +267,87 @@ export async function GET(req: NextRequest, { params }: Params) {
   ) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   // ── Fetch ───────────────────────────────────────────────────────────────────
+  // Rejected leaves are not part of the leave card. Old rows saved with
+  // year = "" are matched by their start date.
   const [leaves, balance, userRecord] = await Promise.all([
     prisma.leave.findMany({
-      where: { userEmail: email, year },
+      where: {
+        userEmail: email,
+        status:    { not: "REJECTED" },
+        OR: [
+          { year },
+          {
+            year: "",
+            startDate: {
+              gte: new Date(`${year}-01-01T00:00:00.000Z`),
+              lte: new Date(`${year}-12-31T23:59:59.999Z`),
+            },
+          },
+        ],
+      },
       orderBy: { startDate: "asc" },
     }),
-    prisma.balances.findFirst({ where: { email, year } }),
+    prisma.balances.findUnique({ where: { email_year: { email, year } } }),
     prisma.user.findUnique({ where: { email } }),
   ]);
 
   const userName = userRecord?.name ?? leaves[0]?.userName ?? email;
-  const userPos  = (userRecord as any)?.position   ?? "";
-  const userDept = (userRecord as any)?.department ?? "";
+  const userPos  = userRecord?.title      ?? "";
+  const userDept = userRecord?.department ?? "";
 
   const annualCredit = Number(balance?.annualCredit ?? 0);
-  const sickCredit   = Number(balance?.sickCredit   ?? 0);
+
+  // Running balance per credit. Only leaves that were actually deducted
+  // (approved by head dept) reduce it; hours count as a fraction of an 8h day.
+  const running: Record<string, number> = {
+    annual:    annualCredit,
+    personal:  Number(balance?.personalCredit  ?? 0),
+    sick:      Number(balance?.sickCredit      ?? 0),
+    special:   Number(balance?.specialCredit   ?? 0),
+    maternity: Number(balance?.maternityCredit ?? 0),
+  };
+  const CREDIT_OF: Record<string, string> = {
+    ANNUAL: "annual", PERSONAL: "personal", SHORT: "personal",
+    SICK: "sick", SPECIAL: "special", MATERNITY: "maternity",
+  };
+
+  type LeaveRecord = typeof leaves[number];
+
+  const toRow = (lv: LeaveRecord): LeaveRow => {
+    const key = CREDIT_OF[lv.type] ?? "annual";
+    if (lv.headDepartmentApproved === true) running[key] -= leaveDayTotal(lv.days, lv.hours);
+
+    // Legacy hourly rows stored 8h+ as days=1 AND hours=8 — show them as 1 day
+    const d = Number(lv.days ?? 0);
+    const h = d >= 1 && Number(lv.hours ?? 0) >= 8 ? 0 : Number(lv.hours ?? 0);
+
+    // Segment leaves keep one substitute per segment
+    const segs = Array.isArray(lv.segments) ? (lv.segments as { substitute?: string | null }[]) : [];
+    const substitute = [
+      lv.substitute,
+      ...segs.map((s) => s?.substitute),
+    ].filter((x, i, all): x is string => !!x && all.indexOf(x) === i).join(", ");
+
+    return {
+      applied:          fmtDate(lv.createdAt),
+      start:            fmtDate(lv.startDate),
+      end:              fmtDate(lv.endDate ?? lv.startDate),
+      dur:              durLabel(d, h),
+      balance:          `${kh(Math.max(0, running[key]))} ថ្ងៃ`,
+      note:             lv.userNote ?? "",
+      status:           lv.status,
+      substitute,
+      headDeptApproved: lv.headDepartmentApproved === true,
+      managerApproved:  lv.managerApproved === true,
+    };
+  };
 
   // ── Build sections ──────────────────────────────────────────────────────────
-  let annualBal = annualCredit;
-  const sec1: LeaveRow[] = leaves
-    .filter(l => ["ANNUAL","PERSONAL"].includes(l.type))
-    .map(lv => {
-      const d = Number(lv.days ?? 0), h = Number(lv.hours ?? 0);
-      annualBal -= d;
-      return {
-        applied:          fmtDate(lv.createdAt),
-        start:            fmtDate(lv.startDate),
-        end:              fmtDate(lv.endDate ?? lv.startDate),
-        dur:              durLabel(d, h),
-        balance:          `${kh(Math.max(0, annualBal))} ថ្ងៃ`,
-        note:             lv.userNote ?? "",
-        status:           lv.status,
-        substitute:       (lv as any).substitute ?? "",
-        headDeptApproved: lv.headDepartmentApproved === true,
-        managerApproved:  lv.managerApproved === true,
-      };
-    });
-
-  let sickBal = sickCredit;
-  const sec2: LeaveRow[] = leaves
-    .filter(l => l.type === "SICK")
-    .map(lv => {
-      const d = Number(lv.days ?? 0), h = Number(lv.hours ?? 0);
-      sickBal -= d;
-      return {
-        applied:          fmtDate(lv.createdAt),
-        start:            fmtDate(lv.startDate),
-        end:              fmtDate(lv.endDate ?? lv.startDate),
-        dur:              durLabel(d, h),
-        balance:          `${kh(Math.max(0, sickBal))} ថ្ងៃ`,
-        note:             lv.userNote ?? "",
-        status:           lv.status,
-        substitute:       (lv as any).substitute ?? "",
-        headDeptApproved: lv.headDepartmentApproved === true,
-        managerApproved:  lv.managerApproved === true,
-      };
-    });
-
-  const sec3: LeaveRow[] = leaves
-    .filter(l => ["SPECIAL","MATERNITY"].includes(l.type))
-    .map(lv => {
-      const d = Number(lv.days ?? 0), h = Number(lv.hours ?? 0);
-      return {
-        applied:          fmtDate(lv.createdAt),
-        start:            fmtDate(lv.startDate),
-        end:              fmtDate(lv.endDate ?? lv.startDate),
-        dur:              durLabel(d, h),
-        balance:          "០ ថ្ងៃ",
-        note:             lv.userNote ?? "",
-        status:           lv.status,
-        substitute:       (lv as any).substitute ?? "",
-        headDeptApproved: lv.headDepartmentApproved === true,
-        managerApproved:  lv.managerApproved === true,
-      };
-    });
+  // Section 1 lists annual + personal leave; each keeps its own running balance
+  // because they are deducted from separate credits.
+  const sec1: LeaveRow[] = leaves.filter(l => ["ANNUAL","PERSONAL","SHORT"].includes(l.type)).map(toRow);
+  const sec2: LeaveRow[] = leaves.filter(l => l.type === "SICK").map(toRow);
+  const sec3: LeaveRow[] = leaves.filter(l => ["SPECIAL","MATERNITY"].includes(l.type)).map(toRow);
 
   // ── Load template ───────────────────────────────────────────────────────────
   const tmplPath = path.join(process.cwd(), "public", "templates", "leave-card.xlsx");

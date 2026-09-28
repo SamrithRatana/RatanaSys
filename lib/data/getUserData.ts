@@ -8,9 +8,10 @@ export async function getAllUsers() {
 
     const usersData = await prisma.user.findMany({
       orderBy: [{ name: "asc" }],
-      include: { accounts: true },
+      // Never send password hashes or OAuth tokens to the browser
+      include: { accounts: { select: { provider: true } } },
     });
-    return usersData;
+    return usersData.map(({ password, ...u }) => ({ ...u, hasPassword: !!password }));
   } catch (error) {
     console.error("Error fetching all users:", error);
     return [];

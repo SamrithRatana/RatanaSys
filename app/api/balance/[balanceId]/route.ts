@@ -19,7 +19,24 @@ export async function PATCH(req: Request) {
     const body: EditBody = await req.json();
     const { id, ...data } = body;
 
-    const { shortCredit, shortAvailable, ...safeData } = data as any;
+    // Only numeric balance columns may be edited (not email/name/year)
+    const EDITABLE = [
+      "annualCredit", "annualUsed", "annualAvailable",
+      "sickCredit", "sickUsed", "sickAvailable",
+      "personalCredit", "personalUsed", "personalAvailable",
+      "maternityCredit", "maternityUsed", "maternityAvailable",
+      "specialCredit", "specialUsed", "specialAvailable",
+      "shortUsed",
+    ];
+    const safeData: Record<string, number> = {};
+    for (const key of EDITABLE) {
+      if (data[key] === undefined || data[key] === "") continue;
+      const n = Number(data[key]);
+      if (!isFinite(n)) {
+        return NextResponse.json({ error: `Invalid number for ${key}` }, { status: 400 });
+      }
+      safeData[key] = n;
+    }
 
     await prisma.balances.update({
       where: { id },

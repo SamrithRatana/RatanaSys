@@ -32,7 +32,11 @@ import { useRouter } from "next/navigation";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type UserWithAccounts = User & { accounts: Account[] };
+// Password hash and OAuth tokens are stripped on the server (lib/data/getUserData.ts)
+export type UserWithAccounts = Omit<User, "password"> & {
+  accounts:    Pick<Account, "provider">[];
+  hasPassword: boolean;
+};
 
 type EditUserProps = { user: UserWithAccounts };
 
@@ -114,7 +118,7 @@ const EditUser = ({ user }: EditUserProps) => {
 
   const hasGoogle   = user.accounts.some((a) => a.provider === "google");
   const hasTelegram = !!user.telegramId;
-  const hasPassword = !!user.password;
+  const hasPassword = user.hasPassword;
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),

@@ -1,5 +1,7 @@
 import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
+import { LeaveStatus, Prisma } from "@prisma/client";
+import { leaveDayTotal, todayYmd } from "@/lib/leaveRules";
 
 const LEAVE_TYPE_TO_KEY: Record<string, string> = {
   ANNUAL:       "annual",
@@ -14,10 +16,26 @@ const LEAVE_TYPE_TO_KEY: Record<string, string> = {
 
 const BALANCE_KEYS = ["annual", "sick", "personal", "maternity", "special"] as const;
 
-function applyLeaves(
-  balance: any,
-  leaves: { type: string | null; days: number | null; hours: number | null }[],
-): any {
+// The balance is deducted at the first (head department) approval, so a leave
+// awaiting the manager already counts as used — same rule as the deduction.
+const DEDUCTED_STATUSES: LeaveStatus[] = [LeaveStatus.APPROVED, LeaveStatus.INMODERATION];
+
+type LeaveLite = {
+  userEmail: string;
+  userName:  string;
+  year:      string;
+  startDate: Date;
+  type:      string | null;
+  days:      number | null;
+  hours:     number | null;
+};
+
+const LEAVE_SELECT = {
+  userEmail: true, userName: true, year: true, startDate: true,
+  type: true, days: true, hours: true,
+} satisfies Prisma.LeaveSelect;
+
+function applyLeaves(balance: any, leaves: LeaveLite[]): any {
   const sums: Record<string, number> = {
     annual: 0, sick: 0, personal: 0, maternity: 0, special: 0,
   };
@@ -25,22 +43,36 @@ function applyLeaves(
   for (const l of leaves) {
     const key = LEAVE_TYPE_TO_KEY[l.type?.toUpperCase() ?? ""];
     if (!key) continue;
-    sums[key] += (l.days ?? 0) + (l.hours ?? 0) / 8;
+    sums[key] += leaveDayTotal(l.days, l.hours);
   }
 
   const result = { ...balance };
   for (const key of BALANCE_KEYS) {
     const credit = Number(balance[`${key}Credit`] ?? 0);
-    result[`${key}Used`]      = sums[key];
-    result[`${key}Available`] = credit - sums[key];
+    const used   = Math.round(sums[key] * 10_000) / 10_000;
+    result[`${key}Used`]      = used;
+    result[`${key}Available`] = Math.round((credit - used) * 10_000) / 10_000;
   }
   return result;
 }
 
-function dateRangeForYear(year: string) {
+/** Leave.year, falling back to the start date for old rows saved with year = "". */
+function yearOf(l: LeaveLite): string {
+  return l.year || l.startDate.toISOString().slice(0, 4);
+}
+
+function yearFilter(years: string[]): Prisma.LeaveWhereInput {
   return {
-    gte: new Date(`${year}-01-01T00:00:00.000Z`),
-    lte: new Date(`${year}-12-31T23:59:59.999Z`),
+    OR: [
+      { year: { in: years } },
+      ...years.map((y) => ({
+        year: "",
+        startDate: {
+          gte: new Date(`${y}-01-01T00:00:00.000Z`),
+          lte: new Date(`${y}-12-31T23:59:59.999Z`),
+        },
+      })),
+    ],
   };
 }
 
@@ -50,31 +82,32 @@ export async function getUserBalances() {
     if (!loggedInUser) return null;
     if (!loggedInUser.email && !loggedInUser.name) return null;
 
-    const year = new Date().getFullYear().toString();
+    const year = todayYmd().slice(0, 4);
 
-    const balance = await prisma.balances.findFirst({
-      where: {
-        OR: [
-          ...(loggedInUser.email ? [{ email: loggedInUser.email }] : []),
-          ...(loggedInUser.name  ? [{ name:  loggedInUser.name  }] : []),
-        ],
-        year,
-      },
-    });
-
+    // Email first; the name fallback is for accounts without an email
+    // (e.g. Telegram logins) whose balance sits under their name.
+    const byEmail = loggedInUser.email
+      ? await prisma.balances.findUnique({
+          where: { email_year: { email: loggedInUser.email, year } },
+        })
+      : null;
+    const balance = byEmail ?? (loggedInUser.name
+      ? await prisma.balances.findFirst({ where: { name: loggedInUser.name, year } })
+      : null);
     if (!balance) return null;
 
-    const orConditions: any[] = [];
-    if (loggedInUser.email) orConditions.push({ userEmail: loggedInUser.email });
-    if (loggedInUser.name)  orConditions.push({ userName:  loggedInUser.name  });
+    const who: Prisma.LeaveWhereInput[] = [{ userEmail: balance.email }];
+    if (!byEmail) {
+      if (loggedInUser.email) who.push({ userEmail: loggedInUser.email });
+      if (loggedInUser.name)  who.push({ userName:  loggedInUser.name  });
+    }
 
     const leaves = await prisma.leave.findMany({
       where: {
-        OR:        orConditions,
-        status:    "APPROVED",
-        startDate: dateRangeForYear(year),
+        status: { in: DEDUCTED_STATUSES },
+        AND:    [{ OR: who }, yearFilter([year])],
       },
-      select: { type: true, days: true, hours: true },
+      select: LEAVE_SELECT,
     });
 
     return applyLeaves(balance, leaves);
@@ -94,66 +127,45 @@ export async function getAllBalances() {
       return [];
     }
 
-    const year = new Date().getFullYear().toString();
-
     const balances = await prisma.balances.findMany({
-      orderBy: { year: "desc" },
+      orderBy: [{ year: "desc" }, { name: "asc" }],
     });
-
     if (balances.length === 0) return [];
 
-    const emails = [
-      ...new Set(balances.map((b) => b.email).filter(Boolean) as string[]),
-    ];
-    const names = [
-      ...new Set(balances.map((b) => b.name).filter(Boolean) as string[]),
-    ];
+    const emails = [...new Set(balances.map((b) => b.email))];
+    const names  = [...new Set(balances.map((b) => b.name).filter(Boolean))];
+    const years  = [...new Set(balances.map((b) => b.year))];
 
-    const orConditions: any[] = [];
-    if (emails.length > 0) orConditions.push({ userEmail: { in: emails } });
-    if (names.length  > 0) orConditions.push({ userName:  { in: names  } });
+    const allLeaves = await prisma.leave.findMany({
+      where: {
+        status: { in: DEDUCTED_STATUSES },
+        OR: [{ userEmail: { in: emails } }, { userName: { in: names } }],
+        AND: [yearFilter(years)],
+      },
+      select: LEAVE_SELECT,
+    });
 
-    const allLeaves =
-      orConditions.length === 0
-        ? []
-        : await prisma.leave.findMany({
-            where: {
-              OR:        orConditions,
-              status:    "APPROVED",
-              startDate: dateRangeForYear(year),
-            },
-            select: {
-              userEmail: true,
-              userName:  true,
-              type:      true,
-              days:      true,
-              hours:     true,
-            },
-          });
-
-    const leavesByEmail = new Map<string, typeof allLeaves>();
-    const leavesByName  = new Map<string, typeof allLeaves>();
-
+    // Group by email+year. A leave is matched by name only when its email
+    // belongs to no balance row at all (legacy data) — so two employees with
+    // the same name never get each other's leave.
+    const knownEmails = new Set(emails);
+    const byEmail = new Map<string, LeaveLite[]>();
+    const byName  = new Map<string, LeaveLite[]>();
     for (const l of allLeaves) {
-      if (l.userEmail) {
-        if (!leavesByEmail.has(l.userEmail)) leavesByEmail.set(l.userEmail, []);
-        leavesByEmail.get(l.userEmail)!.push(l);
-      }
-      if (l.userName) {
-        if (!leavesByName.has(l.userName)) leavesByName.set(l.userName, []);
-        leavesByName.get(l.userName)!.push(l);
+      const y = yearOf(l);
+      if (knownEmails.has(l.userEmail)) {
+        const k = `${l.userEmail}|${y}`;
+        (byEmail.get(k) ?? byEmail.set(k, []).get(k)!).push(l);
+      } else {
+        const k = `${l.userName}|${y}`;
+        (byName.get(k) ?? byName.set(k, []).get(k)!).push(l);
       }
     }
 
-    return balances.map((b) => {
-      const byEmail = b.email ? (leavesByEmail.get(b.email) ?? []) : [];
-      const byName  = b.name  ? (leavesByName .get(b.name)  ?? []) : [];
-
-      const seen   = new Set(byEmail);
-      const merged = [...byEmail, ...byName.filter((l) => !seen.has(l))];
-
-      return applyLeaves(b, merged);
-    });
+    return balances.map((b) => applyLeaves(b, [
+      ...(byEmail.get(`${b.email}|${b.year}`) ?? []),
+      ...(byName.get(`${b.name}|${b.year}`) ?? []),
+    ]));
   } catch (error) {
     console.error("Error fetching all balances:", error);
     return [];

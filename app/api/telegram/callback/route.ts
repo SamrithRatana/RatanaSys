@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import prisma from "@/lib/prisma";
 import jwt from "jsonwebtoken";
+import { getCurrentUser } from "@/lib/session";
 
 export async function POST(req: NextRequest) {
   try {
@@ -46,20 +47,14 @@ export async function POST(req: NextRequest) {
     // 1. Already linked by telegramId
     let user = await prisma.user.findFirst({ where: { telegramId } });
 
+    // 2. "Link Telegram" from a logged-in session → link to THAT account only.
+    //    Never match by display name: anyone can set their Telegram name to a
+    //    colleague's (or an admin's) name and would be logged in as them.
     if (!user) {
-      // 2. Match by Telegram username (covers username-only registered accounts)
-      if (data.username) {
-        user = await prisma.user.findFirst({
-          where: { name: data.username },
-        });
+      const sessionUser = await getCurrentUser();
+      if (sessionUser && !sessionUser.telegramId) {
+        user = await prisma.user.findUnique({ where: { id: sessionUser.id } });
       }
-    }
-
-    if (!user) {
-      // 3. Match by full name (first_name + last_name)
-      user = await prisma.user.findFirst({
-        where: { name },
-      });
     }
 
     if (user) {
@@ -97,7 +92,7 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("[Telegram callback]", error);
     return NextResponse.json(
-      { error: error.message || "Callback failed" },
+      { error: "Callback failed" },
       { status: 500 }
     );
   }

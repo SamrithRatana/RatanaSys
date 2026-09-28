@@ -15,11 +15,13 @@ import toast from "react-hot-toast";
 import {
   ArrowLeft, CheckCircle2, XCircle,
   Clock, User, CalendarDays, FileText,
-  Building2, Briefcase, Zap,
+  Building2, Briefcase, Zap, Paperclip, Users,
 } from "lucide-react";
 
+type AttachmentMeta = { id: string; fileName: string; mimeType: string; size: number };
+
 type Props = {
-  leave: Leave;
+  leave: Leave & { attachments?: AttachmentMeta[] };
   currentUserRole: string;
   currentUserName: string;
 };
@@ -106,17 +108,8 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
       const res = await fetch(`/api/leave/${leave.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          notes,
-          status,
-          id:        leave.id,
-          days:      leave.days,
-          type:      leave.type,
-          year:      leave.year,
-          email:     leave.userEmail,
-          user:      leave.userName,
-          startDate: leave.startDate,
-        }),
+        // The server reads every leave detail from the database
+        body: JSON.stringify({ notes, status, id: leave.id }),
       });
 
       if (res.ok) {
@@ -141,6 +134,16 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
   }
 
   const isShortLeave = leave.type === "SHORT";
+
+  // Legacy hourly rows stored 8h+ as days=1 AND hours=8
+  const shownHours = leave.days >= 1 && Number(leave.hours ?? 0) >= 8 ? 0 : Number(leave.hours ?? 0);
+
+  const segmentSubs = Array.isArray(leave.segments)
+    ? (leave.segments as { substitute?: string | null }[]).map((s) => s?.substitute)
+    : [];
+  const substitutes = [leave.substitute, ...segmentSubs]
+    .filter((x, i, all): x is string => !!x && all.indexOf(x) === i);
+  const attachments = leave.attachments ?? [];
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 py-6">
@@ -205,11 +208,11 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
             icon={<Clock className="h-4 w-4" />}
             label="រយៈពេល"
             value={
-               leave.hours && leave.hours > 0
-    ? leave.days && leave.days > 0
-      ? `${leave.days} ថ្ងៃ ${formatHourLabel(Number(leave.hours))}`
-      : formatHourLabel(Number(leave.hours))
-    : `${leave.days} ថ្ងៃ`
+              shownHours > 0
+                ? leave.days > 0
+                  ? `${leave.days} ថ្ងៃ ${formatHourLabel(shownHours)}`
+                  : formatHourLabel(shownHours)
+                : `${leave.days} ថ្ងៃ`
             }
           />
 
@@ -224,6 +227,36 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
             label="មូលហេតុ"
             value={leave.userNote ?? "—"}
           />
+
+          <InfoRow
+            icon={<Users className="h-4 w-4" />}
+            label="អ្នកជំនួស"
+            value={substitutes.length > 0 ? substitutes.join(", ") : "—"}
+          />
+
+          {(attachments.length > 0 || leave.type === "SICK") && (
+            <InfoRow
+              icon={<Paperclip className="h-4 w-4" />}
+              label="សំបុត្រពេទ្យ / ឯកសារភ្ជាប់"
+              value={
+                attachments.length > 0 ? (
+                  <span className="flex flex-col gap-1">
+                    {attachments.map((a) => (
+                      <a
+                        key={a.id}
+                        href={`/api/leave/${leave.id}/attachment/${a.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 underline underline-offset-2 hover:text-blue-800 break-all"
+                      >
+                        {a.fileName} ({(a.size / 1024 / 1024).toFixed(2)} MB)
+                      </a>
+                    ))}
+                  </span>
+                ) : "—"
+              }
+            />
+          )}
 
         </CardContent>
       </Card>
@@ -309,7 +342,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName }:
                 </>
               ) : leave.status === LeaveStatus.REJECTED ? (
                 <p className="text-sm text-red-500">
-                  ❌ បានបដិសេធ — {leave.headDepartmentNote ?? leave.managerNote ?? "គ្មានកំណត់ចំណាំ"}
+                  ❌ បានបដិសេធ — {(leave.headDepartmentApproved ? leave.managerNote : leave.headDepartmentNote) || "គ្មានកំណត់ចំណាំ"}
                 </p>
               ) : (
                 <p className="text-sm text-gray-400">

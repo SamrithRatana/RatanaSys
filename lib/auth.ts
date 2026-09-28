@@ -120,7 +120,10 @@ export const authOptions: NextAuthOptions = {
       // Re-fetch telegramId from DB on every JWT refresh so the
       // System Integration badge turns green immediately after linking
       // without the user needing to sign out and back in.
-      if (token.sub && !token.telegramId) {
+      // Throttled to once per 5 minutes: getServerSession runs this on every request
+      const lastCheck = Number(token.tgCheckedAt ?? 0);
+      if (token.sub && !token.telegramId && Date.now() - lastCheck > 5 * 60_000) {
+        token.tgCheckedAt = Date.now();
         const dbUser = await prisma.user.findUnique({
           where:  { id: token.sub },
           select: { telegramId: true },
