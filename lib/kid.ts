@@ -5,11 +5,8 @@
 // used: its state check would reject every login. Instead:
 //   /api/kid/login     → redirect to KID (with a nonce stored in a cookie)
 //   /api/kid/callback  → exchange the code, find/link the local user, then
-//                        hand a short-lived signed token to the "kid"
-//                        credentials provider in lib/auth.ts, which creates
-//                        the normal next-auth session.
+//                        set the normal next-auth session cookie directly.
 
-import jwt from "jsonwebtoken";
 import prisma from "@/lib/prisma";
 import { appBaseUrl } from "@/lib/leaveServer";
 
@@ -20,8 +17,6 @@ export const KID_SCOPES = "openid profile.basic profile.contact profile.telegram
 
 export const KID_NONCE_COOKIE = "kid_nonce";
 export const KID_CALLBACK_COOKIE = "kid_cb";
-export const KID_LOGIN_COOKIE = "kid_login";
-const LOGIN_TOKEN_PURPOSE = "kid-login";
 
 export function kidConfig() {
   const clientId     = process.env.KID_CLIENT_ID;
@@ -154,22 +149,6 @@ export async function findOrLinkKidUser(k: KidUser) {
     });
   }
   return user;
-}
-
-/** Short-lived token the login page trades for a next-auth session. */
-export function signKidLoginToken(userId: string): string {
-  return jwt.sign({ userId, purpose: LOGIN_TOKEN_PURPOSE }, process.env.NEXTAUTH_SECRET as string, {
-    expiresIn: "2m",
-  });
-}
-
-export function verifyKidLoginToken(token: string): string | null {
-  try {
-    const p = jwt.verify(token, process.env.NEXTAUTH_SECRET as string) as { userId?: string; purpose?: string };
-    return p.purpose === LOGIN_TOKEN_PURPOSE && p.userId ? p.userId : null;
-  } catch {
-    return null;
-  }
 }
 
 /** Only allow redirects back into this app (no open redirects). */

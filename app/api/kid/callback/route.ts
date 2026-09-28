@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { encode } from "next-auth/jwt";
 import {
-  KID_CALLBACK_COOKIE, KID_LOGIN_COOKIE, KID_NONCE_COOKIE,
-  exchangeKidCode, findOrLinkKidUser, idTokenNonce, safeCallbackPath, signKidLoginToken,
+  KID_CALLBACK_COOKIE, KID_NONCE_COOKIE,
+  exchangeKidCode, findOrLinkKidUser, idTokenNonce, safeCallbackPath,
 } from "@/lib/kid";
+import { SESSION_MAX_AGE, authOptions } from "@/lib/auth";
 import { appBaseUrl } from "@/lib/leaveServer";
 
 export const dynamic = "force-dynamic";
@@ -35,15 +37,33 @@ export async function GET(req: NextRequest) {
     }
 
     const user = await findOrLinkKidUser(tokens.user!);
+    console.log(`[KID callback] signed in user=${user.id} kid_sub=${tokens.user!.sub}`);
 
-    // The login page trades this cookie for a normal next-auth session
-    const res = NextResponse.redirect(toLogin({ kid: "1", callbackUrl: callbackPath }));
-    res.cookies.set(KID_LOGIN_COOKIE, signKidLoginToken(user.id), {
+    // Open the normal next-auth session directly: the same JWT (same secret,
+    // same claims) next-auth itself would issue, so middleware, getServerSession
+    // and sign-out all work unchanged.
+    const secure = appBaseUrl().startsWith("https://");
+    const sessionToken = await encode({
+      secret: (authOptions.jwt?.secret ?? authOptions.secret) as string,
+      maxAge: SESSION_MAX_AGE,
+      token: {
+        sub:        user.id,
+        name:       user.name,
+        email:      user.email,
+        picture:    user.image,
+        image:      user.image,
+        role:       user.role,
+        telegramId: user.telegramId,
+      },
+    });
+
+    const res = NextResponse.redirect(`${appBaseUrl()}${callbackPath}`);
+    res.cookies.set(`${secure ? "__Secure-" : ""}next-auth.session-token`, sessionToken, {
       httpOnly: true,
-      secure:   appBaseUrl().startsWith("https://"),
       sameSite: "lax",
       path:     "/",
-      maxAge:   120,
+      secure,
+      maxAge:   SESSION_MAX_AGE,
     });
     res.cookies.delete({ name: KID_NONCE_COOKIE, path: "/api/kid" });
     res.cookies.delete({ name: KID_CALLBACK_COOKIE, path: "/api/kid" });

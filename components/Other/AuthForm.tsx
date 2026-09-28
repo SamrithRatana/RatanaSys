@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signIn } from "next-auth/react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 // Login page: "Login with KID" (Google / Telegram / Apple / email through one
@@ -21,23 +21,10 @@ export function AuthForm() {
   // ✅ Key fix — read callbackUrl from URL
   const callbackUrl = searchParams.get("callbackUrl") || "/portal";
 
-  // ── KID: returning from /api/kid/callback → open the session ──
-  const kidReturn = searchParams.get("kid") === "1";
-  const kidError  = searchParams.get("kidError");
-  const [kidLoading, setKidLoading] = useState(kidReturn);
-  const [kidFailed, setKidFailed]   = useState(false);
-
-  useEffect(() => {
-    if (!kidReturn) return;
-    signIn("kid", { callbackUrl, redirect: false }).then((res) => {
-      if (res?.error || !res?.url) {
-        setKidLoading(false);
-        setKidFailed(true);
-      } else {
-        window.location.href = res.url;
-      }
-    });
-  }, [kidReturn, callbackUrl]);
+  // ── KID: /api/kid/callback opens the session and redirects straight in;
+  //    it only comes back here with ?kidError=… when something went wrong ──
+  const kidError = searchParams.get("kidError");
+  const [kidLoading, setKidLoading] = useState(false);
 
   function startKidLogin() {
     setKidLoading(true);
@@ -50,9 +37,7 @@ export function AuthForm() {
     login_failed:   "KID login failed. Please try again.",
     access_denied:  "KID login was cancelled.",
   };
-  const kidMessage = kidFailed
-    ? KID_ERRORS.login_failed
-    : kidError ? (KID_ERRORS[kidError] ?? KID_ERRORS.login_failed) : null;
+  const kidMessage = kidError ? (KID_ERRORS[kidError] ?? KID_ERRORS.login_failed) : null;
 
   // ── Credentials Login ─────────────────────────────────────
   async function handleCredentials(e: React.FormEvent) {
