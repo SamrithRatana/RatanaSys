@@ -132,7 +132,11 @@ model LeaveAttachment {
   fileName  String
   mimeType  String
   size      Int
-  data      Bytes
+  // New uploads: stored in Cloudflare R2, addressed by this key.
+  // Older uploads (before R2 was wired up): the file itself, in `data`.
+  // Exactly one of the two is set on any given row.
+  r2Key     String?
+  data      Bytes?
   createdAt DateTime @default(now())
 
   leave Leave @relation(fields: [leaveId], references: [id], onDelete: Cascade)

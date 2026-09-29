@@ -9,6 +9,7 @@ import {
 } from "@/lib/sendTelegramMessage";
 import { addDaysYmd, isValidYmd, isWorkingDay, MAX_WORKING_DAY_SPAN_DAYS, minStartYmd, todayYmd, toYmd, RULE_MESSAGES } from "@/lib/leaveRules";
 import { getHolidaySet } from "@/lib/data/getHolidays";
+import { deleteAttachment } from "@/lib/r2";
 import {
   CERTIFICATE_LINE,
   LeaveValidationError,
@@ -191,7 +192,10 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   }
 
   try {
-    const leave = await prisma.leave.findUnique({ where: { id: params.leaveId } });
+    const leave = await prisma.leave.findUnique({
+      where:   { id: params.leaveId },
+      include: { attachments: { select: { r2Key: true } } },
+    });
     if (!leave) {
       return NextResponse.json({ error: "Leave not found" }, { status: 404 });
     }
@@ -207,7 +211,12 @@ export async function DELETE(req: NextRequest, { params }: Params) {
       );
     }
 
-    await prisma.leave.delete({ where: { id: params.leaveId } });
+    await prisma.leave.delete({ where: { id: params.leaveId } }); // cascades to LeaveAttachment rows
+
+    // The DB row is gone via cascade; also clean up the actual file in R2
+    for (const a of leave.attachments) {
+      if (a.r2Key) void deleteAttachment(a.r2Key);
+    }
 
     // Just delete the Telegram message — no new message sent
     if (leave.telegramMessageId) {

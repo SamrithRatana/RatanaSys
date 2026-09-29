@@ -2,6 +2,7 @@ import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import { appBaseUrl, attachmentPath, leaveOwnerEmail } from "@/lib/leaveServer";
+import { downloadAttachment } from "@/lib/r2";
 
 type Params = { params: { leaveId: string; attachmentId: string } };
 
@@ -30,8 +31,18 @@ export async function GET(_req: Request, { params }: Params) {
     );
   }
 
+  // New uploads live in R2; older ones (before R2 was wired up) still have
+  // their bytes in the database.
+  let bytes: Uint8Array;
+  try {
+    bytes = attachment.r2Key ? await downloadAttachment(attachment.r2Key) : new Uint8Array(attachment.data!);
+  } catch (error) {
+    console.error("[attachment] fetch failed:", error);
+    return NextResponse.json({ error: "Could not load the file" }, { status: 502 });
+  }
+
   const asciiName = attachment.fileName.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "");
-  return new NextResponse(new Uint8Array(attachment.data), {
+  return new NextResponse(bytes, {
     status: 200,
     headers: {
       "Content-Type":        attachment.mimeType,

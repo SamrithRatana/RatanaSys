@@ -21,6 +21,7 @@ import {
   ymdToDate,
 } from "@/lib/leaveServer";
 import { getHolidaySet } from "@/lib/data/getHolidays";
+import { makeAttachmentKey, r2Configured, uploadAttachment } from "@/lib/r2";
 
 export async function POST(req: NextRequest) {
   const loggedInUser = await getCurrentUser();
@@ -56,6 +57,19 @@ export async function POST(req: NextRequest) {
     const leave      = computeLeave(body, today, holidays);
     const attachment = await readAttachment(file);
     checkSickCertificate(leave.type, leave.days, leave.hours, !!attachment);
+
+    // Store the file in R2 when it's configured; otherwise fall back to the
+    // database (the original behavior), so an upload is never silently lost.
+    let attachmentCreate: { fileName: string; mimeType: string; size: number; r2Key?: string; data?: Buffer } | null = null;
+    if (attachment) {
+      if (r2Configured()) {
+        const key = makeAttachmentKey(attachment.fileName);
+        await uploadAttachment(key, attachment.data, attachment.mimeType);
+        attachmentCreate = { fileName: attachment.fileName, mimeType: attachment.mimeType, size: attachment.size, r2Key: key };
+      } else {
+        attachmentCreate = attachment;
+      }
+    }
 
     // Identity always comes from the session, never from the request body
     const userEmail = leaveOwnerEmail(loggedInUser);
@@ -96,7 +110,7 @@ export async function POST(req: NextRequest) {
         year,
         substitute: leave.substitute,
         ...(leave.segments && { segments: leave.segments as any }),
-        ...(attachment && { attachments: { create: attachment } }),
+        ...(attachmentCreate && { attachments: { create: attachmentCreate } }),
       },
       include: { attachments: { select: { id: true } } },
     });
