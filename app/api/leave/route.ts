@@ -35,8 +35,14 @@ export async function POST(req: NextRequest) {
     if ((req.headers.get("content-type") ?? "").includes("multipart/form-data")) {
       const form = await req.formData();
       body = JSON.parse(String(form.get("payload") ?? "{}"));
+      // `File` isn't a global in this Node 18 runtime (only Node 20+), so
+      // `instanceof File` throws a ReferenceError on every multipart request,
+      // whether or not a file was attached. FormData.get() only ever
+      // returns a string or a File, so this check doesn't need the
+      // identifier at all — `File` above is a type annotation only,
+      // erased at compile time, never evaluated at runtime.
       const f = form.get("attachment");
-      file = f instanceof File ? f : null;
+      file = f && typeof f !== "string" ? (f as unknown as File) : null;
     } else {
       body = await req.json();
     }
