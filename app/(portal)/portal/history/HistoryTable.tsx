@@ -12,7 +12,7 @@ import { ComponentProps, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import toast from "react-hot-toast";
-import { Pencil, Trash2 } from "lucide-react";
+import { Eye, Pencil, Trash2 } from "lucide-react";
 import CertificateUploadButton from "@/components/Common/CertificateUploadButton";
 import { requiresSickCertificate } from "@/lib/leaveRules";
 import type RequestFormType from "@/app/(portal)/portal/RequestForm";
@@ -110,6 +110,17 @@ export default function HistoryTable({ history, user, teammates, holidays }: His
                           <Trash2 className="h-3 w-3" /> Cancel
                         </Button>
                       </>
+                    )}
+                    {hasCertificate && (
+                      <a
+                        href={`/api/leave/${item.id}/attachment/${item.attachments![0].id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={item.attachments![0].fileName}
+                        className="inline-flex items-center gap-1 rounded-md border border-blue-200 px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 dark:border-blue-800 dark:hover:bg-blue-950"
+                      >
+                        <Eye className="h-3 w-3" /> មើលសំបុត្រ
+                      </a>
                     )}
                     {canUploadCertificate && (
                       <CertificateUploadButton leaveId={item.id} hasCertificate={hasCertificate} />
