@@ -128,9 +128,10 @@ export async function getAllBalances() {
       return [];
     }
 
-    // Moderators only see balances of their own department
+    // Moderators only see balances of their own department, unless flagged
+    // to see every department (e.g. General Manager)
     const balances = await prisma.balances.findMany({
-      where: loggedInUser.role === "MODERATOR"
+      where: loggedInUser.role === "MODERATOR" && !loggedInUser.allDepartments
         ? { email: { in: await departmentLeaveEmails(loggedInUser.department) } }
         : {},
       orderBy: [{ year: "desc" }, { name: "asc" }],

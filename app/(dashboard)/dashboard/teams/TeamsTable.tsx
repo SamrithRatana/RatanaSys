@@ -44,6 +44,7 @@ type UserOption = {
   email: string | null;
   role: string;
   department: string | null;
+  allDepartments?: boolean;
 };
 
 type Teammate = {
@@ -85,7 +86,7 @@ export default function TeamsTable({
   const regularUsers = allUsers.filter((u) => u.role === "USER");
 
   const editAutoModerators = allUsers.filter(
-    (u) => u.role === "MODERATOR" && u.department === editDepartment
+    (u) => u.role === "MODERATOR" && (u.department === editDepartment || u.allDepartments)
   );
 
   const toggleExpand = (id: string) => {

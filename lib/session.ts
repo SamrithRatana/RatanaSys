@@ -25,13 +25,14 @@ export const getCurrentUser = cache(async () => {
     if (!user) return null;
 
     return {
-      id:         user.id,
-      name:       user.name,
-      email:      user.email,
-      image:      user.image,
-      role:       user.role,
-      telegramId: user.telegramId,
-      department: user.department,
+      id:             user.id,
+      name:           user.name,
+      email:          user.email,
+      image:          user.image,
+      role:           user.role,
+      telegramId:     user.telegramId,
+      department:     user.department,
+      allDepartments: user.allDepartments,
     };
   } catch (error) {
     console.error("getCurrentUser error:", error);
@@ -40,13 +41,14 @@ export const getCurrentUser = cache(async () => {
     const u = session?.user;
     if (u?.id) {
       return {
-        id:         u.id as string,
-        name:       (u.name ?? null) as string | null,
-        email:      (u.email ?? null) as string | null,
-        image:      (u.image ?? null) as string | null,
-        role:       (u.role ?? "USER") as string,
-        telegramId: (u.telegramId ?? null) as string | null,
-        department: null as string | null,
+        id:             u.id as string,
+        name:           (u.name ?? null) as string | null,
+        email:          (u.email ?? null) as string | null,
+        image:          (u.image ?? null) as string | null,
+        role:           (u.role ?? "USER") as string,
+        telegramId:     (u.telegramId ?? null) as string | null,
+        department:     null as string | null,
+        allDepartments: false,
       };
     }
     return null;

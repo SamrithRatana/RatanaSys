@@ -31,8 +31,9 @@ export async function GET() {
     const nextMonthStart = monthStart(year, month + 1);
     const lastMonthStart = monthStart(year, month - 1);
 
-    // Moderators only see numbers for their own department
-    const isModerator = loggedInUser.role === "MODERATOR";
+    // Moderators only see numbers for their own department, unless flagged
+    // to see every department (e.g. General Manager)
+    const isModerator = loggedInUser.role === "MODERATOR" && !loggedInUser.allDepartments;
     const deptEmails  = isModerator ? await departmentLeaveEmails(loggedInUser.department) : [];
 
     const leaveScope: Prisma.LeaveWhereInput    = isModerator ? { userEmail: { in: deptEmails } } : {};

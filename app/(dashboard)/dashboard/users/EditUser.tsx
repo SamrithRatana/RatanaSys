@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { PiCaretUpDownBold } from "react-icons/pi";
 import { cn } from "@/lib/utils";
 import { BsCheckLg } from "react-icons/bs";
@@ -88,6 +89,7 @@ const formSchema = z.object({
   department:      z.string().optional().or(z.literal("")),
   title:           z.string().optional().or(z.literal("")),
   role:            z.string().min(1, "Role is required"),
+  allDepartments:  z.boolean().optional(),
   password:        z.string().min(6).optional().or(z.literal("")),
   confirmPassword: z.string().optional().or(z.literal("")),
 }).refine(
@@ -130,6 +132,7 @@ const EditUser = ({ user }: EditUserProps) => {
       department:      user.department ?? "",
       title:           user.title      ?? "",
       role:            user.role       ?? "USER",
+      allDepartments:  user.allDepartments ?? false,
       password:        "",
       confirmPassword: "",
     },
@@ -337,6 +340,23 @@ const EditUser = ({ user }: EditUserProps) => {
                   <FormMessage />
                 </FormItem>
               )} />
+
+              {/* General Manager — approve/view all departments, not just their own */}
+              {form.watch("role") === "MODERATOR" && (
+                <FormField control={form.control} name="allDepartments" render={({ field }) => (
+                  <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-sm">General Manager</FormLabel>
+                      <p className="text-xs text-muted-foreground">
+                        Can view and approve leaves/balances for every department, not just their own.
+                      </p>
+                    </div>
+                    <FormControl>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </FormControl>
+                  </FormItem>
+                )} />
+              )}
 
               {/* Password Section */}
               <div className="rounded-lg border border-dashed border-muted-foreground/40 bg-muted/30 p-4 space-y-4">

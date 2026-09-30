@@ -20,8 +20,9 @@ export async function PATCH(req: Request) {
     const body: EditBody = await req.json();
     const { id, ...data } = body;
 
-    // Moderators may only change balances of their own department
-    if (loggedInUser?.role === "MODERATOR") {
+    // Moderators may only change balances of their own department, unless
+    // flagged to act across every department (e.g. General Manager)
+    if (loggedInUser?.role === "MODERATOR" && !loggedInUser.allDepartments) {
       const target = await prisma.balances.findUnique({ where: { id }, select: { email: true } });
       const allowed = await departmentLeaveEmails(loggedInUser.department);
       if (!target || !allowed.includes(target.email)) {

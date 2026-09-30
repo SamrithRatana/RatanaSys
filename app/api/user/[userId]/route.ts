@@ -13,6 +13,7 @@ type EditUserBody = {
   title?: string;
   role: string;        // ✅ string instead of Role enum
   password?: string;
+  allDepartments?: boolean;
 };
 
 export async function PATCH(req: Request) {
@@ -23,16 +24,17 @@ export async function PATCH(req: Request) {
 
   try {
     const body: EditUserBody = await req.json();
-    const { id, name, email, phone, manager, department, title, role, password } = body;
+    const { id, name, email, phone, manager, department, title, role, password, allDepartments } = body;
 
     const data: Record<string, unknown> = {
       name,
       email,
-      phone:      phone      ?? null,
-      manager:    manager    ?? null,
-      department: department ?? null,
-      title:      title      ?? null,
+      phone:          phone      ?? null,
+      manager:        manager    ?? null,
+      department:     department ?? null,
+      title:          title      ?? null,
       role,
+      allDepartments: !!allDepartments,
     };
 
     if (password && password.trim().length >= 6) {

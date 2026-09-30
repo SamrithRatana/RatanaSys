@@ -2,6 +2,7 @@
 // duration calculation and Telegram message formatting.
 
 import { format } from "date-fns";
+import { heicToJpeg, isHeic } from "@/lib/heic";
 import {
   ALLOWED_ATTACHMENT_TYPES,
   MATERNITY_DAYS,
@@ -251,12 +252,20 @@ export async function readAttachment(file: File | null) {
   if (!file || file.size === 0) return null;
   if (!ALLOWED_ATTACHMENT_TYPES.includes(file.type)) fail(RULE_MESSAGES.attachmentType);
   if (file.size > MAX_ATTACHMENT_BYTES) fail(RULE_MESSAGES.attachmentSize);
-  return {
-    fileName: (file.name || "attachment").slice(0, 200),
-    mimeType: file.type,
-    size:     file.size,
-    data:     Buffer.from(await file.arrayBuffer()),
-  };
+
+  let mimeType = file.type;
+  let fileName = (file.name || "attachment").slice(0, 200);
+  let data     = Buffer.from(await file.arrayBuffer());
+
+  // No browser can display HEIC/HEIF inline — convert to JPEG so the
+  // certificate is actually viewable once it's approved/opened later.
+  if (isHeic(mimeType)) {
+    data     = await heicToJpeg(data);
+    mimeType = "image/jpeg";
+    fileName = fileName.replace(/\.(heic|heif)$/i, "") + ".jpg";
+  }
+
+  return { fileName, mimeType, size: data.length, data };
 }
 
 // ── Telegram formatting ──────────────────────────────────────────────────────

@@ -7,7 +7,7 @@ export async function getTeamsData() {
 
   const user = await prisma.user.findUnique({
     where: { id: sessionUser.id },
-    select: { role: true, department: true, email: true },
+    select: { role: true, department: true, email: true, allDepartments: true },
   });
   if (!user) return { teams: [], teammates: [] };
 
@@ -36,8 +36,11 @@ export async function getTeamsData() {
       where: { email: { in: allMemberEmails }, year },
     }),
     prisma.user.findMany({
-      where: { role: "MODERATOR", department: { in: allDepartments } },
-      select: { id: true, name: true, email: true, image: true, department: true },
+      where: {
+        role: "MODERATOR",
+        OR: [{ department: { in: allDepartments } }, { allDepartments: true }],
+      },
+      select: { id: true, name: true, email: true, image: true, department: true, allDepartments: true },
     }),
   ]);
 
@@ -45,8 +48,12 @@ export async function getTeamsData() {
   const userMap     = new Map(memberUsers.map((u) => [u.email, u]));
   const balanceMap  = new Map(balanceRecords.map((b) => [b.email, b]));
   const modByDept   = new Map<string, typeof moderatorUsers>();
+  // A Moderator flagged for every department (e.g. General Manager) shows up
+  // as a moderator on every team, not just the one matching their own department.
+  const globalMods  = moderatorUsers.filter((mod) => mod.allDepartments);
 
   for (const mod of moderatorUsers) {
+    if (mod.allDepartments) continue;
     const dept = mod.department ?? "";
     if (!modByDept.has(dept)) modByDept.set(dept, []);
     modByDept.get(dept)!.push(mod);
@@ -54,7 +61,7 @@ export async function getTeamsData() {
 
   // ── Step 5: Assemble teams from maps (no extra DB calls) ─────────────────
   const teams = rawTeams.map((team) => {
-    const moderators = modByDept.get(team.department) ?? [];
+    const moderators = [...(modByDept.get(team.department) ?? []), ...globalMods];
     const members = team.members.map((m) => ({
       ...(userMap.get(m.userEmail) ?? { id: "", name: null, email: m.userEmail, image: null, title: null }),
       balances: balanceMap.get(m.userEmail) ?? null,

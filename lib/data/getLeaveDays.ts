@@ -11,9 +11,10 @@ export async function getAllLeaveDays() {
       loggedInUser.role === "ADMIN" || loggedInUser.role === "MODERATOR";
     if (!canAccess) return [];
 
-    // Moderators only see leaves of employees in their own department
+    // Moderators only see leaves of employees in their own department,
+    // unless they're flagged to see every department (e.g. General Manager)
     const where =
-      loggedInUser.role === "MODERATOR"
+      loggedInUser.role === "MODERATOR" && !loggedInUser.allDepartments
         ? { userEmail: { in: await departmentLeaveEmails(loggedInUser.department) } }
         : {};
 

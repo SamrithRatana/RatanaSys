@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import { appBaseUrl, attachmentPath, leaveOwnerEmail } from "@/lib/leaveServer";
 import { downloadAttachment } from "@/lib/r2";
+import { heicToJpeg, isHeic } from "@/lib/heic";
 
 type Params = { params: { leaveId: string; attachmentId: string } };
 
@@ -41,13 +42,24 @@ export async function GET(_req: Request, { params }: Params) {
     return NextResponse.json({ error: "Could not load the file" }, { status: 502 });
   }
 
-  const asciiName = attachment.fileName.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "");
+  // Certificates uploaded before HEIC→JPEG conversion was added at upload
+  // time are still stored as HEIC/HEIF — no browser can render that inline,
+  // so convert on the fly here too.
+  let mimeType = attachment.mimeType;
+  let fileName = attachment.fileName;
+  if (isHeic(mimeType)) {
+    bytes    = await heicToJpeg(Buffer.from(bytes));
+    mimeType = "image/jpeg";
+    fileName = fileName.replace(/\.(heic|heif)$/i, "") + ".jpg";
+  }
+
+  const asciiName = fileName.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "");
   return new NextResponse(bytes, {
     status: 200,
     headers: {
-      "Content-Type":        attachment.mimeType,
-      "Content-Length":      String(attachment.size),
-      "Content-Disposition": `inline; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(attachment.fileName)}`,
+      "Content-Type":        mimeType,
+      "Content-Length":      String(bytes.byteLength),
+      "Content-Disposition": `inline; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
       "Cache-Control":       "private, max-age=3600",
       "X-Content-Type-Options": "nosniff",
     },

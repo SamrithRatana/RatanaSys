@@ -15,6 +15,7 @@ type UserOption = {
   email: string | null;
   role: string;
   department: string | null;
+  allDepartments?: boolean;
 };
 
 type Department = { id: string; label: string };
@@ -31,7 +32,7 @@ export default function CreateTeamModal({ allUsers, departments }: Props) {
 
   // ✅ Auto moderators from selected department
   const autoModerators = allUsers.filter(
-    (u) => u.role === "MODERATOR" && u.department === department
+    (u) => u.role === "MODERATOR" && (u.department === department || u.allDepartments)
   );
 
   const toggleMember = (email: string) => {

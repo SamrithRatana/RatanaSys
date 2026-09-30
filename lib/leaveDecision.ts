@@ -21,12 +21,13 @@ import {
 } from "@/lib/leaveServer";
 
 export type LeaveActor = {
-  id:          string;
-  role:        string;
-  name:        string | null;
-  email:       string | null;
-  department?: string | null;
-  telegramId?: string | null;
+  id:              string;
+  role:            string;
+  name:            string | null;
+  email:           string | null;
+  department?:     string | null;
+  telegramId?:     string | null;
+  allDepartments?: boolean | null;
 };
 
 export class ApprovalError extends Error {
@@ -270,7 +271,7 @@ export async function decideLeave(
         `👍 <b>អនុម័តដោយ៖</b> ${escapeHtml(actorName)} (ប្រធានផ្នែក)`,
         noteLine,
         ``,
-        `⏳ <i>កំពុងរង់ចាំការអនុម័តពីអ្នកគ្រប់គ្រង</i>`,
+        `⏳ <i>កំពុងរង់ចាំការអនុម័តពីអ្នកគ្រប់គ្រង (Sokuntheary)</i>`,
       ].join("\n"), attachmentIds, true);
 
       return "Head Department approved. Awaiting Manager final approval.";

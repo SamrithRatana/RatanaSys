@@ -32,12 +32,20 @@ export async function leaveOwnerDepartment(userEmail: string): Promise<string | 
   return owner?.department ?? null;
 }
 
-type Actor = { role: string; department?: string | null; email: string | null; telegramId?: string | null; id: string };
+type Actor = {
+  role: string;
+  department?: string | null;
+  email: string | null;
+  telegramId?: string | null;
+  id: string;
+  allDepartments?: boolean | null;
+};
 
 /**
  * Why this user may not act on (or view) a leave, or null when allowed.
- * Admins: always allowed. Moderators: only their own department, and never
- * their own leave (that goes to an admin).
+ * Admins: always allowed. Moderators: only their own department (unless
+ * flagged `allDepartments`, e.g. a General Manager), and never their own
+ * leave (that goes to an admin).
  */
 export async function moderatorScopeError(actor: Actor, leaveUserEmail: string): Promise<string | null> {
   if (actor.role === "ADMIN") return null;
@@ -46,6 +54,7 @@ export async function moderatorScopeError(actor: Actor, leaveUserEmail: string):
   if (leaveUserEmail === leaveOwnerEmail(actor)) {
     return "មិនអាចអនុម័តច្បាប់ផ្ទាល់ខ្លួនបានទេ — ត្រូវឱ្យ Admin អនុម័ត (You cannot approve your own leave — an admin must approve it).";
   }
+  if (actor.allDepartments) return null;
   if (!norm(actor.department)) {
     return "គណនីរបស់អ្នកមិនទាន់មានផ្នែក (Department) — សូមឱ្យ Admin កំណត់ (Your account has no department — ask an admin to set it).";
   }

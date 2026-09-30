@@ -360,7 +360,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName, c
               ) : (
                 <p className="text-sm text-gray-400">
                   {leave.headDepartmentApproved
-                    ? "⏳ កំពុងរង់ចាំការអនុម័តពីអ្នកគ្រប់គ្រង"
+                    ? "⏳ កំពុងរង់ចាំការអនុម័តពីអ្នកគ្រប់គ្រង (Sokuntheary)"
                     : "— រង់ចាំប្រធានផ្នែកអនុម័ត"}
                 </p>
               )}

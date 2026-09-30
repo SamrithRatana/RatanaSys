@@ -12,7 +12,7 @@ const TeamsPage = async () => {
   const { teams, teammates }  = await getTeamsData();
 
   const allUsers = await prisma.user.findMany({
-    select: { id: true, name: true, email: true, role: true, department: true },
+    select: { id: true, name: true, email: true, role: true, department: true, allDepartments: true },
     orderBy: { name: "asc" },
   });
 

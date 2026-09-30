@@ -39,8 +39,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Moderators may only add credits for their own department
-    if (loggedInUser?.role === "MODERATOR" &&
+    // Moderators may only add credits for their own department, unless
+    // flagged to act across every department (e.g. General Manager)
+    if (loggedInUser?.role === "MODERATOR" && !loggedInUser.allDepartments &&
         !(await departmentLeaveEmails(loggedInUser.department)).includes(resolvedEmail)) {
       return NextResponse.json({ error: "You can only add credits for your own department" }, { status: 403 });
     }
@@ -102,8 +103,9 @@ export async function PATCH(req: Request) {
     const body: EditBody = await req.json();
     const { id, ...data } = body;
 
-    // Moderators may only change balances of their own department
-    if (loggedInUser?.role === "MODERATOR") {
+    // Moderators may only change balances of their own department, unless
+    // flagged to act across every department (e.g. General Manager)
+    if (loggedInUser?.role === "MODERATOR" && !loggedInUser.allDepartments) {
       const target = await prisma.balances.findUnique({ where: { id }, select: { email: true } });
       const allowed = await departmentLeaveEmails(loggedInUser.department);
       if (!target || !allowed.includes(target.email)) {

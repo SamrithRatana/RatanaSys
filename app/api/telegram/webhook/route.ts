@@ -67,12 +67,13 @@ export async function POST(req: NextRequest) {
     }
 
     const actor: LeaveActor = {
-      id:         user.id,
-      role:       user.role,
-      name:       user.name,
-      email:      user.email,
-      department: user.department,
-      telegramId: user.telegramId,
+      id:             user.id,
+      role:           user.role,
+      name:           user.name,
+      email:          user.email,
+      department:     user.department,
+      telegramId:     user.telegramId,
+      allDepartments: user.allDepartments,
     };
 
     const message = await decideLeave(actor, leaveId, action === "approve" ? "APPROVED" : "REJECTED", "");
