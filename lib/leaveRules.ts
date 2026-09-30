@@ -226,6 +226,15 @@ export function leaveDayTotal(days: number | null | undefined, hours: number | n
   return toDayFraction(d, h);
 }
 
+// Departments whose staff (whatever their role) may export anyone's leave
+// card — HR/payroll work. Everyone else exports only their own.
+export const LEAVE_CARD_EXPORT_ALL_DEPARTMENTS = ["Accounting & Cashier"];
+
+export function canExportAllLeaveCards(department: string | null | undefined): boolean {
+  const d = (department ?? "").trim().toLowerCase();
+  return !!d && LEAVE_CARD_EXPORT_ALL_DEPARTMENTS.some((x) => x.toLowerCase() === d);
+}
+
 export function requiresSickCertificate(type: string, totalDays: number): boolean {
   return type.toUpperCase() === "SICK" && totalDays > SICK_CERTIFICATE_THRESHOLD_DAYS;
 }

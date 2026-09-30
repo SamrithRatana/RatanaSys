@@ -5,7 +5,7 @@ import prisma                        from "@/lib/prisma";
 import { readFile }                  from "fs/promises";
 import path                          from "path";
 import ExcelJS                       from "exceljs";
-import { leaveDayTotal, todayYmd }   from "@/lib/leaveRules";
+import { canExportAllLeaveCards, leaveDayTotal, todayYmd } from "@/lib/leaveRules";
 
 type Params = { params: { email: string } };
 
@@ -263,7 +263,8 @@ export async function GET(req: NextRequest, { params }: Params) {
   if (
     loggedInUser.email !== email &&
     loggedInUser.role  !== "ADMIN" &&
-    loggedInUser.role  !== "MODERATOR"
+    loggedInUser.role  !== "MODERATOR" &&
+    !canExportAllLeaveCards(loggedInUser.department)
   ) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   // ── Fetch ───────────────────────────────────────────────────────────────────

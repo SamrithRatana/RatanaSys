@@ -12,7 +12,8 @@ import UserBalances from './UserBalances';
 import { getEventsData } from '@/lib/data/getEventData';
 import TotalBalanceSummary from './TotalBalanceSummary';
 import { getTeamsData } from '@/lib/data/getTeamsData'; // ← reuse
-import { holidayYmds } from '@/lib/leaveRules';
+import { canExportAllLeaveCards, holidayYmds } from '@/lib/leaveRules';
+import prisma from '@/lib/prisma';
 
 const Portal = async () => {
   const user = await getCurrentUser();
@@ -26,6 +27,15 @@ const Portal = async () => {
 
   // Company holidays — not counted as leave days
   const holidays = holidayYmds(Events);
+
+  // Accounting & Cashier may export any employee's leave card
+  const exportUsers = canExportAllLeaveCards(user?.department)
+    ? await prisma.user.findMany({
+        where:   { email: { not: null } },
+        select:  { email: true, name: true, department: true },
+        orderBy: { name: "asc" },
+      }).catch(() => [])
+    : undefined;
 
   return (
     <>
@@ -58,6 +68,7 @@ const Portal = async () => {
           user={user as User}
           teammates={teammates}
           holidays={holidays}
+          exportUsers={exportUsers as { email: string; name: string | null; department: string | null }[] | undefined}
         />
       </div>
     </>

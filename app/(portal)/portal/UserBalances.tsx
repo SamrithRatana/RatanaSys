@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Container from "@/components/Common/Container";
 import LeaveCard from "./LeaveCard";
-import ExportLeaveCardButton from "./ExportLeaveCardButton";
+import ExportLeaveCardButton, { ExportableUser } from "./ExportLeaveCardButton";
 import { Balances, User } from "@prisma/client";
 import dynamic from "next/dynamic";
 import type { ComponentProps } from "react";
@@ -26,13 +26,15 @@ type Teammate = {
 };
 
 type Props = {
-  balances:   Balances;
-  user?:      User;
-  teammates?: Teammate[];
-  holidays?:  string[];
+  balances:     Balances;
+  user?:        User;
+  teammates?:   Teammate[];
+  holidays?:    string[];
+  // set only for departments allowed to export anyone's leave card
+  exportUsers?: ExportableUser[];
 };
 
-const UserBalances = ({ balances, user, teammates = [], holidays = [] }: Props) => {
+const UserBalances = ({ balances, user, teammates = [], holidays = [], exportUsers }: Props) => {
   const [isHours,     setIsHours]     = useState(true);
   const [dialogLeave, setDialogLeave] = useState<string | null>(null);
 
@@ -67,6 +69,7 @@ const UserBalances = ({ balances, user, teammates = [], holidays = [] }: Props) 
               email={user.email}
               userName={user.name ?? undefined}
               year={balances?.year}
+              exportUsers={exportUsers}
             />
           )}
           <div className="flex items-center gap-2">
