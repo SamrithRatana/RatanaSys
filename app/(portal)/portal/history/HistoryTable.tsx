@@ -14,6 +14,7 @@ import dynamic from "next/dynamic";
 import toast from "react-hot-toast";
 import { Pencil, Trash2 } from "lucide-react";
 import CertificateUploadButton from "@/components/Common/CertificateUploadButton";
+import { requiresSickCertificate } from "@/lib/leaveRules";
 import type RequestFormType from "@/app/(portal)/portal/RequestForm";
 
 // The full request form, reused prefilled as the edit dialog
@@ -77,7 +78,11 @@ export default function HistoryTable({ history, user, teammates, holidays }: His
         <TableBody className="whitespace-nowrap">
           {history.map((item) => {
             const isPending = item.status === LeaveStatus.PENDING;
-            const canUploadCertificate = item.type === "SICK" && item.status !== LeaveStatus.REJECTED;
+            const hasCertificate = (item.attachments?.length ?? 0) > 0;
+            // Only sick leave over 2 days needs one (or one is already attached to replace)
+            const canUploadCertificate =
+              item.type === "SICK" && item.status !== LeaveStatus.REJECTED &&
+              (hasCertificate || requiresSickCertificate("SICK", item.days + Number(item.hours ?? 0) / 8));
 
             return (
               <TableRow key={item.id}>
@@ -107,7 +112,7 @@ export default function HistoryTable({ history, user, teammates, holidays }: His
                       </>
                     )}
                     {canUploadCertificate && (
-                      <CertificateUploadButton leaveId={item.id} hasCertificate={(item.attachments?.length ?? 0) > 0} />
+                      <CertificateUploadButton leaveId={item.id} hasCertificate={hasCertificate} />
                     )}
                   </div>
                 </TableCell>

@@ -746,6 +746,9 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
     return workingDaysBetween(startDateValue, endDateValue, holidaySet);
   })();
   const needsCertificate = requiresSickCertificate(selectedLeave ?? "", requestedDays);
+  // Sick leave of 2 days or less needs no certificate, so the section is
+  // hidden — unless an edited leave already has one attached.
+  const showCertificate = isSick && (needsCertificate || !!existingCertificate);
   // Satisfied by a new file, the one already attached (edit), or ជំពាក់សិន
   const certificateMissing =
     isSick && needsCertificate && !attachment && !existingCertificate && certMode !== "later";
@@ -771,7 +774,7 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
   // arrived corrupted in production (see app/api/leave/route.ts).
   // In edit mode the same payload goes to the owner's edit route instead.
   async function postLeave(payload: Record<string, unknown>): Promise<Response> {
-    const file = attachment && isSick && certMode === "upload"
+    const file = attachment && showCertificate && certMode === "upload"
       ? { fileName: attachment.name, mimeType: attachment.type, base64: await fileToBase64(attachment) }
       : null;
     const certificateLater = isSick && needsCertificate && !file && certMode === "later";
@@ -1788,7 +1791,7 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
           )}
 
           {/* ── Sick leave medical certificate ── */}
-          {isSick && (
+          {showCertificate && (
             <div className={cn(
               "rounded-xl border border-dashed p-4 space-y-2",
               certificateMissing

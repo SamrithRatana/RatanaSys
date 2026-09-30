@@ -244,7 +244,7 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName, c
             value={substitutes.length > 0 ? substitutes.join(", ") : "—"}
           />
 
-          {(attachments.length > 0 || leave.type === "SICK") && (
+          {(attachments.length > 0 || requiresSickCertificate(leave.type, leave.days + Number(leave.hours ?? 0) / 8)) && (
             <InfoRow
               icon={<Paperclip className="h-4 w-4" />}
               label="សំបុត្រពេទ្យ / ឯកសារភ្ជាប់"
