@@ -70,7 +70,9 @@ export async function GET(_req: Request, { params }: Params) {
       "Content-Type":        mimeType,
       "Content-Length":      String(bytes.byteLength),
       "Content-Disposition": `inline; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
-      "Cache-Control":       "private, max-age=3600",
+      // no-cache: always revalidate — a replaced certificate's old link
+      // redirects to the new file, and a cached copy would hide that
+      "Cache-Control":       "private, no-cache",
       "X-Content-Type-Options": "nosniff",
     },
   });
