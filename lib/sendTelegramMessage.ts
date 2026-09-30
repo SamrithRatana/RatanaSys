@@ -179,6 +179,36 @@ export async function editTelegramMessage(
   }
 }
 
+// ── Replace only the buttons of an existing message (text untouched) ────────
+export async function editTelegramButtons(
+  messageId: number,
+  buttons:   InlineButton[],
+): Promise<void> {
+  const token  = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_GROUP_CHAT_ID;
+  if (!token || !chatId || !messageId) return;
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      signal:  AbortSignal.timeout(TELEGRAM_TIMEOUT_MS),
+      body: JSON.stringify({
+        chat_id:      chatId,
+        message_id:   messageId,
+        reply_markup: { inline_keyboard: buttons.map((btn) => [toTelegramButton(btn)]) },
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      if (err?.description?.includes("message is not modified")) return;
+      console.error("[Telegram] editMessageReplyMarkup failed:", JSON.stringify(err));
+    }
+  } catch (error) {
+    console.error("[Telegram] Network error on button edit:", error);
+  }
+}
+
 // ── Answer a callback_query (the popup shown to whoever tapped a button) ────
 // Telegram requires this within ~10s of the tap or the button shows a
 // spinner forever on the tapper's device; it does NOT edit the message.

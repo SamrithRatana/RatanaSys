@@ -2,11 +2,12 @@ import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
 import { LeaveStatus } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
-import { sendTelegramMessage } from "@/lib/sendTelegramMessage";
+import { editTelegramButtons, sendTelegramMessage } from "@/lib/sendTelegramMessage";
 import { replaceLeaveAttachments, storeAttachment } from "@/lib/leaveAttachments";
 import {
   LeaveValidationError,
   SubmittedLeave,
+  actionButtons,
   buildDateBlock,
   certificateButtons,
   escapeHtml,
@@ -74,6 +75,23 @@ export async function PUT(req: NextRequest, { params }: Params) {
       ],
       leave.telegramMessageId,
     ).catch((e) => console.error("[attachment PUT] telegram:", e));
+
+    // Point the original leave post's "មើលសំបុត្រពេទ្យ" button at the new
+    // file too. Its other buttons depend on the stage, mirroring how each
+    // stage's message is built (app/api/leave/route.ts, lib/leaveDecision.ts).
+    if (leave.telegramMessageId) {
+      const stillActionable =
+        leave.status === LeaveStatus.PENDING ||
+        leave.status === LeaveStatus.INMODERATION ||
+        (leave.status === LeaveStatus.APPROVED && !leave.headDepartmentApproved);
+      void editTelegramButtons(leave.telegramMessageId, [
+        leave.status === LeaveStatus.PENDING
+          ? { text: "👀 មើល និងអនុម័តប្រធានផ្នែក →", url: leaveUrl(leave.id) }
+          : { text: "📋 មើលច្បាប់ →", url: leaveUrl(leave.id) },
+        ...(stillActionable ? actionButtons(leave.id) : []),
+        ...certificateButtons(leave.id, [attachmentId]),
+      ]).catch((e) => console.error("[attachment PUT] telegram buttons:", e));
+    }
 
     return NextResponse.json({ message: "Certificate uploaded", id: attachmentId }, { status: 200 });
   } catch (error) {
