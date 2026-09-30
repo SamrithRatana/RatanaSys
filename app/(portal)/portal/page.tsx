@@ -28,10 +28,17 @@ const Portal = async () => {
   // Company holidays — not counted as leave days
   const holidays = holidayYmds(Events);
 
-  // Accounting & Cashier may export any employee's leave card
-  const exportUsers = canExportAllLeaveCards(user?.department)
+  // Who may pick another employee's leave card to export:
+  // Admins, Accounting & Cashier and General Managers → everyone;
+  // Moderators (head of department) → their own department.
+  const exportsAll   = user?.role === "ADMIN" || user?.allDepartments || canExportAllLeaveCards(user?.department);
+  const exportsDept  = !exportsAll && user?.role === "MODERATOR" && !!user.department?.trim();
+  const exportUsers = exportsAll || exportsDept
     ? await prisma.user.findMany({
-        where:   { email: { not: null } },
+        where: {
+          email: { not: null },
+          ...(exportsDept && { department: { equals: user!.department!.trim(), mode: "insensitive" as const } }),
+        },
         select:  { email: true, name: true, department: true },
         orderBy: { name: "asc" },
       }).catch(() => [])
