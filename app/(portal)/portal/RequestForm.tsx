@@ -142,6 +142,16 @@ async function compressImage(file: File): Promise<File> {
   }
 }
 
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  // chunked: String.fromCharCode(...hugeArray) overflows the call stack
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Time helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -672,15 +682,25 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
     setAttachment(file);
   }
 
-  // Identity comes from the session on the server; the body only carries the request
+  // Identity comes from the session on the server; the body only carries the request.
+  // The certificate goes as base64 inside the JSON — raw multipart binary
+  // arrived corrupted in production (see app/api/leave/route.ts).
   async function postLeave(payload: Record<string, unknown>): Promise<Response> {
-    const body = new FormData();
-    body.append("payload", JSON.stringify(payload));
-    if (attachment && isSick) body.append("attachment", attachment);
-    return fetch("/api/leave", { method: "POST", body });
+    const file = attachment && isSick
+      ? { fileName: attachment.name, mimeType: attachment.type, base64: await fileToBase64(attachment) }
+      : null;
+    return fetch("/api/leave", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ ...payload, ...(file && { attachment: file }) }),
+    });
   }
 
   async function showError(res: Response) {
+    if (res.status === 413) {
+      toast.error(RULE_MESSAGES.attachmentSize, { duration: 7000 });
+      return;
+    }
     const data = await res.json().catch(() => ({}));
     toast.error(data?.error ?? "មានបញ្ហា សូមព្យាយាមម្ដងទៀត (Something went wrong)", { duration: 7000 });
   }

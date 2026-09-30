@@ -45,6 +45,8 @@ export type SubmittedLeave = {
   startTime?:       string;
   endTime?:         string;
   substitute?:      string | null;
+  // The certificate, base64-encoded inside the JSON body (see app/api/leave/route.ts)
+  attachment?:      { fileName?: string; mimeType?: string; base64?: string } | null;
 };
 
 export type ComputedLeave = {
@@ -248,14 +250,38 @@ export function checkSickCertificate(type: string, days: number, hours: number, 
   }
 }
 
-export async function readAttachment(file: File | null) {
-  if (!file || file.size === 0) return null;
+export type UploadedFile = { name: string; type: string; bytes: Buffer };
+
+/** Does the file actually start with the signature of the type it claims to be? */
+function hasValidSignature(bytes: Buffer, mimeType: string): boolean {
+  const ascii = (from: number, to: number) => bytes.subarray(from, to).toString("latin1");
+  switch (mimeType) {
+    case "image/jpeg":      return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    case "image/png":       return bytes.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    case "image/webp":      return ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP";
+    case "application/pdf": return ascii(0, 5) === "%PDF-";
+    case "image/heic":
+    case "image/heif":      return ascii(4, 8) === "ftyp";
+    default:                return false;
+  }
+}
+
+export async function readAttachment(file: UploadedFile | null) {
+  if (!file || file.bytes.length === 0) return null;
   if (!ALLOWED_ATTACHMENT_TYPES.includes(file.type)) fail(RULE_MESSAGES.attachmentType);
-  if (file.size > MAX_ATTACHMENT_BYTES) fail(RULE_MESSAGES.attachmentSize);
+  if (file.bytes.length > MAX_ATTACHMENT_BYTES) fail(RULE_MESSAGES.attachmentSize);
+
+  // Raw multipart uploads have reached the server with every non-UTF-8 byte
+  // replaced by U+FFFD (EF BF BD) somewhere between the browser and this
+  // handler — the stored file is then unrecoverable. Refuse anything that
+  // doesn't start with its type's signature rather than store garbage.
+  if (!hasValidSignature(file.bytes, file.type)) {
+    fail("ឯកសារខូចពេលផ្ញើ — សូម Refresh ទំព័រ ហើយភ្ជាប់ឯកសារម្ដងទៀត (The file was damaged during upload — refresh the page and attach it again).");
+  }
 
   let mimeType = file.type;
   let fileName = (file.name || "attachment").slice(0, 200);
-  let data     = Buffer.from(await file.arrayBuffer());
+  let data     = file.bytes;
 
   // No browser can display HEIC/HEIF inline — convert to JPEG so the
   // certificate is actually viewable once it's approved/opened later.
