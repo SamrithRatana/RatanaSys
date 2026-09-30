@@ -47,6 +47,8 @@ export type SubmittedLeave = {
   substitute?:      string | null;
   // The certificate, base64-encoded inside the JSON body (see app/api/leave/route.ts)
   attachment?:      { fileName?: string; mimeType?: string; base64?: string } | null;
+  // "ជំពាក់សិន" — sick leave over the threshold, certificate to be uploaded later
+  certificateLater?: boolean;
 };
 
 export type ComputedLeave = {
@@ -243,14 +245,29 @@ export function totalDays(leave: { days: number; hours?: number | null }): numbe
   return toDayFraction(leave.days, Number(leave.hours ?? 0));
 }
 
-/** Throws unless a sick leave over the threshold has a certificate attached. */
-export function checkSickCertificate(type: string, days: number, hours: number, hasAttachment: boolean) {
-  if (requiresSickCertificate(type, toDayFraction(days, hours)) && !hasAttachment) {
+/**
+ * Throws unless a sick leave over the threshold has a certificate attached —
+ * or the employee chose "ជំពាក់សិន" (certificateLater) and will upload it
+ * afterwards via PUT /api/leave/[leaveId]/attachment.
+ */
+export function checkSickCertificate(type: string, days: number, hours: number, hasAttachment: boolean, certificateLater = false) {
+  if (requiresSickCertificate(type, toDayFraction(days, hours)) && !hasAttachment && !certificateLater) {
     fail(RULE_MESSAGES.sickCertificate);
   }
 }
 
+/** A sick leave over the threshold that still has no certificate. */
+export function certificateOwed(leave: { type: string; days: number; hours?: number | null }, attachmentCount: number): boolean {
+  return attachmentCount === 0 && requiresSickCertificate(leave.type, totalDays(leave));
+}
+
 export type UploadedFile = { name: string; type: string; bytes: Buffer };
+
+/** Decode the `{ fileName, mimeType, base64 }` certificate carried inside a JSON body. */
+export function jsonAttachment(a: SubmittedLeave["attachment"]): UploadedFile | null {
+  if (!a?.base64) return null;
+  return { name: String(a.fileName ?? ""), type: String(a.mimeType ?? ""), bytes: Buffer.from(a.base64, "base64") };
+}
 
 /** Does the file actually start with the signature of the type it claims to be? */
 function hasValidSignature(bytes: Buffer, mimeType: string): boolean {
@@ -434,6 +451,13 @@ export function certificateButtons(leaveId: string, attachmentIds: string[]): { 
 }
 
 export const CERTIFICATE_LINE = `📎 <b>សំបុត្រពេទ្យ៖</b> មានភ្ជាប់ — ចុចប៊ូតុង «មើលសំបុត្រពេទ្យ» ខាងក្រោម`;
+export const CERTIFICATE_OWED_LINE = `📎 <b>សំបុត្រពេទ្យ៖</b> ⏳ ជំពាក់សិន — អ្នកស្នើនឹងភ្ជាប់ពេលក្រោយ`;
+
+/** The certificate line for a Telegram message: attached, owed, or none needed. */
+export function certificateLines(leave: { type: string; days: number; hours?: number | null }, attachmentCount: number): string[] {
+  if (attachmentCount > 0) return [CERTIFICATE_LINE];
+  return certificateOwed(leave, attachmentCount) ? [CERTIFICATE_OWED_LINE] : [];
+}
 
 /**
  * One-click Approve/Reject buttons for the Telegram message. Tapping one

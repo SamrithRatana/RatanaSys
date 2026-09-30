@@ -21,6 +21,8 @@ type DialogProps = {
   icon?:       IconType;
   open?:       boolean;
   setOpen?:    () => void;
+  // Opened programmatically (e.g. an Edit button elsewhere) — render no trigger
+  hideTrigger?: boolean;
 };
 
 const DialogWrapper = ({
@@ -34,16 +36,19 @@ const DialogWrapper = ({
   isBtn,
   open,
   setOpen,
+  hideTrigger,
 }: DialogProps) => {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {isBtn ? (
-          <Button className="text-white" style={btnStyle}>{btnTitle}</Button>
-        ) : (
-          Icon && <Icon className="text-blue-600 cursor-pointer" size={24} />
-        )}
-      </DialogTrigger>
+      {!hideTrigger && (
+        <DialogTrigger asChild>
+          {isBtn ? (
+            <Button className="text-white" style={btnStyle}>{btnTitle}</Button>
+          ) : (
+            Icon && <Icon className="text-blue-600 cursor-pointer" size={24} />
+          )}
+        </DialogTrigger>
+      )}
 
       <DialogContent className="sm:max-w-[425px] max-h-[90vh] flex flex-col p-0">
         <DialogHeader className="px-6 pt-6 pb-2 shrink-0">

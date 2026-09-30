@@ -45,6 +45,7 @@ import {
   requiresSickCertificate,
   workHoursBetween,
 } from "@/lib/leaveRules";
+import { compressImage, fileToBase64 } from "@/lib/attachmentUpload";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants & types
@@ -108,6 +109,20 @@ const SLOT_TIMES: Record<Exclude<SlotType, "CUSTOM">, [string, string]> = {
   HALF_PM: ["13:00", "17:00"],
 };
 
+// A pending leave being edited by its owner — the form opens prefilled with it
+export type EditableLeave = {
+  id:           string;
+  type:         string;
+  startDate:    Date | string;
+  endDate:      Date | string;
+  days:         number;
+  hours?:       number | null;
+  userNote?:    string | null;
+  substitute?:  string | null;
+  segments?:    unknown;
+  attachments?: { id: string; fileName: string }[];
+};
+
 type Props = {
   user:             User;
   holidays?:        string[];   // company holidays, yyyy-MM-dd
@@ -115,41 +130,45 @@ type Props = {
   defaultLeave?:    string;
   externalOpen?:    boolean;
   onExternalClose?: () => void;
+  editLeave?:       EditableLeave;
+  onSaved?:         () => void;
 };
+
+type StoredSegmentIn = {
+  date: string; endDate?: string; hours?: number;
+  startTime?: string; endTime?: string; substitute?: string | null;
+};
+
+/** yyyy-MM-dd of a stored (UTC-midnight) date, as a local-midnight Date. */
+function storedToLocalDate(d: Date | string): Date {
+  const [y, m, day] = new Date(d).toISOString().slice(0, 10).split("-").map(Number);
+  return new Date(y, m - 1, day);
+}
+
+function ymdToLocalDate(ymd: string): Date {
+  const [y, m, day] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, day);
+}
+
+/** Recover the form's slot choice from stored times/hours (times aren't stored for single-range leaves). */
+function slotFromStored(startTime?: string, endTime?: string, hours?: number): { slotType: SlotType; startTime: string; endTime: string } {
+  if (startTime && endTime) {
+    if (startTime === "08:00" && endTime === "12:00") return { slotType: "HALF_AM", startTime, endTime };
+    if (startTime === "13:00" && endTime === "17:00") return { slotType: "HALF_PM", startTime, endTime };
+    if (startTime === "08:00" && endTime === "17:00") return { slotType: "FULL", startTime, endTime };
+    return { slotType: "CUSTOM", startTime, endTime };
+  }
+  const h = Number(hours ?? 0);
+  if (h <= 0 || h >= 8) return { slotType: "FULL", startTime: "08:00", endTime: "17:00" };
+  if (h === 4) return { slotType: "HALF_AM", startTime: "08:00", endTime: "12:00" };
+  return { slotType: "CUSTOM", startTime: "08:00", endTime: minutesToTime(8 * 60 + Math.round(h * 60)) };
+}
 
 // Computed on demand, not once at module load — the portal tab can stay open for days
 function startOfToday(): Date {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return d;
-}
-
-/** Shrink large photos (phone camera shots) before upload; PDFs/HEIC are sent as-is. */
-async function compressImage(file: File): Promise<File> {
-  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size < 1024 * 1024) return file;
-  try {
-    const bitmap = await createImageBitmap(file);
-    const scale  = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement("canvas");
-    canvas.width  = Math.round(bitmap.width  * scale);
-    canvas.height = Math.round(bitmap.height * scale);
-    canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/jpeg", 0.8));
-    if (!blob || blob.size >= file.size) return file;
-    return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
-  } catch {
-    return file;
-  }
-}
-
-async function fileToBase64(file: File): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = "";
-  // chunked: String.fromCharCode(...hugeArray) overflows the call stack
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  }
-  return btoa(binary);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -466,8 +485,14 @@ function SubstitutePicker({
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOpen, onExternalClose }: Props) => {
+const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOpen, onExternalClose, editLeave, onSaved }: Props) => {
   const holidaySet = useMemo(() => new Set(holidays), [holidays]);
+  const isEdit = !!editLeave;
+  // Applied once, after the leave-type effects below have run their resets
+  const prefillRef = useRef<EditableLeave | null>(editLeave ?? null);
+  // "upload" = attach the certificate now; "later" = ជំពាក់សិន, upload it afterwards
+  const [certMode, setCertMode] = useState<"upload" | "later">("upload");
+  const existingCertificate = editLeave?.type === "SICK" ? editLeave.attachments?.[0] ?? null : null;
   const [open,          setOpen]          = useState(false);
   const [openLeaveType, setOpenLeaveType] = useState(false);
   const [openStartDate, setOpenStartDate] = useState(false);
@@ -490,11 +515,17 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
 
   const initTime = getCurrentTime();
 
+  const editableType = editLeave && leaveTypes.some((l) => l.value === editLeave.type) ? editLeave.type : undefined;
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       personalStartTime: initTime,
       personalEndTime:   initTime,
+      ...(editLeave && {
+        leave:           editableType,
+        notes:           editLeave.userNote ?? "",
+        maternityGender: editLeave.type === "MATERNITY" ? (editLeave.days <= 7 ? "MALE" : "FEMALE") : undefined,
+      }),
     },
   });
 
@@ -549,6 +580,7 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
     setDrShortcutM(0);
     setSubstituteUser(null);
     setAttachment(null);
+    setCertMode("upload");
 
     if (selectedLeave && ["ANNUAL", "SICK", "PERSONAL"].includes(selectedLeave)) {
       form.setValue("startDate", new Date(first), { shouldValidate: false });
@@ -590,6 +622,55 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
       form.setValue("endDate", startDateValue, { shouldValidate: false });
     }
   }, [drSlotType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Edit mode: load the stored leave into the form ───────────────────────
+  // Declared after the effects above so it runs after their resets/auto-dates
+  // in the same commit and has the last word.
+  useEffect(() => {
+    const p = prefillRef.current;
+    if (!p || selectedLeave !== p.type) return;
+    prefillRef.current = null;
+
+    const toUser = (name?: string | null): UserItem | null => {
+      if (!name) return null;
+      return users.find((u) => u.name === name) ?? { id: `name:${name}`, name, email: null, image: null };
+    };
+
+    const storedSegs = (Array.isArray(p.segments) ? p.segments : []) as StoredSegmentIn[];
+    const flexible   = ["ANNUAL", "SICK", "PERSONAL"].includes(p.type);
+
+    if (flexible && storedSegs.length > 0) {
+      setIsSegmentMode(true);
+      setSegments(storedSegs.map((s) => {
+        const slot = slotFromStored(s.startTime, s.endTime, s.hours);
+        return {
+          ...newSegment(ymdToLocalDate(s.date)),
+          endDate:        ymdToLocalDate(s.endDate ?? s.date),
+          slotType:       slot.slotType,
+          startTime:      slot.startTime,
+          endTime:        slot.endTime,
+          substituteUser: toUser(s.substitute),
+        };
+      }));
+      form.setValue("startDate", undefined as any, { shouldValidate: false });
+      form.setValue("endDate",   undefined as any, { shouldValidate: false });
+    } else {
+      form.setValue("startDate", storedToLocalDate(p.startDate), { shouldValidate: false });
+      form.setValue("endDate",   storedToLocalDate(p.endDate),   { shouldValidate: false });
+      if (flexible && p.days === 0 && Number(p.hours ?? 0) > 0) {
+        const slot = slotFromStored(undefined, undefined, Number(p.hours));
+        setDrSlotType(slot.slotType);
+        setDrStartTime(slot.startTime);
+        setDrEndTime(slot.endTime);
+      }
+      setSubstituteUser(toUser(p.substitute));
+    }
+
+    // A sick leave that was submitted without its certificate stays "owed"
+    const owed = p.type === "SICK" && (p.attachments?.length ?? 0) === 0 &&
+      requiresSickCertificate("SICK", p.days + Number(p.hours ?? 0) / 8);
+    setCertMode(owed ? "later" : "upload");
+  }, [selectedLeave, maternityGender]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
   const drHours: number = (() => {
@@ -665,6 +746,9 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
     return workingDaysBetween(startDateValue, endDateValue, holidaySet);
   })();
   const needsCertificate = requiresSickCertificate(selectedLeave ?? "", requestedDays);
+  // Satisfied by a new file, the one already attached (edit), or ជំពាក់សិន
+  const certificateMissing =
+    isSick && needsCertificate && !attachment && !existingCertificate && certMode !== "later";
 
   async function handleAttachmentChange(e: React.ChangeEvent<HTMLInputElement>) {
     const picked = e.target.files?.[0];
@@ -685,15 +769,24 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
   // Identity comes from the session on the server; the body only carries the request.
   // The certificate goes as base64 inside the JSON — raw multipart binary
   // arrived corrupted in production (see app/api/leave/route.ts).
+  // In edit mode the same payload goes to the owner's edit route instead.
   async function postLeave(payload: Record<string, unknown>): Promise<Response> {
-    const file = attachment && isSick
+    const file = attachment && isSick && certMode === "upload"
       ? { fileName: attachment.name, mimeType: attachment.type, base64: await fileToBase64(attachment) }
       : null;
-    return fetch("/api/leave", {
-      method:  "POST",
+    const certificateLater = isSick && needsCertificate && !file && certMode === "later";
+    return fetch(editLeave ? `/api/leave/${editLeave.id}/user-edit` : "/api/leave", {
+      method:  editLeave ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ ...payload, ...(file && { attachment: file }) }),
+      body:    JSON.stringify({ ...payload, ...(file && { attachment: file }), ...(certificateLater && { certificateLater }) }),
     });
+  }
+
+  function finishSaved(message: string) {
+    toast.success(message, { duration: 4000 });
+    setOpen(false);
+    onExternalClose?.();
+    onSaved?.();
   }
 
   async function showError(res: Response) {
@@ -710,7 +803,7 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
       toast.error(RULE_MESSAGES.nonWorkingDay, { duration: 7000 });
       return;
     }
-    if (isSick && needsCertificate && !attachment) {
+    if (certificateMissing) {
       toast.error(RULE_MESSAGES.sickCertificate, { duration: 7000 });
       return;
     }
@@ -763,7 +856,9 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
 
         const res = await postLeave(payload);
 
-        if (res.ok) {
+        if (res.ok && isEdit) {
+          finishSaved("បានកែប្រែសំណើច្បាប់ (Leave updated)");
+        } else if (res.ok) {
           toast.success(
             `បានស្នើសុំ ${segments.length} segment${segments.length > 1 ? "s" : ""} ដោយជោគជ័យ!`,
             { duration: 4000 }
@@ -852,7 +947,9 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
 
       const res = await postLeave(payload);
 
-      if (res.ok) {
+      if (res.ok && isEdit) {
+        finishSaved("បានកែប្រែសំណើច្បាប់ (Leave updated)");
+      } else if (res.ok) {
         toast.success("Leave Submitted", { duration: 4000 });
         setOpen(false);
         onExternalClose?.();
@@ -1129,10 +1226,13 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
     <DialogWrapper
       btnTitle="ចុចដើម្បីស្នើសុំច្បាប់"
       btnStyle={khmerFont}
-      title="Submit your Leave Application"
-      descr="ត្រូវប្រាកដថាអ្នកជ្រើសរើសកាលបរិច្ឆេទត្រឹមត្រូវសម្រាប់ការសុំច្បាប់"
+      title={isEdit ? "កែសម្រួលសំណើច្បាប់ (Edit Leave)" : "Submit your Leave Application"}
+      descr={isEdit
+        ? "កែបានគ្រប់ចំណុចដូចពេលស្នើសុំ — ច្បាប់នឹងត្រូវពិនិត្យតាមលក្ខខណ្ឌដដែល"
+        : "ត្រូវប្រាកដថាអ្នកជ្រើសរើសកាលបរិច្ឆេទត្រឹមត្រូវសម្រាប់ការសុំច្បាប់"}
       descrStyle={khmerFont}
       isBtn={true}
+      hideTrigger={isEdit}
       open={open}
       setOpen={() => {
         const next = !open;
@@ -1691,9 +1791,11 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
           {isSick && (
             <div className={cn(
               "rounded-xl border border-dashed p-4 space-y-2",
-              needsCertificate && !attachment
+              certificateMissing
                 ? "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/40"
-                : "border-gray-300 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/30"
+                : needsCertificate && certMode === "later"
+                  ? "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40"
+                  : "border-gray-300 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/30"
             )}>
               <label style={khmerFont} className="text-sm font-medium text-foreground flex items-center gap-1.5">
                 <Paperclip className="h-4 w-4" />
@@ -1703,9 +1805,42 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
                   : <span className="text-muted-foreground text-xs ml-1">· optional</span>}
               </label>
               <p style={khmerFont} className="text-[12px] text-muted-foreground">
-                ច្បាប់ឈឺលើសពី {SICK_CERTIFICATE_THRESHOLD_DAYS} ថ្ងៃ ត្រូវភ្ជាប់រូបភាព ឬឯកសារ PDF សំបុត្រពេទ្យ ទើបអាច Submit បាន។
+                ច្បាប់ឈឺលើសពី {SICK_CERTIFICATE_THRESHOLD_DAYS} ថ្ងៃ ត្រូវភ្ជាប់រូបភាព ឬឯកសារ PDF សំបុត្រពេទ្យ — ឬជ្រើស «ជំពាក់សិន» ហើយភ្ជាប់ពេលក្រោយ។
               </p>
-              {attachment ? (
+
+              {needsCertificate && (
+                <select
+                  value={certMode}
+                  onChange={(e) => setCertMode(e.target.value as "upload" | "later")}
+                  style={khmerFont}
+                  aria-label="Medical certificate"
+                  className="w-full rounded-lg border bg-background px-3 py-2 text-[13px] focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="upload">📎 Upload សំបុត្រពេទ្យ ឥឡូវនេះ</option>
+                  <option value="later">⏳ ជំពាក់សិន (ភ្ជាប់ពេលក្រោយ)</option>
+                </select>
+              )}
+
+              {needsCertificate && certMode === "later" ? (
+                <p style={khmerFont} className="text-[12px] text-amber-800 dark:text-amber-300">
+                  អ្នកអាចភ្ជាប់សំបុត្រពេទ្យពេលក្រោយ តាមប៊ូតុង «📎 សំបុត្រ» ក្នុងប្រវត្តិច្បាប់ (My Leave History)។
+                </p>
+              ) : existingCertificate && !attachment ? (
+                <div className="flex items-center gap-3 rounded-lg border bg-background px-3 py-2">
+                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <a
+                    href={`/api/leave/${editLeave!.id}/attachment/${existingCertificate.id}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="flex-1 truncate text-[13px] text-blue-600 underline underline-offset-2"
+                  >
+                    {existingCertificate.fileName}
+                  </a>
+                  <label className="cursor-pointer text-[12px] text-blue-600 hover:underline shrink-0" style={khmerFont}>
+                    ប្ដូរ
+                    <input type="file" accept={ALLOWED_ATTACHMENT_TYPES.join(",")} className="sr-only" onChange={handleAttachmentChange} />
+                  </label>
+                </div>
+              ) : attachment ? (
                 <div className="flex items-center gap-3 rounded-lg border bg-background px-3 py-2">
                   <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="flex-1 truncate text-[13px]">{attachment.name}</span>
@@ -1758,7 +1893,7 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
             type="submit"
             className="w-full"
             style={khmerFont}
-            disabled={isSubmitting || (isSick && needsCertificate && !attachment)}
+            disabled={isSubmitting || certificateMissing}
           >
             {isSubmitting ? (
               <span className="flex items-center justify-center gap-2">
@@ -1773,9 +1908,11 @@ const RequestForm = ({ user, users = [], holidays = [], defaultLeave, externalOp
                 </svg>
                 កំពុងដំណើរការ...
               </span>
-            ) : isFlexibleLeave && isSegmentMode && segments.length > 1
-              ? `Submit ${segments.length} Segments`
-              : "Submit"
+            ) : isEdit
+              ? "រក្សាទុក (Save changes)"
+              : isFlexibleLeave && isSegmentMode && segments.length > 1
+                ? `Submit ${segments.length} Segments`
+                : "Submit"
             }
           </Button>
 

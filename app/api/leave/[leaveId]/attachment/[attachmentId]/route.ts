@@ -21,6 +21,16 @@ export async function GET(_req: Request, { params }: Params) {
     include: { leave: { select: { userEmail: true } } },
   });
   if (!attachment) {
+    // An old Telegram button can point at a certificate that has since been
+    // re-uploaded — send it to the leave's current one instead of a 404.
+    const current = await prisma.leaveAttachment.findFirst({
+      where:   { leaveId: params.leaveId },
+      orderBy: { createdAt: "desc" },
+      select:  { id: true },
+    });
+    if (current) {
+      return NextResponse.redirect(`${appBaseUrl()}${attachmentPath(params.leaveId, current.id)}`);
+    }
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

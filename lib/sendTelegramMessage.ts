@@ -14,7 +14,8 @@ function toTelegramButton(btn: InlineButton) {
 
 export async function sendTelegramMessage(
   message: string,
-  buttons?: InlineButton[]
+  buttons?: InlineButton[],
+  replyToMessageId?: number | null,
 ): Promise<number | null> {
   const token   = process.env.TELEGRAM_BOT_TOKEN;
   let   chatId  = process.env.TELEGRAM_GROUP_CHAT_ID;
@@ -30,6 +31,10 @@ export async function sendTelegramMessage(
     text:       message,
     parse_mode: "HTML",
     ...(topicId ? { message_thread_id: Number(topicId) } : {}),
+    // Threads the message under the original leave post; still sent if that post is gone
+    ...(replyToMessageId
+      ? { reply_parameters: { message_id: replyToMessageId, allow_sending_without_reply: true } }
+      : {}),
     ...(buttons?.length
       ? {
           reply_markup: {

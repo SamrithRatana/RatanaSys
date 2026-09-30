@@ -5,8 +5,12 @@ import LeavesTable from "./LeavesTable";
 import TableWrapper from "@/components/Common/TableWrapper";
 import { getAllLeaveDays, getUserLeaveDays } from "@/lib/data/getLeaveDays";
 import { getCurrentUser } from "@/lib/session";
-import { Leave } from "@prisma/client";
+import { getTeamsData } from "@/lib/data/getTeamsData";
+import { getEventsData } from "@/lib/data/getEventData";
+import { holidayYmds } from "@/lib/leaveRules";
+import { Leave, User } from "@prisma/client";
 import { redirect } from "next/navigation";
+import type { OwnLeave } from "@/app/(portal)/portal/history/HistoryTable";
 
 export default async function AdminLeaves() {
   const loggedInUser = await getCurrentUser();
@@ -19,13 +23,22 @@ export default async function AdminLeaves() {
   }
 
   let allLeaves: Leave[] | null = null;
-  let myLeaves: Leave[] = [];
+  let myLeaves: OwnLeave[] = [];
+  // teammates + holidays feed the edit dialog (the full request form)
+  let teammates: Awaited<ReturnType<typeof getTeamsData>>["teammates"] = [];
+  let holidays: string[] = [];
 
   try {
-    [allLeaves, myLeaves] = await Promise.all([
+    const [all, mine, teams, events] = await Promise.all([
       getAllLeaveDays(),
       getUserLeaveDays(),
-    ]) as [Leave[], Leave[]];
+      getTeamsData().catch(() => ({ teams: [], teammates: [] })),
+      getEventsData().catch(() => []),
+    ]);
+    allLeaves = all as Leave[] | null;
+    myLeaves  = (mine ?? []) as OwnLeave[];
+    teammates = teams.teammates;
+    holidays  = holidayYmds(events);
   } catch (error) {
     console.error("Failed to load leaves:", error);
   }
@@ -49,6 +62,9 @@ export default async function AdminLeaves() {
           currentUserName={loggedInUser.name ?? ""}
           currentUserEmail={loggedInUser.email ?? ""}
           myLeaves={myLeaves}
+          user={loggedInUser as unknown as User}
+          teammates={teammates}
+          holidays={holidays}
         />
       </TableWrapper>
     </Container>

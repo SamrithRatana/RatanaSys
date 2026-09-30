@@ -1,44 +1,60 @@
 import { getCurrentUser } from "@/lib/session";
 import prisma from "@/lib/prisma";
-import { LeaveStatus } from "@prisma/client";
+import { Leave, LeaveStatus, Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import {
   sendTelegramMessage,
   deleteTelegramMessage,
   editTelegramMessage,
 } from "@/lib/sendTelegramMessage";
-import { addDaysYmd, isValidYmd, isWorkingDay, MAX_WORKING_DAY_SPAN_DAYS, minStartYmd, todayYmd, toYmd, RULE_MESSAGES } from "@/lib/leaveRules";
+import { todayYmd } from "@/lib/leaveRules";
 import { getHolidaySet } from "@/lib/data/getHolidays";
 import { deleteAttachment } from "@/lib/r2";
+import { replaceLeaveAttachments, storeAttachment } from "@/lib/leaveAttachments";
+import { ensureMaternityCredit } from "@/lib/maternityCredit";
 import {
-  CERTIFICATE_LINE,
+  ComputedLeave,
   LeaveValidationError,
+  SubmittedLeave,
   buildDateBlock,
   actionButtons,
   certificateButtons,
+  certificateLines,
   checkSickCertificate,
   computeLeave,
   dateToYmd,
   escapeHtml,
   getLeaveLabel,
+  jsonAttachment,
   leaveOwnerEmail,
   leaveUrl,
+  readAttachment,
+  requestDateBounds,
   ymdToDate,
 } from "@/lib/leaveServer";
 
-type UserEditBody = {
-  notes:            string;
-  startDate:        string;
-  endDate:          string;
-  hours?:           number;
-  startTime?:       string;
-  endTime?:         string;
-  maternityGender?: "MALE" | "FEMALE";
-};
-
 type Params = { params: { leaveId: string } };
 
+/** Same dates and duration as what's stored (substitutes/notes may differ). */
+function sameTiming(c: ComputedLeave, leave: Leave): boolean {
+  const segKey = (segs: unknown) =>
+    JSON.stringify(
+      (Array.isArray(segs) ? segs : []).map((s: any) => [s.date, s.endDate ?? s.date, Number(s.hours ?? 0), s.days ?? 0, s.startTime ?? "", s.endTime ?? ""]),
+    );
+  return (
+    c.type === leave.type &&
+    c.startYmd === dateToYmd(leave.startDate) &&
+    c.endYmd === dateToYmd(leave.endDate) &&
+    c.days === leave.days &&
+    Math.abs(c.hours - Number(leave.hours ?? 0)) < 1e-6 &&
+    segKey(c.segments) === segKey(leave.segments)
+  );
+}
+
 // ── PATCH — user edits their own PENDING leave ────────────────────────────────
+// The body is the same as a new request (POST /api/leave): type, dates or
+// segments, hours/times, substitute, notes, plus an optional new certificate
+// or "ជំពាក់សិន" — and it's validated by the same computeLeave() rules.
 export async function PATCH(req: NextRequest, { params }: Params) {
   const loggedInUser = await getCurrentUser();
   if (!loggedInUser) {
@@ -48,7 +64,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   try {
     const leave = await prisma.leave.findUnique({
       where:   { id: params.leaveId },
-      include: { attachments: { select: { id: true } } },
+      include: { attachments: { select: { id: true, r2Key: true } } },
     });
     if (!leave) {
       return NextResponse.json({ error: "Leave not found" }, { status: 404 });
@@ -65,90 +81,82 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       );
     }
 
-    const body: UserEditBody = await req.json();
-    const notes    = String(body.notes ?? "").slice(0, 500);
-    const newStart = body.startDate ? toYmd(body.startDate) : dateToYmd(leave.startDate);
-    const newEnd   = body.endDate   ? toYmd(body.endDate)   : newStart;
-    if (!isValidYmd(newStart) || !isValidYmd(newEnd)) {
-      throw new LeaveValidationError("កាលបរិច្ឆេទមិនត្រឹមត្រូវ (Invalid date).");
+    const body: SubmittedLeave = await req.json();
+    if (!body.type && !body.leave) {
+      // An edit dialog from before this change only sent dates + notes
+      throw new LeaveValidationError("ទំព័រនេះចាស់ហើយ — សូម Refresh ហើយកែម្ដងទៀត (This page is out of date — refresh and edit again).");
     }
 
-    const oldStart     = dateToYmd(leave.startDate);
-    const oldEnd       = dateToYmd(leave.endDate);
-    const datesChanged = newStart !== oldStart || newEnd !== oldEnd;
-    const hasSegments  = Array.isArray(leave.segments) && leave.segments.length > 0;
-    const isPartialDay = leave.type === "SHORT" || (leave.days === 0 && Number(leave.hours ?? 0) > 0);
+    const today       = todayYmd();
+    const submittedOn = todayYmd(leave.createdAt);
+    const bounds      = requestDateBounds(body);
+    const from        = [today, submittedOn, bounds?.from].filter(Boolean).sort()[0]!;
+    const to          = [today, submittedOn, bounds?.to].filter(Boolean).sort().reverse()[0]!;
+    const holidays    = await getHolidaySet(from, to);
 
-    let startYmd = oldStart, endYmd = oldEnd;
-    let days = leave.days, hours = Number(leave.hours ?? 0);
-
-    if (hasSegments) {
-      // A multi-segment leave can't be re-expressed as a single date range
-      if (datesChanged) {
-        throw new LeaveValidationError(
-          "ច្បាប់ច្រើន Segment មិនអាចកែកាលបរិច្ឆេទបានទេ — សូមលុប ហើយស្នើសុំម្ដងទៀត (Cancel and resubmit to change segment dates)."
-        );
-      }
-    } else if (isPartialDay) {
-      // Hourly leave: may move to another single day, keeps its hours
-      if (datesChanged) {
-        const today    = todayYmd();
-        const holidays = await getHolidaySet(today < newStart ? today : newStart, newStart);
-        if (!isWorkingDay(newStart, holidays)) {
-          throw new LeaveValidationError(RULE_MESSAGES.nonWorkingDay);
-        }
-        if (newStart < minStartYmd(leave.type, today, holidays)) {
-          throw new LeaveValidationError(leave.type === "ANNUAL" ? RULE_MESSAGES.annualNotice : "មិនអាចជ្រើសរើសថ្ងៃកន្លងផុតបានទេ (Cannot choose a past date).");
-        }
-        startYmd = endYmd = newStart;
-      }
-      if (leave.type === "SHORT" && Number(body.hours) > 0) {
-        hours = Math.min(Number(body.hours), 8);
-      }
-    } else if (datesChanged || leave.type === "MATERNITY") {
-      // Maternity's end date isn't known ahead of time (it depends on how
-      // many weekends/holidays fall inside it), so fetch a wide window
-      // instead of trusting the stale `newEnd` the client happened to send.
-      const isMaternityEdit = leave.type === "MATERNITY";
-      const holidayFrom = todayYmd() < newStart ? todayYmd() : newStart;
-      const holidayTo   = isMaternityEdit ? addDaysYmd(newStart, MAX_WORKING_DAY_SPAN_DAYS) : newEnd;
-
-      const computed = computeLeave({
-        type:            leave.type,
-        startDate:       newStart,
-        endDate:         newEnd,
-        maternityGender: body.maternityGender ?? (isMaternityEdit ? (leave.days <= 7 ? "MALE" : "FEMALE") : undefined),
-      }, todayYmd(), await getHolidaySet(holidayFrom, holidayTo));
-      startYmd = computed.startYmd;
-      endYmd   = computed.endYmd;
-      days     = computed.days;
-      hours    = computed.hours;
+    // Validate against today's rules. If that fails only because time has
+    // passed (e.g. the notice window) while the dates themselves are
+    // unchanged, judge it as of the day it was submitted — so fixing the
+    // reason or the substitute on an older pending leave still works.
+    let computed: ComputedLeave;
+    try {
+      computed = computeLeave(body, today, holidays);
+    } catch (error) {
+      if (!(error instanceof LeaveValidationError)) throw error;
+      let asSubmitted: ComputedLeave | null = null;
+      try { asSubmitted = computeLeave(body, submittedOn, holidays); } catch { /* keep the original error */ }
+      if (!asSubmitted || !sameTiming(asSubmitted, leave)) throw error;
+      computed = asSubmitted;
     }
 
-    const attachmentIds = leave.attachments.map((a) => a.id);
-    checkSickCertificate(leave.type, days, hours, attachmentIds.length > 0);
+    const newFile      = await readAttachment(jsonAttachment(body.attachment));
+    const isSick       = computed.type === "SICK";
+    const keptExisting = isSick && leave.attachments.length > 0;
+    checkSickCertificate(computed.type, computed.days, computed.hours, !!newFile || keptExisting, body.certificateLater === true);
+
+    if (computed.type === "MATERNITY" && computed.maternityGender) {
+      await ensureMaternityCredit(leave.userEmail, leave.userName, computed.startYmd.slice(0, 4), computed.maternityGender, !!loggedInUser.email);
+    }
 
     const updated = await prisma.leave.update({
       where: { id: params.leaveId },
       data: {
-        startDate: ymdToDate(startYmd),
-        endDate:   ymdToDate(endYmd),
-        userNote:  notes,
-        days,
-        hours,
-        year:      startYmd.slice(0, 4),
-        updatedAt: new Date(),
+        type:       computed.type,
+        startDate:  ymdToDate(computed.startYmd),
+        endDate:    ymdToDate(computed.endYmd),
+        userNote:   computed.notes,
+        days:       computed.days,
+        hours:      computed.hours,
+        year:       computed.startYmd.slice(0, 4),
+        substitute: computed.substitute,
+        segments:   computed.segments ? (computed.segments as any) : Prisma.DbNull,
+        updatedAt:  new Date(),
       },
     });
 
+    // Certificate: a new file replaces the old one; switching away from sick
+    // leave drops it (it no longer belongs to this request).
+    let attachmentIds = leave.attachments.map((a) => a.id);
+    if (newFile) {
+      attachmentIds = [await replaceLeaveAttachments(leave.id, await storeAttachment(newFile))];
+    } else if (!isSick && leave.attachments.length > 0) {
+      await prisma.leaveAttachment.deleteMany({ where: { leaveId: leave.id } });
+      for (const a of leave.attachments) if (a.r2Key) void deleteAttachment(a.r2Key);
+      attachmentIds = [];
+    }
+
+    const timeRange = computed.startTime && computed.endTime ? `${computed.startTime}–${computed.endTime}` : undefined;
     const msgText = [
       `✏️ <b>សំណើច្បាប់បានកែប្រែ</b>`,
       ``,
       `👤 <b>ឈ្មោះ៖</b> ${escapeHtml(leave.userName)}`,
-      `📋 <b>ប្រភេទ៖</b> ${getLeaveLabel(leave.type)}`,
-      ...buildDateBlock(updated),
-      `📝 <b>មូលហេតុ៖</b> ${escapeHtml(notes) || "—"}`,
-      ...(attachmentIds.length > 0 ? [CERTIFICATE_LINE] : []),
+      `📋 <b>ប្រភេទ៖</b> ${getLeaveLabel(computed.type, computed.maternityGender)}`,
+      ...(computed.maternityGender
+        ? [`⚧ <b>ភេទ៖</b> ${computed.maternityGender === "MALE" ? "បុរស 👨" : "ស្ត្រី 👩"}`]
+        : []),
+      ...buildDateBlock(updated, timeRange),
+      `📝 <b>មូលហេតុ៖</b> ${escapeHtml(computed.notes) || "—"}`,
+      ...certificateLines(updated, attachmentIds.length),
       ``,
       `✏️ <i>បានកែប្រែដោយអ្នកស្នើ · រង់ចាំអនុម័តពីប្រធានផ្នែក</i>`,
     ].join("\n");

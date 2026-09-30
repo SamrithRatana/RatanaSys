@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import dayjs from "dayjs";
 import { formatDistance } from "date-fns";
+import { requiresSickCertificate } from "@/lib/leaveRules";
 import toast from "react-hot-toast";
 import {
   ArrowLeft, CheckCircle2, XCircle,
@@ -262,6 +263,8 @@ export default function LeaveDetail({ leave, currentUserRole, currentUserName, c
                       </a>
                     ))}
                   </span>
+                ) : requiresSickCertificate(leave.type, leave.days + Number(leave.hours ?? 0) / 8) ? (
+                  <span className="text-amber-600 font-medium">⏳ ជំពាក់សិន — អ្នកស្នើនឹងភ្ជាប់ពេលក្រោយ</span>
                 ) : "—"
               }
             />

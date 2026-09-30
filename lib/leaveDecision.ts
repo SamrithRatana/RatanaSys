@@ -9,7 +9,7 @@ import { Leave, LeaveStatus, Prisma } from "@prisma/client";
 import { moderatorScopeError } from "@/lib/data/departmentScope";
 import { deleteTelegramMessage, sendTelegramMessage } from "@/lib/sendTelegramMessage";
 import {
-  CERTIFICATE_LINE,
+  certificateLines,
   actionButtons,
   buildDateBlock,
   certificateButtons,
@@ -166,7 +166,7 @@ export async function decideLeave(
     `📋 <b>ប្រភេទ៖</b> ${getLeaveLabel(leave.type)}`,
     ...buildDateBlock(leave),
     `📝 <b>មូលហេតុ (អ្នកស្នើ)៖</b> ${escapeHtml(leave.userNote) || "—"}`,
-    ...(attachmentIds.length > 0 ? [CERTIFICATE_LINE] : []),
+    ...certificateLines(leave, attachmentIds.length),
   ];
   const noteLine = `🗒 <b>កំណត់ចំណាំ (អ្នកអនុម័ត)៖</b> ${escapeHtml(notes) || "—"}`;
 

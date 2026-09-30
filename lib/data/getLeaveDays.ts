@@ -42,6 +42,8 @@ export async function getUserLeaveDays() {
     const leaves = await prisma.leave.findMany({
       where:   { OR: orConditions },
       orderBy: [{ createdAt: "desc" }],
+      // the owner's edit / upload-certificate actions need to know what's attached
+      include: { attachments: { select: { id: true, fileName: true } } },
     });
 
     return leaves;
