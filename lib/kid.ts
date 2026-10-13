@@ -58,14 +58,43 @@ type KidTokenResponse = {
   user?:        KidUser;
 };
 
+/** A non-OK answer from KID itself (as opposed to a failure on our side). */
+export class KidHttpError extends Error {
+  constructor(readonly step: "token" | "userinfo", readonly status: number, body: string) {
+    super(`KID ${step} request failed (${status}): ${body.slice(0, 300)}`);
+    this.name = "KidHttpError";
+  }
+}
+
+/** fetch() that retries once when KID answers 5xx or the connection fails. */
+async function kidFetch(step: "token" | "userinfo", url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(url, { ...init, signal: AbortSignal.timeout(15_000) });
+      if (res.ok) return res;
+      const body = await res.text().catch(() => "");
+      if (res.status >= 500 && attempt < 2) {
+        console.warn(`[KID] ${step} answered ${res.status}, retrying once: ${body.slice(0, 200)}`);
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
+      throw new KidHttpError(step, res.status, body);
+    } catch (err) {
+      if (err instanceof KidHttpError || attempt >= 2) throw err;
+      console.warn(`[KID] ${step} request failed, retrying once:`, err);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+}
+
 /** Exchange the authorization code (KID needs the `state` it put on the callback). */
 export async function exchangeKidCode(code: string, state: string | null): Promise<KidTokenResponse> {
   const cfg = kidConfig();
   if (!cfg) throw new Error("KID is not configured (KID_CLIENT_ID / KID_CLIENT_SECRET)");
 
-  const res = await fetch(`${KID_API}/oauth/token`, {
+  const res = await kidFetch("token", `${KID_API}/oauth/token`, {
     method:  "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({
       grant_type:    "authorization_code",
       code,
@@ -74,22 +103,17 @@ export async function exchangeKidCode(code: string, state: string | null): Promi
       redirect_uri:  cfg.redirectUri,
       ...(state ? { state } : {}),
     }),
-    signal: AbortSignal.timeout(15_000),
   });
-  if (!res.ok) {
-    throw new Error(`KID token exchange failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
-  }
   const tokens: KidTokenResponse = await res.json();
 
   // Older responses may not embed the user — fall back to /oauth/userinfo
   if (!tokens.user?.sub) {
-    const info = await fetch(`${KID_API}/oauth/userinfo`, {
-      headers: { Authorization: `Bearer ${tokens.access_token}` },
-      signal:  AbortSignal.timeout(15_000),
+    const info = await kidFetch("userinfo", `${KID_API}/oauth/userinfo`, {
+      headers: { Authorization: `Bearer ${tokens.access_token}`, Accept: "application/json" },
     });
-    if (!info.ok) throw new Error(`KID userinfo failed (${info.status})`);
     tokens.user = await info.json();
   }
+  if (!tokens.user?.sub) throw new Error("KID returned no user (missing sub)");
   return tokens;
 }
 

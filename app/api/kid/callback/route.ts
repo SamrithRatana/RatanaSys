@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { encode } from "next-auth/jwt";
+import { encode, getToken } from "next-auth/jwt";
 import {
-  KID_STATE_COOKIE,
+  KID_STATE_COOKIE, KidHttpError,
   exchangeKidCode, findOrLinkKidUser, idTokenNonce, safeCallbackPath, unpackKidState,
 } from "@/lib/kid";
 import { SESSION_MAX_AGE, authOptions } from "@/lib/auth";
@@ -13,6 +13,19 @@ function toLogin(params: Record<string, string>) {
   const url = new URL(`${appBaseUrl()}/login`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   return url.toString();
+}
+
+/** Which kidError the login page should show for a failure in the callback. */
+function kidErrorCode(error: unknown): string {
+  if (error instanceof KidHttpError) {
+    // 5xx = KID's own "Internal server error"; 4xx = KID refused the code
+    // (expired, already used, wrong redirect_uri / credentials)
+    return error.status >= 500 ? "kid_server_error" : "kid_rejected";
+  }
+  if (error instanceof Error && /prisma|database/i.test(`${error.name} ${error.message}`)) {
+    return "account_error";
+  }
+  return "login_failed";
 }
 
 // GET /api/kid/callback?code=…&state=… — KID sends the user back here
@@ -72,6 +85,20 @@ export async function GET(req: NextRequest) {
     return res;
   } catch (error) {
     console.error("[KID callback]", error);
-    return NextResponse.redirect(toLogin({ kidError: "login_failed", callbackUrl: callbackPath }));
+
+    // The callback can be hit twice for one login (back button, a browser
+    // re-requesting the redirect): the code is then already used and KID
+    // fails the exchange. If this browser already has a valid session from
+    // the first hit, just let the user in instead of showing an error.
+    const existing = await getToken({
+      req,
+      secret: (authOptions.jwt?.secret ?? authOptions.secret) as string,
+      secureCookie: appBaseUrl().startsWith("https://"),
+    }).catch(() => null);
+    if (existing?.sub) {
+      return NextResponse.redirect(`${appBaseUrl()}${callbackPath}`);
+    }
+
+    return NextResponse.redirect(toLogin({ kidError: kidErrorCode(error), callbackUrl: callbackPath }));
   }
 }

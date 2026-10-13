@@ -32,10 +32,14 @@ export function AuthForm() {
   }
 
   const KID_ERRORS: Record<string, string> = {
-    not_configured: "KID login is not configured yet (KID_CLIENT_ID / KID_CLIENT_SECRET).",
-    nonce_mismatch: "The KID login expired or was started in another browser. Please try again.",
-    login_failed:   "KID login failed. Please try again.",
-    access_denied:  "KID login was cancelled.",
+    not_configured:   "KID login is not configured yet (KID_CLIENT_ID / KID_CLIENT_SECRET).",
+    nonce_mismatch:   "The KID login expired or was started in another browser. Please try again.",
+    login_failed:     "KID login failed. Please try again.",
+    kid_server_error: "The KID server had an internal error. Please try again in a moment.",
+    kid_rejected:     "KID did not accept this login (it may have expired). Please try again.",
+    account_error:    "Signed in with KID, but your account could not be loaded. Please try again or contact HR.",
+    missing_code:     "KID did not return a login code. Please try again.",
+    access_denied:    "KID login was cancelled.",
   };
   const kidMessage = kidError ? (KID_ERRORS[kidError] ?? KID_ERRORS.login_failed) : null;
 
