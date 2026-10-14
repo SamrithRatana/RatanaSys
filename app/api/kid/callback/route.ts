@@ -28,6 +28,16 @@ function kidErrorCode(error: unknown): string {
   return "login_failed";
 }
 
+/** Does this browser already carry a valid next-auth session? */
+async function hasSession(req: NextRequest): Promise<boolean> {
+  const token = await getToken({
+    req,
+    secret: (authOptions.jwt?.secret ?? authOptions.secret) as string,
+    secureCookie: appBaseUrl().startsWith("https://"),
+  }).catch(() => null);
+  return !!token?.sub;
+}
+
 // GET /api/kid/callback?code=…&state=… — KID sends the user back here
 export async function GET(req: NextRequest) {
   const code  = req.nextUrl.searchParams.get("code");
@@ -40,13 +50,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(toLogin({ kidError: kidErr ?? "missing_code", callbackUrl: callbackPath }));
   }
 
-  try {
-    const tokens = await exchangeKidCode(code, state);
+  // Bind the login to the browser that started it (login-CSRF protection):
+  // the state KID hands back must be the one we put in this browser's cookie.
+  if (!kidState.state || !kidState.codeVerifier || state !== kidState.state) {
+    if (await hasSession(req)) return NextResponse.redirect(`${appBaseUrl()}${callbackPath}`);
+    return NextResponse.redirect(toLogin({ kidError: "nonce_mismatch", callbackUrl: callbackPath }));
+  }
 
-    // Bind the login to the browser that started it (login-CSRF protection)
-    const expected = kidState.nonce;
+  try {
+    const tokens = await exchangeKidCode(code, kidState.codeVerifier);
+
     const returned = idTokenNonce(tokens.id_token);
-    if (returned && returned !== expected) {
+    if (returned && returned !== kidState.nonce) {
       return NextResponse.redirect(toLogin({ kidError: "nonce_mismatch", callbackUrl: callbackPath }));
     }
 
@@ -90,12 +105,7 @@ export async function GET(req: NextRequest) {
     // re-requesting the redirect): the code is then already used and KID
     // fails the exchange. If this browser already has a valid session from
     // the first hit, just let the user in instead of showing an error.
-    const existing = await getToken({
-      req,
-      secret: (authOptions.jwt?.secret ?? authOptions.secret) as string,
-      secureCookie: appBaseUrl().startsWith("https://"),
-    }).catch(() => null);
-    if (existing?.sub) {
+    if (await hasSession(req)) {
       return NextResponse.redirect(`${appBaseUrl()}${callbackPath}`);
     }
 

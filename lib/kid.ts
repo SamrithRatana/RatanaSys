@@ -1,12 +1,20 @@
 // KID Identity Provider (https://dash.kid.koompi.org) — server-side helpers.
 //
-// KID replaces the `state` we send with its own (it uses it to look up its
-// server-side PKCE record), so next-auth's built-in OAuth provider can't be
-// used: its state check would reject every login. Instead:
-//   /api/kid/login     → redirect to KID (with a nonce stored in a cookie)
-//   /api/kid/callback  → exchange the code, find/link the local user, then
-//                        set the normal next-auth session cookie directly.
+// Standard authorization code + PKCE (S256) flow, as KID documents it
+// (https://www.npmjs.com/package/@kid-oauth/sdk → llms.txt, "OAuth and OpenID
+// Connect"). Done by hand instead of through next-auth's OAuth provider so the
+// login and callback each set exactly one cookie (see KID_STATE_COOKIE):
+//   /api/kid/login     → redirect to KID with our own state + code_challenge
+//                        (state, verifier, nonce kept in one cookie)
+//   /api/kid/callback  → check state, exchange the code with the verifier,
+//                        find/link the local user, then set the normal
+//                        next-auth session cookie directly.
+//
+// KID used to replace our `state` with its own when no code_challenge was
+// sent (an older server-side PKCE mode); that mode is now only a fallback and
+// failed token exchanges with a 500, so always send our own PKCE.
 
+import crypto from "crypto";
 import prisma from "@/lib/prisma";
 import { appBaseUrl } from "@/lib/leaveServer";
 
@@ -20,18 +28,41 @@ export const KID_SCOPES = "openid profile.basic profile.contact profile.telegram
 // cookies silently loses the first one.
 export const KID_STATE_COOKIE = "kid_state";
 
-/** nonce + where to go after login, packed into the single kid_state cookie. */
-export function packKidState(nonce: string, callbackPath: string): string {
-  return `${nonce}~${encodeURIComponent(callbackPath)}`;
+const PKCE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+
+/** Random string of PKCE-safe characters (also fine for state / nonce). */
+export function randomKidString(length: number): string {
+  const bytes = crypto.randomBytes(length);
+  let out = "";
+  for (let i = 0; i < length; i++) out += PKCE_CHARS[bytes[i] % PKCE_CHARS.length];
+  return out;
 }
 
-export function unpackKidState(raw: string | undefined): { nonce: string | null; callbackPath: string | null } {
-  if (!raw) return { nonce: null, callbackPath: null };
-  const i = raw.indexOf("~");
-  if (i < 0) return { nonce: raw, callbackPath: null };
-  let cb: string | null = null;
-  try { cb = decodeURIComponent(raw.slice(i + 1)); } catch { cb = null; }
-  return { nonce: raw.slice(0, i), callbackPath: cb };
+/** S256 code_challenge for a verifier: BASE64URL(SHA256(verifier)). */
+export function pkceChallenge(verifier: string): string {
+  return crypto.createHash("sha256").update(verifier).digest("base64url");
+}
+
+export type KidState = {
+  state:        string;
+  codeVerifier: string;
+  nonce:        string;
+  callbackPath: string;
+};
+
+/** Everything the callback needs, packed into the single kid_state cookie. */
+export function packKidState(s: KidState): string {
+  return Buffer.from(JSON.stringify(s), "utf8").toString("base64url");
+}
+
+export function unpackKidState(raw: string | undefined): Partial<KidState> {
+  if (!raw) return {};
+  try {
+    const v = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
+    return v && typeof v === "object" ? v : {};
+  } catch {
+    return {}; // cookie from the old (pre-PKCE) login, or tampered
+  }
 }
 
 export function kidConfig() {
@@ -50,6 +81,8 @@ export type KidUser = {
   email?:          string;
   email_verified?: boolean;
   telegram_id?:    number | string | null;
+  // Accounts KID merged into this one (their old `sub`s)
+  merged_from?:    { sub: string; kid?: string | null }[];
 };
 
 type KidTokenResponse = {
@@ -87,8 +120,8 @@ async function kidFetch(step: "token" | "userinfo", url: string, init: RequestIn
   }
 }
 
-/** Exchange the authorization code (KID needs the `state` it put on the callback). */
-export async function exchangeKidCode(code: string, state: string | null): Promise<KidTokenResponse> {
+/** Exchange the authorization code with its PKCE verifier (state is NOT sent). */
+export async function exchangeKidCode(code: string, codeVerifier: string): Promise<KidTokenResponse> {
   const cfg = kidConfig();
   if (!cfg) throw new Error("KID is not configured (KID_CLIENT_ID / KID_CLIENT_SECRET)");
 
@@ -101,7 +134,7 @@ export async function exchangeKidCode(code: string, state: string | null): Promi
       client_id:     cfg.clientId,
       client_secret: cfg.clientSecret,
       redirect_uri:  cfg.redirectUri,
-      ...(state ? { state } : {}),
+      code_verifier: codeVerifier,
     }),
   });
   const tokens: KidTokenResponse = await res.json();
@@ -140,10 +173,27 @@ export async function findOrLinkKidUser(k: KidUser) {
   const telegramId = k.telegram_id ? String(k.telegram_id) : null;
   const email      = k.email && k.email_verified ? k.email.trim() : null;
 
-  const account = await prisma.account.findUnique({
+  let account = await prisma.account.findUnique({
     where:   { provider_providerAccountId: { provider: "kid", providerAccountId: k.sub } },
     include: { user: true },
   });
+
+  // KID merged an account this user signed in with before: move the link
+  // from the closed account's sub to the surviving one.
+  const mergedSubs = (k.merged_from ?? []).map((m) => m?.sub).filter((s): s is string => !!s);
+  if (!account && mergedSubs.length > 0) {
+    const old = await prisma.account.findFirst({
+      where:   { provider: "kid", providerAccountId: { in: mergedSubs } },
+      include: { user: true },
+    });
+    if (old) {
+      account = await prisma.account.update({
+        where:   { id: old.id },
+        data:    { providerAccountId: k.sub },
+        include: { user: true },
+      });
+    }
+  }
 
   let user = account?.user ?? null;
   if (!user && email) {
